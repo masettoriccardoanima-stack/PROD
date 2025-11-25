@@ -1982,11 +1982,11 @@ global.apiMe = global.apiMe || (async () => {
 })(window);
 
 
-// --- Riconoscimento hosting statico (Netlify/Vercel/GitHub Pages) ---
 function isStaticHost(){
-  const h = location.hostname;
-  const isLAN = /(^localhost$)|(^127\.0\.0\.1$)|(^192\.168\.)/.test(h);
-  return (location.protocol === 'file:' || isLAN);
+  // In questa versione (GitHub Pages / hosting statico)
+  // consideriamo SEMPRE l'host come "statico" e usiamo solo localStorage,
+  // senza mai chiamare /api/kv sul backend.
+  return true;
 }
 
 // alias browser-safe per codice legacy che usa "global"
