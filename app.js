@@ -249,8 +249,8 @@ window.triggerEtichetteFor = window.triggerEtichetteFor || function(commessa, op
     const defaults = {
       cloudEnabled : true,
       supabaseTable: 'anima_sync',
-      supabaseUrl  : 'https://fjlextoigwwhikovkhge.supabase.co',
-      supabaseKey  : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqbGV4dG9pZ3d3aGlrb3ZraGdlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk0NzQyMjgsImV4cCI6MjA3NTA1MDIyOH0.TEpdcsxYew4wxDWsXJQTfn6dxMiYCX8VcoL2Oei230M',
+      supabaseUrl  : 'https://zvqkmdxdhnmdbpyallgy.supabase.co',
+      supabaseKey  : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2cWttZHhkaG5tZGJweWFsbGd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQwMjIxMjUsImV4cCI6MjA3OTU5ODEyNX0.odbF1Dne6GNg7GKXsKnYW2LwzDSiQp1yfVQPpSpuJGo',
       // mappa ruoli (vedi punto ruoli sotto)
       users: [
         { email: 'masettoriccardoanima@gmail.com', role: 'admin' },
@@ -15047,12 +15047,19 @@ function RegistrazioniOreView({ query = '' }) {
     if(!sbOk) return;
     try{
       setCloudLoading(true);
-      const sb = getSB();
+            const sb = getSB();
       const url = `${sb.url}/rest/v1/timesheets?select=*&order=created_at.desc`;
       const res = await fetch(url, { headers:{ apikey: sb.key, Authorization:`Bearer ${sb.key}` } });
       if(!res.ok){
-        const t = await res.text();
-        throw new Error(`HTTP ${res.status} – ${t || res.statusText}`);
+        const txt = await res.text();
+        // Se la tabella timesheets non esiste (404 / PGRST205),
+        // consideriamo la funzione "cloud timbrature" disattivata e non disturbiamo l'utente.
+        if (res.status === 404 || (txt && txt.includes("timesheets"))) {
+          console.warn('[loadCloud] tabella timesheets non trovata su Supabase; cloud timbrature disabilitato.');
+          setCloudRows([]);
+          return;
+        }
+        throw new Error(`HTTP ${res.status} – ${txt || res.statusText}`);
       }
       const data = await res.json();
       setCloudRows(Array.isArray(data)?data:[]);
@@ -15095,10 +15102,17 @@ function _saveImportedCloudIds(set){
     const WM_KEY = 'ORE_CLOUD_WM';
     const wmIso = _getWMISO(WM_KEY);
     const url = `${sb.url}/rest/v1/timesheets?select=*&order=created_at.asc&created_at=gt.${encodeURIComponent(wmIso)}&limit=1000`;
-    const res = await fetch(url, { headers:{ apikey: sb.key, Authorization:`Bearer ${sb.key}` } });
-    if(!res.ok){ throw new Error(await res.text()); }
+        const res = await fetch(url, { headers:{ apikey: sb.key, Authorization:`Bearer ${sb.key}` } });
+    if(!res.ok){
+      const txt = await res.text();
+      if (res.status === 404 || (txt && txt.includes("timesheets"))) {
+        console.warn('[importNewFromCloud] tabella timesheets non trovata su Supabase; cloud timbrature disabilitato.');
+        if(!silent) alert('Funzione cloud timbrature non configurata (tabella "timesheets" assente su Supabase).');
+        return 0;
+      }
+      throw new Error(txt || `HTTP ${res.status}`);
+    }
     const data = await res.json();
-
 
           if(!Array.isArray(data) || data.length===0){
       if(!silent) alert('Nessuna novità dal cloud.');
