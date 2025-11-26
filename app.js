@@ -2108,11 +2108,47 @@ window.hasRole = window.hasRole || function (role) {
     return v;
   }
 
-  // OVERRIDE volutamente "forte" (non usare ||), così vale davvero in beta
+   // OVERRIDE volutamente "forte" (non usare ||), così vale davvero in beta
   window.lsGet = function(k, def){
     try{
       const v = rawGet(k);
-      return v != null ? JSON.parse(v) : def;
+      const isMagKey = (k === 'magArticoli' || k === 'magazzinoArticoli');
+
+      // Se NON è una chiave magazzino:
+      // comportamento standard: se c'è qualcosa, parse; altrimenti def
+      if (!isMagKey) {
+        return v != null ? JSON.parse(v) : def;
+      }
+
+      // --- CASO SPECIALE: chiavi magazzino articoli ---
+      // Trattiamo 'null' e '[]' come "vuoto" e facciamo fallback su magArticoli_v2
+      const isEmpty =
+        (v == null) ||
+        v === 'null' ||
+        v === '[]' ||
+        v === '';
+
+      if (!isEmpty) {
+        // c'è un valore reale → usiamo quello
+        return JSON.parse(v);
+      }
+
+      // Fallback: prova a leggere magArticoli_v2
+      try {
+        const rawV2 = localStorage.getItem('magArticoli_v2');
+        if (rawV2 && rawV2 !== 'null' && rawV2 !== '[]') {
+          const parsedV2 = JSON.parse(rawV2);
+          if (Array.isArray(parsedV2)) {
+            console.log('[lsGet] fallback magArticoli_v2 per', k, 'len=', parsedV2.length);
+            return parsedV2;
+          }
+        }
+      } catch (e) {
+        console.warn('[lsGet] fallback magArticoli_v2 error', e);
+      }
+
+      // Se anche il fallback è vuoto → def
+      return def;
     }catch{
       return def;
     }
