@@ -16906,14 +16906,29 @@ function MagazzinoView(props){
   const initialTab = (props && props.initialTab) ? props.initialTab : 'articoli';
   const e = React.createElement;
 
-    // Alias ai globali (già definiti nel bootstrap)
-  const lsGet = window.lsGet;
-  const lsSet = window.lsSet || ((k,v)=> {
+  // Helper LOCALi per Magazzino:
+  // usano SEMPRE localStorage diretto (in BETA viene comunque intercettato
+  // dalla patch che mette il prefisso BETA:...).
+  const lsGet = (k, d)=>{
     try {
-      if (window.safeSetJSON) return window.safeSetJSON(k,v);
-      localStorage.setItem(k, JSON.stringify(v));
+      const raw = localStorage.getItem(k);
+      if (raw == null || raw === '') return d;
+      return JSON.parse(raw);
+    } catch {
+      return d;
+    }
+  };
+  const lsSet = (k, v)=>{
+    try {
+      // se esiste safeSetJSON, la usiamo per restare allineati al resto dell'app
+      if (window.safeSetJSON) {
+        window.safeSetJSON(k, v);
+      } else {
+        localStorage.setItem(k, JSON.stringify(v));
+      }
+      window.__anima_dirty = true;
     } catch {}
-  });
+  };
 
   // Salva SEMPRE su entrambe le chiavi compatibili
   function persistArticoli(rows){
