@@ -7374,6 +7374,16 @@ function onChangeRiga(idx, field, value){
     const upd = { ...c, fasi:(Array.isArray(c.fasi)?c.fasi:[]).map(f=>({...f, qtaProdotta:tot})), qtaProdotta:tot, updatedAt:new Date().toISOString(), __completedAt:new Date().toISOString() };
     setRows(prev => { const ix=prev.findIndex(x=>x.id===c.id); const next=[...prev]; if(ix>=0) next[ix]=upd; return next; });
     try{ lsSet('commesseRows', (function(p){ const ix=p.findIndex(x=>x.id===upd.id); if(ix>=0)p[ix]=upd; return p; })(lsGet('commesseRows', []))); }catch{}
+        // sync opzionale verso Supabase (segna COMPLETA)
+    try{
+      if (window.sbUpsertCommesse){
+        window.sbUpsertCommesse([upd]).catch(err=>{
+          console.warn('[Commesse] sbUpsertCommesse segnaCompleta', err);
+        });
+      }
+    }catch(e){
+      console.warn('[Commesse] cloud sync error (segnaCompleta)', e);
+    }
     try{ window._maybeAutoScaricoAndLabels && window._maybeAutoScaricoAndLabels(c.id); }catch{}
     alert('Commessa segnata come COMPLETA ✅');
   }
@@ -7520,6 +7530,16 @@ function duplicaCommessa(src){
 
     all.push(copy);
     writeCommesse(all);
+          // sync opzionale verso Supabase (duplica commessa)
+      try{
+        if (window.sbUpsertCommesse){
+          window.sbUpsertCommesse([copy]).catch(err=>{
+            console.warn('[Commesse] sbUpsertCommesse duplica', err);
+          });
+        }
+      }catch(e){
+        console.warn('[Commesse] cloud sync error (duplica)', e);
+      }
     alert(`Commessa duplicata come ${nid} ✅`);
   }catch(e){
     console.error(e);
