@@ -1066,6 +1066,230 @@ window.isReadOnlyUser = function(){
       return { ok:false, reason:'exception', error:String(err) };
     }
   };
+
+    // === COMMESSE: upsert su Supabase =======================================
+  g.sbUpsertCommesse = g.sbUpsertCommesse || async function(rows){
+    const sb = g.getSB(); if (!sb) throw new Error('Supabase non configurato');
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) return [];
+
+    const user = (window.__USER && (window.__USER.email || window.__USER.username || window.__USER.user)) || null;
+
+    const payload = list.map(c => {
+      try{
+        const id = String(c.id || '').trim();
+        if (!id) return null;
+
+        const clienteId   = c.clienteId != null ? String(c.clienteId) : null;
+        const clienteNome = c.cliente || c.cliente_nome || '';
+        const descrizione = c.descrizione || '';
+        const stato       = c.stato || '';
+        const priorita    = c.priorita || '';
+
+        const createdAt   = c.createdAt || null;
+        const dataCreat   = createdAt ? String(createdAt).slice(0,10) : null;
+
+        const scadRaw     = c.scadenza || c.dataScadenza || c.dataConsegna || null;
+        const dataScad    = scadRaw ? String(scadRaw).slice(0,10) : null;
+
+        const qtaPezzi    = Number(c.qtaPezzi || 0) || 0;
+        const qtaProd     = Number(c.qtaProdotta || 0) || 0;
+        const orePrev     = Number(c.oreTotaliPrev || 0) || 0;
+        const luogo       = c.luogoConsegna || '';
+
+        const rifRaw =
+          c.rifCliente ||
+          c.ordineCliente ||
+          c.nrOrdineCliente ||
+          c.ddtCliente ||
+          c.po ||
+          c.nrCliente ||
+          null;
+
+        let rifTipo   = null;
+        let rifNumero = null;
+        let rifData   = null;
+
+        if (rifRaw && typeof rifRaw === 'object'){
+          rifTipo   = rifRaw.tipo   || null;
+          rifNumero = rifRaw.numero || null;
+          rifData   = rifRaw.data   ? String(rifRaw.data).slice(0,10) : null;
+        } else if (typeof rifRaw === 'string'){
+          rifNumero = rifRaw;
+        }
+
+        // payload = commessa completa come la usi nel gestionale
+        const fullPayload = { ...c };
+        if (!fullPayload.id) fullPayload.id = id;
+
+        return {
+          id,
+          cliente_id        : clienteId,
+          cliente_nome      : clienteNome,
+          descrizione,
+          stato,
+          priorita,
+          data_creazione    : dataCreat,
+          data_scadenza     : dataScad,
+          qta_pezzi         : qtaPezzi || null,
+          qta_prod          : qtaProd || null,
+          ore_totali_prev   : orePrev || null,
+          luogo_consegna    : luogo,
+          rif_cliente_tipo   : rifTipo,
+          rif_cliente_numero : rifNumero,
+          rif_cliente_data   : rifData,
+          updated_by        : user,
+          payload           : fullPayload
+        };
+      }catch(e){
+        console.warn('[sbUpsertCommesse] errore su commessa', c && c.id, e);
+        return null;
+      }
+    }).filter(x => x && x.id);
+
+    if (!payload.length) return [];
+
+    const url = `${sb.url}/rest/v1/commesse?on_conflict=id`;
+
+    const res = await fetch(url, {
+      method:'POST',
+      headers:{
+        apikey: sb.key,
+        Authorization: `Bearer ${sb.key}`,
+        'Content-Type':'application/json',
+        Prefer: 'return=representation,resolution=merge-duplicates'
+      },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  };
+
+  // === COMMESSE: sync cloud <-> locale ====================================
+  g.syncCommesseFromCloud = g.syncCommesseFromCloud || async function(){
+    try{
+      const sb = g.getSB();
+      if (!sb) {
+        console.log('[syncCommesseFromCloud] Supabase non configurato');
+        return { ok:false, reason:'no-sb' };
+      }
+
+      // rispetta cloudEnabled
+      let settings = {};
+      try{ settings = g.lsGet('appSettings', {}) || {}; }catch{}
+      if (!settings.cloudEnabled) {
+        console.log('[syncCommesseFromCloud] cloudDisabled in appSettings');
+        return { ok:false, reason:'cloud-disabled' };
+      }
+
+      // stato locale corrente
+      let local = [];
+      try{
+        const rawLocal = (g.lsGet && g.lsGet('commesseRows', [])) || [];
+        if (Array.isArray(rawLocal)) local = rawLocal;
+      }catch{}
+      if (!Array.isArray(local)) local = [];
+
+      // leggi dal cloud con paginazione
+      let cloud = [];
+      try{
+        const selectCols = [
+          'id',
+          'cliente_id',
+          'cliente_nome',
+          'descrizione',
+          'stato',
+          'priorita',
+          'data_creazione',
+          'data_scadenza',
+          'qta_pezzi',
+          'qta_prod',
+          'ore_totali_prev',
+          'luogo_consegna',
+          'rif_cliente_tipo',
+          'rif_cliente_numero',
+          'rif_cliente_data',
+          'updated_at',
+          'updated_by',
+          'payload'
+        ].join(',');
+
+        const pageSize = 500;
+        let page = 0;
+
+        while (true){
+          const url = `${sb.url}/rest/v1/commesse` +
+            `?select=${encodeURIComponent(selectCols)}` +
+            `&limit=${pageSize}&offset=${page * pageSize}`;
+
+          const res = await fetch(url, {
+            headers:{
+              apikey: sb.key,
+              Authorization: `Bearer ${sb.key}`
+            }
+          });
+          if (!res.ok) throw new Error(await res.text());
+          const batch = await res.json();
+          if (!Array.isArray(batch) || batch.length === 0) break;
+
+          cloud.push(...batch);
+          if (batch.length < pageSize) break;
+          page++;
+          if (page > 40){
+            console.warn('[syncCommesseFromCloud] limite pagine raggiunto, stop');
+            break;
+          }
+        }
+
+        console.log('[syncCommesseFromCloud] letti dal cloud', cloud.length);
+      }catch(err){
+        console.warn('[syncCommesseFromCloud] select error', err);
+        return { ok:false, reason:'select-fail', error:String(err) };
+      }
+      if (!Array.isArray(cloud)) cloud = [];
+
+      // 1) seed: cloud vuoto ma locale pieno -> mando le commesse locali su cloud
+      if (!cloud.length && local.length){
+        try{
+          await g.sbUpsertCommesse(local);
+          console.log('[syncCommesseFromCloud] seeded cloud from local', local.length);
+          return { ok:true, from:'local->cloud', seeded:true, count: local.length };
+        }catch(err){
+          console.warn('[syncCommesseFromCloud] seed error', err);
+          return { ok:false, reason:'seed-fail', error:String(err) };
+        }
+      }
+
+      // 2) se cloud ha dati -> uso cloud come sorgente per ls 'commesseRows'
+      if (cloud.length){
+        const mapped = cloud.map(row => {
+          const p = (row && typeof row.payload === 'object') ? row.payload : {};
+          // garantisco l'id coerente
+          if (!p.id && row.id) p.id = row.id;
+          return p;
+        });
+
+        // ordinare per id decrescente (come fai tu quando metti le nuove in testa)
+        mapped.sort((a,b)=> String(b.id||'').localeCompare(String(a.id||'')));
+
+        try{
+          if (g.lsSet) g.lsSet('commesseRows', mapped);
+          else localStorage.setItem('commesseRows', JSON.stringify(mapped));
+        }catch(e){
+          console.warn('[syncCommesseFromCloud] errore scrittura LS', e);
+        }
+
+        console.log('[syncCommesseFromCloud] updated local from cloud', mapped.length);
+        return { ok:true, from:'cloud->local', count:mapped.length };
+      }
+
+      console.log('[syncCommesseFromCloud] nothing to sync (empty both)');
+      return { ok:true, from:'none', count:0 };
+    }catch(err){
+      console.warn('[syncCommesseFromCloud] unexpected error', err);
+      return { ok:false, reason:'exception', error:String(err) };
+    }
+  };
 })();
 
 /* ===== Timesheets sync utils (una sola volta) ============================ */
