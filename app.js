@@ -4192,14 +4192,96 @@ window.stampaCommessaV2 = function (r) {
       </style>
     `;
 
-    const fasiRows = (fasi.length? fasi: []).map((f,i)=>`
-      <tr>
-        <td class="right">${i+1}</td>
-        <td>${f.lav||''}</td>
-        <td class="right">${f.hhmm||''}</td>
-        <td class="right">${PEZZI||0}</td>
-      </tr>
-    `).join('');
+    const righeArt = Array.isArray(r?.righeArticolo) ? r.righeArticolo : [];
+
+    // c'è almeno una riga con fasi "vere"? (per-riga, con minuti >0 o almeno un nome fase)
+    const hasRowPhases = righeArt.some(row =>
+      Array.isArray(row?.fasi) &&
+      row.fasi.some(f => {
+        try{
+          if (typeof window !== 'undefined' && typeof window.plannedMinsFromFase === 'function'){
+            if (window.plannedMinsFromFase(f) > 0) return true;
+          }
+        }catch{}
+        const name = String(f?.lav || f?.nome || f?.descr || f?.descrizione || '').trim();
+        return !!name;
+      })
+    );
+
+    const fasiHeaderHTML = (hasRowPhases && righeArt.length) ? `
+          <thead>
+            <tr>
+              <th>Codice</th>
+              <th>Descrizione</th>
+              <th class="right">Q.tà</th>
+              <th>Fase</th>
+              <th class="right">HH:MM / pz</th>
+              <th class="right">HH:MM tot</th>
+            </tr>
+          </thead>` : `
+          <thead>
+            <tr>
+              <th class="right">#</th>
+              <th>Lavorazione</th>
+              <th class="right">HH:MM per fase</th>
+              <th class="right">Q.tà</th>
+            </tr>
+          </thead>`;
+
+    const fasiEmptyRow = (hasRowPhases && righeArt.length)
+      ? `<tr><td colspan="6" class="muted">Nessuna fase impostata</td></tr>`
+      : `<tr><td colspan="4" class="muted">Nessuna fase impostata</td></tr>`;
+
+    const fasiRows = (function(){
+      // Caso nuovo: fasi per riga articolo
+      if (hasRowPhases && righeArt.length){
+        const rowsHTML = [];
+        righeArt.forEach(row => {
+          const codice = (row && (row.codice || row.codArticolo || row.cod)) || '';
+          const descr  = (row && (row.descrizione || row.descr || row.titolo)) || '';
+          const qtaRow = Math.max(1, Number(row?.qta || row?.qtaPezzi || row?.quantita || PEZZI || 1));
+
+          const rowFasi = Array.isArray(row?.fasi) ? row.fasi : [];
+          if (!rowFasi.length) return;
+
+          rowFasi.forEach((f, idx) => {
+            let mins = 0;
+            try{
+              if (typeof window !== 'undefined' && typeof window.plannedMinsFromFase === 'function'){
+                mins = window.plannedMinsFromFase(f);
+              }
+            }catch{}
+            if (!Number.isFinite(mins)) mins = 0;
+
+            const isOnce       = !!(f.unaTantum || f.once);
+            const perPieceMins = isOnce ? 0 : mins;
+            const totMins      = isOnce ? mins : mins * qtaRow;
+
+            rowsHTML.push(`
+              <tr>
+                <td>${idx === 0 ? esc(codice) : ''}</td>
+                <td>${idx === 0 ? esc(descr) : ''}</td>
+                <td class="right">${idx === 0 ? qtaRow : ''}</td>
+                <td>${esc(f.lav || f.nome || f.descr || f.descrizione || '')}</td>
+                <td class="right">${perPieceMins ? min2hhmm(perPieceMins) : ''}</td>
+                <td class="right">${totMins ? min2hhmm(totMins) : ''}</td>
+              </tr>
+            `);
+          });
+        });
+        return rowsHTML.join('');
+      }
+
+      // Fallback legacy: fasi globali come prima
+      return (fasi.length ? fasi : []).map((f,i)=>`
+        <tr>
+          <td class="right">${i+1}</td>
+          <td>${f.lav||''}</td>
+          <td class="right">${f.hhmm||''}</td>
+          <td class="right">${PEZZI||0}</td>
+        </tr>
+      `).join('');
+    })();
 
     const matRows = (materiali.length? materiali: []).map(m=>`
       <tr>
@@ -4246,9 +4328,9 @@ window.stampaCommessaV2 = function (r) {
 
         <h3>Fasi di lavorazione</h3>
         <table>
-          <thead><tr><th class="right">#</th><th>Lavorazione</th><th class="right">HH:MM per fase</th><th class="right">Q.tà</th></tr></thead>
+                    ${fasiHeaderHTML}
           <tbody>
-            ${fasiRows || `<tr><td colspan="4" class="muted">Nessuna fase impostata</td></tr>`}
+            ${fasiRows || fasiEmptyRow}
           </tbody>
         </table>
 
