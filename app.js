@@ -17358,10 +17358,22 @@ function MagazzinoView(props){
         else next.push(src);
       });
       next.sort((a,b)=> String(a.codice).localeCompare(String(b.codice)));
-      setArticoli(next);
+            setArticoli(next);
       persistArticoli(next);
+
+      // sync opzionale verso Supabase (cloud) per tutti gli articoli importati
+      try{
+        if (window.sbUpsertMagazzinoArticoli){
+          window.sbUpsertMagazzinoArticoli(imported).catch(err=>{
+            console.warn('[Magazzino] sbUpsertMagazzinoArticoli import', err);
+          });
+        }
+      }catch(e){
+        console.warn('[Magazzino] import cloud sync error', e);
+      }
+
       alert(`Import articoli completato: ${imported.length} righe.`);
-    }catch(err){
+        }catch(err){
       console.error('[Import Articoli]', err);
       alert('Errore import: ' + (err?.message || err));
     }finally{
@@ -17374,16 +17386,31 @@ function MagazzinoView(props){
   function openNewArt(){ setEditArt(newArt()); }
   function openEditArt(a){ setEditArt({ ...a }); }
   function cancelEditArt(){ setEditArt(null); }
-  function saveArt(){
+    function saveArt(){
     const a = editArt || {};
     if (!a.codice){ alert('Inserisci CODICE articolo'); return; }
+
     const next = [...(articoli||[])];
     const ix = next.findIndex(x=> String(x.codice).toLowerCase() === String(a.codice).toLowerCase());
     if (ix>=0) next[ix] = { ...next[ix], ...a };
     else next.push(a);
+
     next.sort((x,y)=> String(x.codice).localeCompare(String(y.codice)));
+
     setArticoli(next);
     persistArticoli(next);
+
+    // sync opzionale verso Supabase (cloud) - non blocca la UI
+    try{
+      if (window.sbUpsertMagazzinoArticoli){
+        window.sbUpsertMagazzinoArticoli([a]).catch(err=>{
+          console.warn('[Magazzino] sbUpsertMagazzinoArticoli saveArt', err);
+        });
+      }
+    }catch(e){
+      console.warn('[Magazzino] saveArt cloud sync error', e);
+    }
+
     setEditArt(null);
   }
   function delArt(a){
