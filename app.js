@@ -983,13 +983,19 @@ window.isReadOnlyUser = function(){
       }catch{}
       if (!Array.isArray(local)) local = [];
 
-      // leggi dal cloud
+            // leggi dal cloud (fino a 10.000 righe per evitare il limite 1000 di default)
       let cloud = [];
       try{
-        cloud = await g.sbSelect(
-          'magazzino_articoli',
-          'codice,descrizione,um,prezzo,costo,updated_at,updated_by'
-        );
+        const selectCols = 'codice,descrizione,um,prezzo,costo,updated_at,updated_by';
+        const url = `${sb.url}/rest/v1/magazzino_articoli?select=${encodeURIComponent(selectCols)}&limit=10000`;
+        const res = await fetch(url, {
+          headers:{
+            apikey: sb.key,
+            Authorization: `Bearer ${sb.key}`
+          }
+        });
+        if (!res.ok) throw new Error(await res.text());
+        cloud = await res.json();
       }catch(err){
         console.warn('[syncMagazzinoFromCloud] select error', err);
         return { ok:false, reason:'select-fail', error:String(err) };
