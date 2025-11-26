@@ -18065,8 +18065,10 @@ window.findCommessaById = window.findCommessaById || function(id){
 
   const e = React.createElement;
 
-  // ---------------- Sidebar (completa, con dedupe + toggle persistente) ----------------
-  window.__ALLOWED_WORKER_ROUTES = window.__ALLOWED_WORKER_ROUTES || new Set(['#/timbratura', '#/commesse', '#/impostazioni', '#/login', '#/ddt']);
+   // ---------------- Sidebar (completa, con dedupe + toggle persistente) ----------------
+  window.__ALLOWED_WORKER_ROUTES = window.__ALLOWED_WORKER_ROUTES || new Set([
+    '#/timbratura'
+  ]);
   function Sidebar({ hash }) {
     const R   = (window.ROUTES || {});
     const cur = (hash || (location.hash || '#/dashboard')).toLowerCase();
@@ -18121,16 +18123,18 @@ window.findCommessaById = window.findCommessaById || function(id){
         ['#/impostazioni', 'Impostazioni'],
     ];
 
-    // — Filtro ruoli: i worker vedono solo alcune rotte
-    const USER    = window.__USER || null;
-    const isAdmin = !!(USER && USER.role === 'admin');
-    const ALLOWED = window.__ALLOWED_WORKER_ROUTES;  // ← usa la set globale con #/ddt incluso
+        // — Filtro ruoli: i worker vedono solo alcune rotte
+    const USER = window.__USER || null;
+    const role = (USER && USER.role) || 'admin';
+    const isWorker = (role === 'worker');
 
-    const LINKS = isAdmin
-      ? ALL_LINKS
-      : ALL_LINKS.filter(([href]) =>
-          href === '__title__' || href === '__section__' || (ALLOWED && ALLOWED.has(href))
-        );
+    const LINKS = isWorker
+      ? ALL_LINKS.filter(([href]) =>
+          href === '__title__' ||
+          href === '__section__' ||
+          (window.__ALLOWED_WORKER_ROUTES && window.__ALLOWED_WORKER_ROUTES.has(href))
+        )
+      : ALL_LINKS;
 
     // Link factory (nome diverso per evitare conflitti)
     const mkLink = (h, label) =>
