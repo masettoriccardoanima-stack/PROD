@@ -16906,19 +16906,29 @@ function MagazzinoView(props){
   const initialTab = (props && props.initialTab) ? props.initialTab : 'articoli';
   const e = React.createElement;
 
-  // Alias ai globali (già definiti nel bootstrap)
+    // Alias ai globali (già definiti nel bootstrap)
   const lsGet = window.lsGet;
   const lsSet = window.lsSet || ((k,v)=> {
-  try {
-    if (window.safeSetJSON) return window.safeSetJSON(k,v);
-    localStorage.setItem(k, JSON.stringify(v));
-  } catch {}
+    try {
+      if (window.safeSetJSON) return window.safeSetJSON(k,v);
+      localStorage.setItem(k, JSON.stringify(v));
+    } catch {}
   });
 
-  const persistArticoli  = (rows)=> (typeof saveKey === 'function') ? saveKey('magArticoli', rows)  : lsSet('magArticoli', rows);
-  const persistMovimenti = (rows)=> (typeof saveKey === 'function') ? saveKey('magMovimenti', rows) : lsSet('magMovimenti', rows);
+  // Salva SEMPRE su entrambe le chiavi compatibili
+  function persistArticoli(rows){
+    try {
+      lsSet('magArticoli', rows);
+      lsSet('magazzinoArticoli', rows);
+    } catch {}
+  }
+  const persistMovimenti = (rows)=> {
+    try {
+      lsSet('magMovimenti', rows);
+    } catch {}
+  };
 
-    // Normalizza articoli da LS o da backup (sempre array)
+  // Normalizza articoli da LS o da backup (sempre array)
   const normalizeArticoli = (val) => {
     if (Array.isArray(val)) return val;
     if (val && Array.isArray(val.rows)) return val.rows;  // caso {rows:[...]}
@@ -16926,9 +16936,16 @@ function MagazzinoView(props){
     return [];
   };
 
+  // Carica articoli da LS tenendo conto sia di 'magArticoli' che di 'magazzinoArticoli'
+  function loadArticoliFromLS(){
+    const a = lsGet('magArticoli', null);
+    const b = lsGet('magazzinoArticoli', null);
+    return normalizeArticoli(a != null ? a : (b != null ? b : []));
+  }
+
   // Stato
   const [tab, setTab]               = React.useState(initialTab); // 'articoli' | 'movimenti'
-  const [articoli, setArticoli]     = React.useState(()=> normalizeArticoli(lsGet('magArticoli', [])));
+  const [articoli, setArticoli]     = React.useState(()=> loadArticoliFromLS());
   const [movimenti, setMovimenti]   = React.useState(()=> lsGet('magMovimenti', []));
   const [q, setQ]                   = React.useState('');
   const [editArt, setEditArt]       = React.useState(null); // {codice, descrizione, um, prezzo, costo} | null
@@ -16960,7 +16977,7 @@ function MagazzinoView(props){
   }
 
   React.useEffect(()=>{ /* ricarica all’avvio se cambiato fuori */
-    setArticoli(normalizeArticoli(lsGet('magArticoli', [])));
+    setArticoli(loadArticoliFromLS());
     setMovimenti(lsGet('magMovimenti', []));
   },[]);
 
