@@ -18606,6 +18606,21 @@ window.findCommessaById = window.findCommessaById || function(id){
   root.render(e(App));
   window.__ANIMA_APP_MOUNTED__ = true;
 
+  // Sync iniziale magazzino dal cloud (non blocca la UI)
+  try {
+    if (window.syncMagazzinoFromCloud) {
+      window.syncMagazzinoFromCloud()
+        .then(res => {
+          console.log('[boot] syncMagazzinoFromCloud', res);
+        })
+        .catch(err => {
+          console.warn('[boot] syncMagazzinoFromCloud error', err);
+        });
+    }
+  } catch (e) {
+    console.warn('[boot] syncMagazzinoFromCloud exception', e);
+  }
+
   // Dedupe: elimina sidebar legacy se presente
   try {
     const modern = document.querySelector('aside.sidebar');
