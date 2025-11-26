@@ -16931,28 +16931,31 @@ function MagazzinoView(props){
   };
 
   // Salva SEMPRE su entrambe le chiavi compatibili
-    // Salva SEMPRE su entrambe le chiavi compatibili
   function persistArticoli(rows){
     try {
       const payload = Array.isArray(rows) ? rows : [];
 
-      // usa la patch globale per il magazzino se disponibile
+      // 1) NUOVA CHIAVE "ROBUSTA" SOLO PER MAGAZZINO
+      try {
+        localStorage.setItem('magArticoli_v2', JSON.stringify(payload));
+      } catch {}
+
+      // 2) COMPATIBILITÀ: aggiorna comunque le chiavi storiche
       if (typeof window.saveKey === 'function') {
         window.saveKey('magArticoli', payload);
       } else if (typeof lsSet === 'function') {
-        // fallback: usa lsSet locale/global
         lsSet('magArticoli', payload);
         lsSet('magazzinoArticoli', payload);
       } else {
-        // fallback estremo: scrivi diretto su localStorage
         localStorage.setItem('magArticoli', JSON.stringify(payload));
         localStorage.setItem('magazzinoArticoli', JSON.stringify(payload));
       }
 
-      // DEBUG: traccia cosa è stato scritto
-      console.log('[Magazzino] persistArticoli', {
+      // DEBUG: vediamo cosa c'è in tutte e 3 le chiavi
+      console.log('[Magazzino] persistArticoli v2', {
         len: payload.length,
         sample: payload[0] || null,
+        v2: localStorage.getItem('magArticoli_v2'),
         rawMag: localStorage.getItem('magArticoli'),
         rawMag2: localStorage.getItem('magazzinoArticoli')
       });
@@ -16960,6 +16963,7 @@ function MagazzinoView(props){
       console.error('[Magazzino] persistArticoli ERROR', err);
     }
   }
+
   const persistMovimenti = (rows)=> {
     try {
       lsSet('magMovimenti', rows);
