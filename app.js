@@ -16978,11 +16978,35 @@ function MagazzinoView(props){
     return [];
   };
 
-  // Carica articoli da LS tenendo conto sia di 'magArticoli' che di 'magazzinoArticoli'
+  // Carica articoli da LS, dando PRIORITÀ alla chiave nuova "magArticoli_v2"
   function loadArticoliFromLS(){
-    const a = lsGet('magArticoli', null);
-    const b = lsGet('magazzinoArticoli', null);
-    return normalizeArticoli(a != null ? a : (b != null ? b : []));
+    // 1) fonte principale: chiave robusta usata da Magazzino
+    try {
+      const rawV2 = localStorage.getItem('magArticoli_v2');
+      if (rawV2 && rawV2 !== '[]') {
+        const parsed = JSON.parse(rawV2);
+        const norm   = normalizeArticoli(parsed);
+
+        // opzionale: log di debug una volta sola
+        console.log('[Magazzino] loadArticoliFromLS usa magArticoli_v2', {
+          len: norm.length,
+          sample: norm[0] || null
+        });
+
+        if (norm && norm.length) return norm;
+      }
+    } catch (err) {
+      console.warn('[Magazzino] errore lettura magArticoli_v2', err);
+    }
+
+    // 2) fallback: chiavi storiche (che qualcun altro potrebbe svuotare)
+    try {
+      const a = (typeof lsGet === 'function') ? lsGet('magArticoli', null) : null;
+      const b = (typeof lsGet === 'function') ? lsGet('magazzinoArticoli', null) : null;
+      return normalizeArticoli(a != null ? a : (b != null ? b : []));
+    } catch {
+      return [];
+    }
   }
 
   // Stato
