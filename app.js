@@ -921,6 +921,121 @@ window.isReadOnlyUser = function(){
     if(!res.ok) throw new Error(await res.text());
     return res.json();
   };
+    // === Magazzino articoli: sync cloud <-> locale ==========================
+  g.sbUpsertMagazzinoArticoli = g.sbUpsertMagazzinoArticoli || async function(rows){
+    const sb = g.getSB(); if (!sb) throw new Error('Supabase non configurato');
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) return [];
+
+    const url = `${sb.url}/rest/v1/magazzino_articoli?on_conflict=codice`;
+    const user = (window.__USER && (window.__USER.email || window.__USER.username || window.__USER.user)) || null;
+
+    const payload = list
+      .map(r => ({
+        codice      : String(r.codice || '').trim(),
+        descrizione : String(r.descrizione || ''),
+        um          : String(r.um || 'PZ').toUpperCase(),
+        prezzo      : Number(r.prezzo || 0),
+        costo       : Number(r.costo || 0),
+        updated_by  : user
+      }))
+      .filter(r => r.codice);
+
+    if (!payload.length) return [];
+
+    const res = await fetch(url, {
+      method:'POST',
+      headers:{
+        apikey: sb.key,
+        Authorization: `Bearer ${sb.key}`,
+        'Content-Type':'application/json',
+        Prefer: 'return=representation,resolution=merge-duplicates'
+      },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  };
+
+  g.syncMagazzinoFromCloud = g.syncMagazzinoFromCloud || async function(){
+    try{
+      const sb = g.getSB();
+      if (!sb) {
+        console.log('[syncMagazzinoFromCloud] Supabase non configurato');
+        return { ok:false, reason:'no-sb' };
+      }
+
+      // rispetta il flag cloudEnabled
+      let settings = {};
+      try{ settings = g.lsGet('appSettings', {}) || {}; }catch{}
+      if (!settings.cloudEnabled) {
+        console.log('[syncMagazzinoFromCloud] cloudDisabled in appSettings');
+        return { ok:false, reason:'cloud-disabled' };
+      }
+
+      // stato locale corrente (magArticoli_v2)
+      let local = [];
+      try{
+        const rawLocal = localStorage.getItem('magArticoli_v2');
+        if (rawLocal && rawLocal !== 'null' && rawLocal !== '[]'){
+          local = JSON.parse(rawLocal);
+        }
+      }catch{}
+      if (!Array.isArray(local)) local = [];
+
+      // leggi dal cloud
+      let cloud = [];
+      try{
+        cloud = await g.sbSelect(
+          'magazzino_articoli',
+          'codice,descrizione,um,prezzo,costo,updated_at,updated_by'
+        );
+      }catch(err){
+        console.warn('[syncMagazzinoFromCloud] select error', err);
+        return { ok:false, reason:'select-fail', error:String(err) };
+      }
+      if (!Array.isArray(cloud)) cloud = [];
+
+      // 1) se cloud vuoto ma locale pieno => SEED cloud da locale (PRIMA VOLTA)
+      if (!cloud.length && local.length){
+        try{
+          await g.sbUpsertMagazzinoArticoli(local);
+          console.log('[syncMagazzinoFromCloud] seeded cloud from local', local.length);
+          return { ok:true, from:'local->cloud', seeded:true, count: local.length };
+        }catch(err){
+          console.warn('[syncMagazzinoFromCloud] seed error', err);
+          return { ok:false, reason:'seed-fail', error:String(err) };
+        }
+      }
+
+      // 2) se cloud ha dati => usa cloud come sorgente per locale
+      if (cloud.length){
+        const mapped = cloud
+          .map(r => ({
+            codice      : String(r.codice || '').trim(),
+            descrizione : String(r.descrizione || ''),
+            um          : String(r.um || 'PZ').toUpperCase(),
+            prezzo      : Number(r.prezzo || 0),
+            costo       : Number(r.costo || 0)
+          }))
+          .filter(r => r.codice);
+
+        mapped.sort((a,b)=> a.codice.localeCompare(b.codice));
+        try{
+          localStorage.setItem('magArticoli_v2', JSON.stringify(mapped));
+        }catch{}
+        console.log('[syncMagazzinoFromCloud] updated local from cloud', mapped.length);
+        return { ok:true, from:'cloud->local', count:mapped.length };
+      }
+
+      // 3) niente da fare (entrambi vuoti)
+      console.log('[syncMagazzinoFromCloud] nothing to sync (empty both)');
+      return { ok:true, from:'none', count:0 };
+    }catch(err){
+      console.warn('[syncMagazzinoFromCloud] unexpected error', err);
+      return { ok:false, reason:'exception', error:String(err) };
+    }
+  };
 })();
 
 /* ===== Timesheets sync utils (una sola volta) ============================ */
