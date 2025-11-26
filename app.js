@@ -7460,14 +7460,24 @@ const articoloCodiceFinal =
   } else {
     nextAll = [partial, ...all]; // in testa
   }
-  lsSet('commesseRows', nextAll);
+    lsSet('commesseRows', nextAll);
   setRows(nextAll);
+
+  // sync opzionale verso Supabase (non blocca la UI)
+  try{
+    if (window.sbUpsertCommesse){
+      window.sbUpsertCommesse([partial]).catch(err=>{
+        console.warn('[Commesse] sbUpsertCommesse save', err);
+      });
+    }
+  }catch(e){
+    console.warn('[Commesse] cloud sync error (save)', e);
+  }
 
   try{ window._maybeAutoScaricoAndLabels && window._maybeAutoScaricoAndLabels(partial.id); }catch{}
   alert('Commessa salvata ✅');
   setShowForm(false);
 }
-
   // --- Duplica / Elimina (mancanti) ---
 function duplicaCommessa(src){
   if (!src || !src.id) return;
@@ -7854,12 +7864,23 @@ window.delCommessa     = window.delCommessa     || delCommessa;
           updatedAt : new Date().toISOString()
         };
 
-        // 3) Salva la nuova commessa
+                // 3) Salva la nuova commessa
         const allCommesse = (window.lsGet && window.lsGet('commesseRows', [])) || [];
         allCommesse.unshift(comm);
         if (window.lsSet) window.lsSet('commesseRows', allCommesse);
         else localStorage.setItem('commesseRows', JSON.stringify(allCommesse));
         window.__anima_dirty = true;
+
+        // sync opzionale verso Supabase (nuova commessa da PDF)
+        try{
+          if (window.sbUpsertCommesse){
+            window.sbUpsertCommesse([comm]).catch(err=>{
+              console.warn('[Commesse] sbUpsertCommesse import PDF', err);
+            });
+          }
+        }catch(e){
+          console.warn('[Commesse] cloud sync error (import PDF)', e);
+        }
 
         alert(`Commessa creata: ${comm.id} — ${comm.cliente || ''}`);
         ev.target.value = '';
@@ -18843,6 +18864,21 @@ window.findCommessaById = window.findCommessaById || function(id){
     }
   } catch (e) {
     console.warn('[boot] syncMagazzinoFromCloud exception', e);
+  }
+
+    // Sync iniziale COMMESSE dal cloud (non blocca la UI)
+  try {
+    if (window.syncCommesseFromCloud) {
+      window.syncCommesseFromCloud()
+        .then(res => {
+          console.log('[boot] syncCommesseFromCloud', res);
+        })
+        .catch(err => {
+          console.warn('[boot] syncCommesseFromCloud error', err);
+        });
+    }
+  } catch (e) {
+    console.warn('[boot] syncCommesseFromCloud exception', e);
   }
 
   // Dedupe: elimina sidebar legacy se presente
