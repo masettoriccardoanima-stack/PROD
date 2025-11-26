@@ -2442,13 +2442,47 @@ window.creaMovimentoCaricoDaOrdine = function(ordine, righeCarico, opts = {}){
   alert(`Ricalcolo completato. Articoli ricostruiti: ${out.length}`);
 };
 })();
+
 (function mirrorMagazzinoKeys(){
   try{
-    const a = JSON.parse(localStorage.getItem('magazzinoArticoli') || 'null');
-    const b = JSON.parse(localStorage.getItem('magArticoli') || 'null');
-    if (a && !b) localStorage.setItem('magArticoli', JSON.stringify(a));
-    if (b && !a) localStorage.setItem('magazzinoArticoli', JSON.stringify(b));
-  }catch{}
+    // helper: vero solo se c'è qualcosa di "non vuoto"
+    const hasData = (val)=>{
+      if (!val) return false;
+      if (Array.isArray(val)) return val.length > 0;
+      if (typeof val === 'object') return Object.keys(val).length > 0;
+      return true;
+    };
+
+    // 1) Prova a leggere la nuova chiave robusta usata dal Magazzino
+    let v2 = null;
+    try{
+      const rawV2 = localStorage.getItem('magArticoli_v2');
+      if (rawV2 && rawV2 !== 'null' && rawV2 !== '[]'){
+        v2 = JSON.parse(rawV2);
+      }
+    }catch{}
+
+    // 2) Leggi anche le chiavi storiche (possono essere vuote)
+    let a = null, b = null;
+    try{
+      a = JSON.parse(localStorage.getItem('magazzinoArticoli') || 'null');
+    }catch{}
+    try{
+      b = JSON.parse(localStorage.getItem('magArticoli') || 'null');
+    }catch{}
+
+    // 3) Se ho v2, la uso come sorgente principale per riempire le altre chiavi
+    if (hasData(v2)){
+      if (!hasData(a)) localStorage.setItem('magazzinoArticoli', JSON.stringify(v2));
+      if (!hasData(b)) localStorage.setItem('magArticoli', JSON.stringify(v2));
+    } else {
+      // 4) Fallback vecchio comportamento: specchia tra le due chiavi storiche
+      if (hasData(a) && !hasData(b)) localStorage.setItem('magArticoli', JSON.stringify(a));
+      if (hasData(b) && !hasData(a)) localStorage.setItem('magazzinoArticoli', JSON.stringify(b));
+    }
+  }catch(e){
+    console.warn('[mirrorMagazzinoKeys] errore', e);
+  }
 })();
 
 // === ID unico: salta i numeri già usati su quello store ===
