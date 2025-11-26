@@ -16931,11 +16931,34 @@ function MagazzinoView(props){
   };
 
   // Salva SEMPRE su entrambe le chiavi compatibili
+    // Salva SEMPRE su entrambe le chiavi compatibili
   function persistArticoli(rows){
     try {
-      lsSet('magArticoli', rows);
-      lsSet('magazzinoArticoli', rows);
-    } catch {}
+      const payload = Array.isArray(rows) ? rows : [];
+
+      // usa la patch globale per il magazzino se disponibile
+      if (typeof window.saveKey === 'function') {
+        window.saveKey('magArticoli', payload);
+      } else if (typeof lsSet === 'function') {
+        // fallback: usa lsSet locale/global
+        lsSet('magArticoli', payload);
+        lsSet('magazzinoArticoli', payload);
+      } else {
+        // fallback estremo: scrivi diretto su localStorage
+        localStorage.setItem('magArticoli', JSON.stringify(payload));
+        localStorage.setItem('magazzinoArticoli', JSON.stringify(payload));
+      }
+
+      // DEBUG: traccia cosa è stato scritto
+      console.log('[Magazzino] persistArticoli', {
+        len: payload.length,
+        sample: payload[0] || null,
+        rawMag: localStorage.getItem('magArticoli'),
+        rawMag2: localStorage.getItem('magazzinoArticoli')
+      });
+    } catch (err) {
+      console.error('[Magazzino] persistArticoli ERROR', err);
+    }
   }
   const persistMovimenti = (rows)=> {
     try {
