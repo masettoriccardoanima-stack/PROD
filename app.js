@@ -983,19 +983,43 @@ window.isReadOnlyUser = function(){
       }catch{}
       if (!Array.isArray(local)) local = [];
 
-            // leggi dal cloud (fino a 10.000 righe per evitare il limite 1000 di default)
+      // leggi dal cloud con paginazione (max 1000 per pagina)
       let cloud = [];
       try{
         const selectCols = 'codice,descrizione,um,prezzo,costo,updated_at,updated_by';
-        const url = `${sb.url}/rest/v1/magazzino_articoli?select=${encodeURIComponent(selectCols)}&limit=10000`;
-        const res = await fetch(url, {
-          headers:{
-            apikey: sb.key,
-            Authorization: `Bearer ${sb.key}`
+        const pageSize = 1000;
+        let page = 0;
+
+        while (true){
+          const url = `${sb.url}/rest/v1/magazzino_articoli` +
+            `?select=${encodeURIComponent(selectCols)}` +
+            `&limit=${pageSize}&offset=${page * pageSize}`;
+
+          const res = await fetch(url, {
+            headers:{
+              apikey: sb.key,
+              Authorization: `Bearer ${sb.key}`
+            }
+          });
+          if (!res.ok) throw new Error(await res.text());
+
+          const batch = await res.json();
+          if (!Array.isArray(batch) || batch.length === 0) break;
+
+          cloud.push(...batch);
+
+          // se abbiamo preso meno di pageSize, non ci sono altre pagine
+          if (batch.length < pageSize) break;
+
+          page++;
+          // sicurezza: non leggere più di 20.000 righe
+          if (page > 20){
+            console.warn('[syncMagazzinoFromCloud] raggiunto limite pagine, mi fermo');
+            break;
           }
-        });
-        if (!res.ok) throw new Error(await res.text());
-        cloud = await res.json();
+        }
+
+        console.log('[syncMagazzinoFromCloud] letti dal cloud', cloud.length);
       }catch(err){
         console.warn('[syncMagazzinoFromCloud] select error', err);
         return { ok:false, reason:'select-fail', error:String(err) };
