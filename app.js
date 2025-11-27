@@ -7476,6 +7476,62 @@ function CommesseView({ query = '' }) {
   // esponi anche globalmente (utile per report futuri)
   window.shippedPieces = window.shippedPieces || shippedPieces;
 
+  // Stato DDT (nessun DDT / parziale / completo / anomalo) per la lista commesse
+  function computeDDTStatus(c){
+    const tot  = Math.max(0, Number(c.qtaPezzi || c.qta || 0));
+    const sped = Math.max(0, Number(shippedPieces(c) || 0));
+    let label = '—';
+    let color = '#666';
+
+    if (tot <= 0){
+      if (sped > 0){
+        label = '⚠️ DDT senza q.tà';
+        color = '#c0392b';
+      } else {
+        label = '—';
+      }
+    } else if (sped <= 0){
+      label = 'Nessun DDT';
+      color = '#666';
+    } else if (sped < tot){
+      label = 'DDT parziale';
+      color = '#e67e22';
+    } else if (sped === tot){
+      label = 'DDT completo';
+      color = '#27ae60';
+    } else {
+      label = '⚠️ DDT > q.tà';
+      color = '#c0392b';
+    }
+
+    const completedAt = c.__completedAt || c.completedAt || c.dataCompletata || null;
+    if (completedAt && sped < tot){
+      label += ' (commessa completata)';
+    }
+
+    return { tot, sped, label, color };
+  }
+
+  const __todayComm = new Date();
+  __todayComm.setHours(0,0,0,0);
+
+  function getScadenzaInfo(c){
+    const raw = c.scadenza || c.dataConsegna || c.data_scadenza || '';
+    if (!raw) return { text:'', color:'#222' };
+
+    const text = String(raw);
+    let color = '#222';
+
+    const d = new Date(raw);
+    if (!isNaN(d.getTime())){
+      d.setHours(0,0,0,0);
+      const diffDays = Math.floor((d - __todayComm) / (1000*60*60*24));
+      if (diffDays < 0)      color = '#c0392b';  // scaduta
+      else if (diffDays <= 3) color = '#e67e22'; // in scadenza
+    }
+    return { text, color };
+  }
+
   // --- dati di base ---
   const app       = React.useMemo(() => lsGet('appSettings', {}) || {}, []);
   const clienti   = React.useMemo(() => {
@@ -8453,9 +8509,22 @@ window.delCommessa     = window.delCommessa     || delCommessa;
                       return String(ref);
                     })()),
 
-                  e('td', {className:'right'}, String(c.qtaPezzi||1)),
-                  e('td', {className:'right'}, String(shippedPieces(c) || 0)),
-                  e('td', null, c.scadenza || ''),
+                  e('td', {className:'right'}, String(Number(c.qtaPezzi || c.qta || 0) || 0)),
+                  (function(){
+                    const info = computeDDTStatus(c);
+                    return e('td', {className:'right'},
+                      e('div', null, `${info.sped} / ${info.tot || 0}`),
+                      e('div', {
+                        style:{fontSize:'11px', color:info.color, marginTop:2}
+                      }, info.label)
+                    );
+                  })(),
+                  (function(){
+                    const sc = getScadenzaInfo(c);
+                    return e('td', null,
+                      e('span', {style:{color: sc.color}}, sc.text)
+                    );
+                  })(),
                   e('td', null,
                     e('button', { className:'btn btn-outline', onClick:()=> {if (window.stampaCommessaV2) {window.stampaCommessaV2(c);} else if (window.printCommessa) {window.printCommessa(c);}}}, 'Stampa'),' ',
                     e('button', { className:'btn btn-outline', onClick:()=>window.openEtichetteColliDialog && window.openEtichetteColliDialog(c) }, 'Etichette'), ' ',
