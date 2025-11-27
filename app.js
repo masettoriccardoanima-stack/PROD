@@ -4233,9 +4233,10 @@ window.stampaCommessaV2 = function (r) {
         th,td{border:1px solid #ccc; padding:6px; text-align:left;}
         th{background:#f7f7f7;}
         td.right, th.right{text-align:right;}
-        h3{font-size:14px; margin:14px 0 6px;}
+                h3{font-size:14px; margin:14px 0 6px;}
         .ibox{border:1px dashed #bbb; border-radius:6px; padding:10px; min-height:48px;}
         ul{margin:6px 0 0 18px;}
+        @page { size:A4 portrait; margin:0; }
         @media print{
           body{margin:16mm;}
           .no-print{display:none!important;}
@@ -4259,12 +4260,13 @@ window.stampaCommessaV2 = function (r) {
       })
     );
 
-    const fasiHeaderHTML = (hasRowPhases && righeArt.length) ? `
+        const fasiHeaderHTML = (hasRowPhases && righeArt.length) ? `
           <thead>
             <tr>
               <th>Codice</th>
               <th>Descrizione</th>
               <th class="right">Q.tà</th>
+              <th class="right">TOT HH:MM / pz</th>
               <th>Fase</th>
               <th class="right">HH:MM / pz</th>
               <th class="right">HH:MM tot</th>
@@ -4279,63 +4281,42 @@ window.stampaCommessaV2 = function (r) {
             </tr>
           </thead>`;
 
-        const fasiEmptyRow = (hasRowPhases && righeArt.length)
-      ? `<tr><td colspan="6" class="muted">Nessuna fase impostata</td></tr>`
+    const fasiEmptyRow = (hasRowPhases && righeArt.length)
+      ? `<tr><td colspan="7" class="muted">Nessuna fase impostata</td></tr>`
       : `<tr><td colspan="4" class="muted">Nessuna fase impostata</td></tr>`;
 
-    // --- riepilogo per articolo: TOT / pezzo e TOT commessa ---
-    const articoliSummaryRows = (function(){
-      if (!hasRowPhases || !righeArt.length) return '';
-
-      const rowsHTML = [];
-
-      righeArt.forEach(row => {
-        const codice = (row && (row.codice || row.codArticolo || row.cod)) || '';
-        const descr  = (row && (row.descrizione || row.descr || row.titolo)) || '';
-        const qtaRow = Math.max(1, Number(row?.qta || row?.qtaPezzi || row?.quantita || PEZZI || 1));
-
-        const rowFasi = Array.isArray(row?.fasi) ? row.fasi : [];
-        if (!rowFasi.length) return;
-
-        let perPieceTotMins = 0;
-        let totRowMins      = 0;
-
-        rowFasi.forEach(f => {
-          let mins = 0;
-          // stessa logica che usiamo per le righe fasi
-          try{
-            if (typeof window !== 'undefined' && typeof window.plannedMinsFromFase === 'function'){
-              mins = window.plannedMinsFromFase(f);
-            }
-          }catch{}
-          if (!Number.isFinite(mins)) mins = 0;
-
-          const isOnce = !!(f.unaTantum || f.once);
-          perPieceTotMins += isOnce ? 0      : mins;
-          totRowMins      += isOnce ? mins   : mins * qtaRow;
-        });
-
-        const hhmmPerPieceTot = perPieceTotMins ? min2hhmm(perPieceTotMins) : '';
-        const hhmmRowTot      = totRowMins ? min2hhmm(totRowMins) : '';
-
-        rowsHTML.push(`
-          <tr>
-            <td>${esc(codice)}</td>
-            <td>${esc(descr)}</td>
-            <td class="right">${qtaRow}</td>
-            <td class="right">${hhmmPerPieceTot}</td>
-            <td class="right">${hhmmRowTot}</td>
-          </tr>
-        `);
-      });
-
-      return rowsHTML.join('');
-    })();
-
     const fasiRows = (function(){
+      // helper interno: da una fase → minuti previsti
+      function minsFromFase(f){
+        // 1) provo a leggere una stringa HH:MM dalla fase
+        const rawHHMM = String(
+          f?.orePrevHHMM ||
+          f?.oreHHMM     ||
+          f?.hhmm        ||
+          f?.orePrev     ||
+          f?.durataHHMM  ||
+          ''
+        ).trim();
+
+        if (rawHHMM){
+          return hhmm2min(rawHHMM);
+        }
+
+        // 2) fallback: uso l'helper globale se esiste
+        let mins = 0;
+        try{
+          if (typeof window !== 'undefined' && typeof window.plannedMinsFromFase === 'function'){
+            mins = window.plannedMinsFromFase(f);
+          }
+        }catch{}
+        if (!Number.isFinite(mins)) mins = 0;
+        return mins;
+      }
+
       // Caso nuovo: fasi per riga articolo
       if (hasRowPhases && righeArt.length){
         const rowsHTML = [];
+
         righeArt.forEach(row => {
           const codice = (row && (row.codice || row.codArticolo || row.cod)) || '';
           const descr  = (row && (row.descrizione || row.descr || row.titolo)) || '';
@@ -4344,15 +4325,18 @@ window.stampaCommessaV2 = function (r) {
           const rowFasi = Array.isArray(row?.fasi) ? row.fasi : [];
           if (!rowFasi.length) return;
 
-          rowFasi.forEach((f, idx) => {
-            let mins = 0;
-            try{
-              if (typeof window !== 'undefined' && typeof window.plannedMinsFromFase === 'function'){
-                mins = window.plannedMinsFromFase(f);
-              }
-            }catch{}
-            if (!Number.isFinite(mins)) mins = 0;
+          // TOT per pezzo dell'articolo = somma delle fasi non una-tantum
+          let perPieceTotMinsArt = 0;
+          rowFasi.forEach(f => {
+            const mins = minsFromFase(f);
+            const isOnce = !!(f.unaTantum || f.once);
+            if (!isOnce) perPieceTotMinsArt += mins;
+          });
+          const hhmmTotPerPezzoArt = perPieceTotMinsArt ? min2hhmm(perPieceTotMinsArt) : '';
 
+          // Righe di dettaglio fasi
+          rowFasi.forEach((f, idx) => {
+            const mins = minsFromFase(f);
             const isOnce       = !!(f.unaTantum || f.once);
             const perPieceMins = isOnce ? 0 : mins;
             const totMins      = isOnce ? mins : mins * qtaRow;
@@ -4362,6 +4346,7 @@ window.stampaCommessaV2 = function (r) {
                 <td>${idx === 0 ? esc(codice) : ''}</td>
                 <td>${idx === 0 ? esc(descr) : ''}</td>
                 <td class="right">${idx === 0 ? qtaRow : ''}</td>
+                <td class="right">${idx === 0 ? hhmmTotPerPezzoArt : ''}</td>
                 <td>${esc(f.lav || f.nome || f.descr || f.descrizione || '')}</td>
                 <td class="right">${perPieceMins ? min2hhmm(perPieceMins) : ''}</td>
                 <td class="right">${totMins ? min2hhmm(totMins) : ''}</td>
@@ -4369,6 +4354,7 @@ window.stampaCommessaV2 = function (r) {
             `);
           });
         });
+
         return rowsHTML.join('');
       }
 
