@@ -4125,7 +4125,7 @@ window.stampaCommessaV2 = function (r) {
       const PEZZI = +r?.pezziTotali || +r?.qtaPezzi || 0;
 
 
-    // fasi: accetta [{lav, hhmm}] o varianti
+        // fasi: accetta [{lav, hhmm}] o varianti
     const fasi = Array.isArray(r?.fasi) ? r.fasi.map((f,i)=>({
       lav:   f.lav || f.nome || f.descr || f.descrizione || `Fase ${i+1}`,
       hhmm:  f.hhmm || f.durata || f.tempo || f.hh || f.min ? (f.hhmm || (f.min? min2hhmm(f.min): '')) : (f.durataHHMM || ''),
@@ -4136,10 +4136,9 @@ window.stampaCommessaV2 = function (r) {
     let oreTotPrev  = '00:00';
 
     try {
-      // pezzi totali per il calcolo
       const pezzi = Math.max(1, Number(r?.qtaPezzi || r?.pezziTotali || 0));
 
-      // 1) se esiste la funzione "smart", uso quella (ritorna minuti totali)
+      // uso la funzione "smart" se esiste (minuti totali commessa)
       const fnSmart =
         (typeof window !== 'undefined' && typeof window.plannedMinTotalCommessaSmart === 'function')
           ? window.plannedMinTotalCommessaSmart
@@ -4148,13 +4147,12 @@ window.stampaCommessaV2 = function (r) {
               : null);
 
       if (fnSmart) {
-        const totMin = Number(fnSmart(r)) || 0;   // minuti totali previsti
+        const totMin = Number(fnSmart(r)) || 0;
         const perMin = pezzi > 0 ? Math.round(totMin / pezzi) : totMin;
-
         orePerPezzo = min2hhmm(perMin);
         oreTotPrev  = min2hhmm(totMin);
       } else {
-        // 2) fallback: uso i campi salvati nella commessa, se presenti
+        // fallback: uso i campi salvati nella commessa, se presenti
         const rawPerPiece = (r?.orePerPezzoHHMM || r?.orePerPezzo || '').toString().trim();
         const rawTot      = r?.oreTotaliPrev;
 
@@ -4166,14 +4164,140 @@ window.stampaCommessaV2 = function (r) {
         }
 
         if (rawTot != null) {
-          const totMin = Number(rawTot) || 0;     // se è 360 → 06:00
+          const totMin = Number(rawTot) || 0;
           if (totMin > 0) oreTotPrev = min2hhmm(totMin);
         }
       }
+
+      // se ci sono più codici articolo, il tempo per pezzo medio è poco significativo → '--'
+      try {
+        const rows = Array.isArray(r?.righeArticolo) ? r.righeArticolo : [];
+        const codes = new Set();
+        rows.forEach(row => {
+          const codice = row && (row.codice || row.codArticolo || row.cod);
+          if (codice) codes.add(String(codice));
+        });
+        if (codes.size > 1) orePerPezzo = '--';
+      } catch {}
     } catch (e) {
       console.error('Errore calcolo ore previste in stampaCommessaV2:', e);
-      // lascio i default 00:00
     }
+
+    // --- fasi per riga / globali ---
+    const righeArt = Array.isArray(r?.righeArticolo) ? r.righeArticolo : [];
+
+    // c'è almeno una riga con fasi "vere"? (per-riga, con minuti >0 o almeno un nome fase)
+    const hasRowPhases = righeArt.some(row =>
+      Array.isArray(row?.fasi) &&
+      row.fasi.some(f => {
+        try{
+          if (typeof window !== 'undefined' && typeof window.plannedMinsFromFase === 'function'){
+            if (window.plannedMinsFromFase(f) > 0) return true;
+          } else if (typeof plannedMinsFromFase === 'function'){
+            if (plannedMinsFromFase(f) > 0) return true;
+          }
+        }catch{}
+        const name = String(f?.lav || f?.nome || f?.descr || f?.descrizione || '').trim();
+        return !!name;
+      })
+    );
+
+    // header tabella fasi: una sola tabella, con colonna TOT HH:MM / pz per articolo
+    const fasiHeaderHTML = (hasRowPhases && righeArt.length) ? `
+          <thead>
+            <tr>
+              <th>Codice</th>
+              <th>Descrizione</th>
+              <th class="right">Q.tà</th>
+              <th class="right">TOT HH:MM / pz</th>
+              <th>Fase</th>
+              <th class="right">HH:MM / pz</th>
+              <th class="right">HH:MM tot</th>
+            </tr>
+          </thead>` : `
+          <thead>
+            <tr>
+              <th class="right">#</th>
+              <th>Lavorazione</th>
+              <th class="right">HH:MM per fase</th>
+              <th class="right">Q.tà</th>
+            </tr>
+          </thead>`;
+
+    const fasiEmptyRow = (hasRowPhases && righeArt.length)
+      ? `<tr><td colspan="7" class="muted">Nessuna fase impostata</td></tr>`
+      : `<tr><td colspan="4" class="muted">Nessuna fase impostata</td></tr>`;
+
+    const fasiRows = (function(){
+      // helper: minuti da una fase (usa plannedMinsFromFase)
+      function minsFromFase(f){
+        let mins = 0;
+        try{
+          if (typeof window !== 'undefined' && typeof window.plannedMinsFromFase === 'function'){
+            mins = window.plannedMinsFromFase(f);
+          } else if (typeof plannedMinsFromFase === 'function'){
+            mins = plannedMinsFromFase(f);
+          }
+        }catch{}
+        if (!Number.isFinite(mins)) mins = 0;
+        return mins;
+      }
+
+      // Caso nuovo: fasi per riga articolo
+      if (hasRowPhases && righeArt.length){
+        const rowsHTML = [];
+
+        righeArt.forEach(row => {
+          const codice = (row && (row.codice || row.codArticolo || row.cod)) || '';
+          const descr  = (row && (row.descrizione || row.descr || row.titolo)) || '';
+          const qtaRow = Math.max(1, Number(row?.qta || row?.qtaPezzi || row?.quantita || PEZZI || 1));
+
+          const rowFasi = Array.isArray(row?.fasi) ? row.fasi : [];
+          if (!rowFasi.length) return;
+
+          // TOT per pezzo dell'articolo = somma fasi non una-tantum
+          let perPieceTotMinsArt = 0;
+          rowFasi.forEach(f => {
+            const mins = minsFromFase(f);
+            const isOnce = !!(f.unaTantum || f.once);
+            if (!isOnce) perPieceTotMinsArt += mins;
+          });
+          const hhmmTotPerPezzoArt = perPieceTotMinsArt ? min2hhmm(perPieceTotMinsArt) : '';
+
+          // righe di dettaglio fasi
+          rowFasi.forEach((f, idx) => {
+            const mins = minsFromFase(f);
+            const isOnce       = !!(f.unaTantum || f.once);
+            const perPieceMins = isOnce ? 0 : mins;
+            const totMins      = isOnce ? mins : mins * qtaRow;
+
+            rowsHTML.push(`
+              <tr>
+                <td>${idx === 0 ? esc(codice) : ''}</td>
+                <td>${idx === 0 ? esc(descr) : ''}</td>
+                <td class="right">${idx === 0 ? qtaRow : ''}</td>
+                <td class="right">${idx === 0 ? hhmmTotPerPezzoArt : ''}</td>
+                <td>${esc(f.lav || f.nome || f.descr || f.descrizione || '')}</td>
+                <td class="right">${perPieceMins ? min2hhmm(perPieceMins) : ''}</td>
+                <td class="right">${totMins ? min2hhmm(totMins) : ''}</td>
+              </tr>
+            `);
+          });
+        });
+
+        return rowsHTML.join('');
+      }
+
+      // Fallback legacy: fasi globali come prima
+      return (fasi.length ? fasi : []).map((f,i)=>`
+        <tr>
+          <td class="right">${i+1}</td>
+          <td>${f.lav||''}</td>
+          <td class="right">${f.hhmm||''}</td>
+          <td class="right">${PEZZI||0}</td>
+        </tr>
+      `).join('');
+    })();
 
     // materiali: accetta r.materialiPrevisti o r.materiali
     const mats0 = Array.isArray(r?.materialiPrevisti) ? r.materialiPrevisti
@@ -4233,7 +4357,7 @@ window.stampaCommessaV2 = function (r) {
         th,td{border:1px solid #ccc; padding:6px; text-align:left;}
         th{background:#f7f7f7;}
         td.right, th.right{text-align:right;}
-                h3{font-size:14px; margin:14px 0 6px;}
+        h3{font-size:14px; margin:14px 0 6px;}
         .ibox{border:1px dashed #bbb; border-radius:6px; padding:10px; min-height:48px;}
         ul{margin:6px 0 0 18px;}
         @page { size:A4 portrait; margin:0; }
