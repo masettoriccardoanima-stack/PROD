@@ -9984,7 +9984,7 @@ function ImpostazioniView() {
   }
 
   // Upload logo
-  function onPickLogo(ev){
+  async function onPickLogo(ev){
     if (!isAdmin) {
       ev.target.value = '';
       return;
