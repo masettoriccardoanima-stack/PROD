@@ -4092,250 +4092,164 @@ function sortNewestFirst(arr, { dateKeys=['data','dataDocumento','createdAt','up
 // ================== STAMPA COMMESSA v2 (layout "foto") ==================
 window.stampaCommessaV2 = function (r) {
   try {
-    const app = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; }catch{return{}} })();
+    const app = (function () {
+      try {
+        return JSON.parse(localStorage.getItem('appSettings') || '{}') || {};
+      } catch {
+        return {};
+      }
+    })();
 
     // --- helpers ---
     const fmtIT = d => d ? new Date(d).toLocaleDateString('it-IT') : '';
-    const pad2 = n => String(n).padStart(2,'0');
+    const pad2 = n => String(n).padStart(2, '0');
     const hhmm2min = s => {
-      const m = String(s||'').trim().match(/^(\d{1,3})(?::([0-5]?\d))?$/);
+      const m = String(s || '').trim().match(/^(\d{1,3})(?::([0-5]?\d))?$/);
       if (!m) return 0;
-      const h = +m[1]||0, mm = +(m[2]||0)||0;
-      return h*60+mm;
+      const h = +m[1] || 0, mm = +(m[2] || 0) || 0;
+      return h * 60 + mm;
     };
-    const min2hhmm = m => `${pad2(Math.floor((+m||0)/60))}:${pad2((+m||0)%60)}`;
-
-        const esc = (s) => {
+    const min2hhmm = m => `${pad2(Math.floor((+m || 0) / 60))}:${pad2((+m || 0) % 60)}`;
+    const esc = s => {
       s = (s == null ? '' : String(s));
       return s.replace(/[&<>"']/g, ch => (
         ch === '&' ? '&amp;' :
-        ch === '<' ? '&lt;'  :
-        ch === '>' ? '&gt;'  :
-        ch === '"' ? '&quot;':
+        ch === '<' ? '&lt;' :
+        ch === '>' ? '&gt;' :
+        ch === '"' ? '&quot;' :
         /* ch === "'" */ '&#39;'
       ));
     };
 
-    // campi di comodo/robustezza
-      const ID   = r?.id || '';
-      const TIT  = r?.tipoArticolo || r?.titolo || r?.descrizione || '';
-      const CLIENTE = r?.clienteRagione || r?.cliente || '';
-      const PRIO = String(r?.priorita || r?.priority || '').toUpperCase();
-      const DUE  = r?.dataConsegna || r?.scadenza || '';
-      const PEZZI = +r?.pezziTotali || +r?.qtaPezzi || 0;
-
-
-        // fasi: accetta [{lav, hhmm}] o varianti
-    const fasi = Array.isArray(r?.fasi) ? r.fasi.map((f,i)=>({
-      lav:   f.lav || f.nome || f.descr || f.descrizione || `Fase ${i+1}`,
-      hhmm:  f.hhmm || f.durata || f.tempo || f.hh || f.min ? (f.hhmm || (f.min? min2hhmm(f.min): '')) : (f.durataHHMM || ''),
-    })) : [];
-
-    // --- ore previste header: per pezzo + totali ---
-    let orePerPezzo = '00:00';
-    let oreTotPrev  = '00:00';
-
-    try {
-      const pezzi = Math.max(1, Number(r?.qtaPezzi || r?.pezziTotali || 0));
-
-      // uso la funzione "smart" se esiste (minuti totali commessa)
-      const fnSmart =
-        (typeof window !== 'undefined' && typeof window.plannedMinTotalCommessaSmart === 'function')
-          ? window.plannedMinTotalCommessaSmart
-          : (typeof plannedMinTotalCommessaSmart === 'function'
-              ? plannedMinTotalCommessaSmart
-              : null);
-
-      if (fnSmart) {
-        const totMin = Number(fnSmart(r)) || 0;
-        const perMin = pezzi > 0 ? Math.round(totMin / pezzi) : totMin;
-        orePerPezzo = min2hhmm(perMin);
-        oreTotPrev  = min2hhmm(totMin);
-      } else {
-        // fallback: uso i campi salvati nella commessa, se presenti
-        const rawPerPiece = (r?.orePerPezzoHHMM || r?.orePerPezzo || '').toString().trim();
-        const rawTot      = r?.oreTotaliPrev;
-
-        if (rawPerPiece) {
-          const perMin = /^[0-9]+:[0-5]?[0-9]$/.test(rawPerPiece)
-            ? hhmm2min(rawPerPiece)          // già HH:MM
-            : (Number(rawPerPiece) || 0);    // minuti numerici
-          orePerPezzo = min2hhmm(perMin);
-        }
-
-        if (rawTot != null) {
-          const totMin = Number(rawTot) || 0;
-          if (totMin > 0) oreTotPrev = min2hhmm(totMin);
-        }
-      }
-
-      // se ci sono più codici articolo, il tempo per pezzo medio è poco significativo → '--'
-      try {
-        const rows = Array.isArray(r?.righeArticolo) ? r.righeArticolo : [];
-        const codes = new Set();
-        rows.forEach(row => {
-          const codice = row && (row.codice || row.codArticolo || row.cod);
-          if (codice) codes.add(String(codice));
-        });
-        if (codes.size > 1) orePerPezzo = '--';
-      } catch {}
-    } catch (e) {
-      console.error('Errore calcolo ore previste in stampaCommessaV2:', e);
+    if (!r || typeof r !== 'object') {
+      alert('Commessa non valida');
+      return;
     }
 
-    // --- fasi per riga / globali ---
-    const righeArt = Array.isArray(r?.righeArticolo) ? r.righeArticolo : [];
+    // --- campi principali commessa ---
+    const ID = r.id || r.codice || '';
+    const TIT = r.titolo || r.descrizione || r.tipoArticolo || '-';
 
-    // c'è almeno una riga con fasi "vere"? (per-riga, con minuti >0 o almeno un nome fase)
+    let CLIENTE = '';
+    if (r.cliente && typeof r.cliente === 'object') {
+      CLIENTE =
+        r.cliente.ragioneSociale ||
+        r.cliente.ragione ||
+        r.cliente.denominazione ||
+        r.cliente.nome ||
+        '';
+    }
+    CLIENTE = CLIENTE || r.clienteRagione || r.cliente_nome || r.cliente || '';
+
+    const PRIO = String(r.priorita || r.priority || '').toUpperCase();
+    const DUE = r.dataConsegna || r.scadenza || r.data_scadenza || '';
+    const PEZZI = Number(r.qtaPezzi || r.pezziTotali || 0) || 0;
+
+    // --- fasi globali (legacy, usate per istruzioni di fallback) ---
+    const fasiGlobal = Array.isArray(r.fasi) ? r.fasi.map((f, i) => ({
+      lav: f.lav || f.nome || f.descr || f.descrizione || `Fase ${i + 1}`,
+      hhmm: f.hhmm || f.durata || f.tempo || f.hh || f.min
+        ? (f.hhmm || (f.min ? min2hhmm(f.min) : ''))
+        : (f.durataHHMM || '')
+    })) : [];
+
+    // --- righe articolo + fasi per riga ---
+    const righeArt = Array.isArray(r.righeArticolo) ? r.righeArticolo : [];
+
+    // c'è almeno una riga con fasi "vere"?
     const hasRowPhases = righeArt.some(row =>
       Array.isArray(row?.fasi) &&
       row.fasi.some(f => {
-        try{
-          if (typeof window !== 'undefined' && typeof window.plannedMinsFromFase === 'function'){
+        try {
+          if (typeof window !== 'undefined' && typeof window.plannedMinsFromFase === 'function') {
             if (window.plannedMinsFromFase(f) > 0) return true;
-          } else if (typeof plannedMinsFromFase === 'function'){
+          } else if (typeof plannedMinsFromFase === 'function') {
             if (plannedMinsFromFase(f) > 0) return true;
           }
-        }catch{}
+        } catch { }
         const name = String(f?.lav || f?.nome || f?.descr || f?.descrizione || '').trim();
         return !!name;
       })
     );
 
-    // header tabella fasi: una sola tabella, con colonna TOT HH:MM / pz per articolo
-    const fasiHeaderHTML = (hasRowPhases && righeArt.length) ? `
-          <thead>
-            <tr>
-              <th>Codice</th>
-              <th>Descrizione</th>
-              <th class="right">Q.tà</th>
-              <th class="right">TOT HH:MM / pz</th>
-              <th>Fase</th>
-              <th class="right">HH:MM / pz</th>
-              <th class="right">HH:MM tot</th>
-            </tr>
-          </thead>` : `
-          <thead>
-            <tr>
-              <th class="right">#</th>
-              <th>Lavorazione</th>
-              <th class="right">HH:MM per fase</th>
-              <th class="right">Q.tà</th>
-            </tr>
-          </thead>`;
+    // --- ore previste header (usa funzione "smart" se c'è) ---
+    let orePerPezzo = '00:00';
+    let oreTotPrev = '00:00';
+    try {
+      const pezzi = Math.max(1, PEZZI || 0);
+      const fnSmart =
+        (typeof window !== 'undefined' && typeof window.plannedMinTotalCommessaSmart === 'function')
+          ? window.plannedMinTotalCommessaSmart
+          : (typeof plannedMinTotalCommessaSmart === 'function'
+            ? plannedMinTotalCommessaSmart
+            : null);
 
-    const fasiEmptyRow = (hasRowPhases && righeArt.length)
-      ? `<tr><td colspan="7" class="muted">Nessuna fase impostata</td></tr>`
-      : `<tr><td colspan="4" class="muted">Nessuna fase impostata</td></tr>`;
-
-    const fasiRows = (function(){
-      // helper: minuti da una fase (usa plannedMinsFromFase)
-      function minsFromFase(f){
-        let mins = 0;
-        try{
-          if (typeof window !== 'undefined' && typeof window.plannedMinsFromFase === 'function'){
-            mins = window.plannedMinsFromFase(f);
-          } else if (typeof plannedMinsFromFase === 'function'){
-            mins = plannedMinsFromFase(f);
-          }
-        }catch{}
-        if (!Number.isFinite(mins)) mins = 0;
-        return mins;
+      if (fnSmart) {
+        const totMin = Number(fnSmart(r)) || 0;
+        const perMin = pezzi > 0 ? Math.round(totMin / pezzi) : 0;
+        oreTotPrev = totMin ? min2hhmm(totMin) : '00:00';
+        orePerPezzo = perMin ? min2hhmm(perMin) : '00:00';
+      } else if (r.oreTotaliPrev != null) {
+        const totMin = Number(r.oreTotaliPrev) || 0;
+        if (totMin > 0) {
+          oreTotPrev = min2hhmm(totMin);
+          const perMin = pezzi > 0 ? Math.round(totMin / pezzi) : 0;
+          if (perMin > 0) orePerPezzo = min2hhmm(perMin);
+        }
       }
 
-      // Caso nuovo: fasi per riga articolo
-      if (hasRowPhases && righeArt.length){
-        const rowsHTML = [];
-
-        righeArt.forEach(row => {
-          const codice = (row && (row.codice || row.codArticolo || row.cod)) || '';
-          const descr  = (row && (row.descrizione || row.descr || row.titolo)) || '';
-          const qtaRow = Math.max(1, Number(row?.qta || row?.qtaPezzi || row?.quantita || PEZZI || 1));
-
-          const rowFasi = Array.isArray(row?.fasi) ? row.fasi : [];
-          if (!rowFasi.length) return;
-
-          // TOT per pezzo dell'articolo = somma fasi non una-tantum
-          let perPieceTotMinsArt = 0;
-          rowFasi.forEach(f => {
-            const mins = minsFromFase(f);
-            const isOnce = !!(f.unaTantum || f.once);
-            if (!isOnce) perPieceTotMinsArt += mins;
-          });
-          const hhmmTotPerPezzoArt = perPieceTotMinsArt ? min2hhmm(perPieceTotMinsArt) : '';
-
-          // righe di dettaglio fasi
-          rowFasi.forEach((f, idx) => {
-            const mins = minsFromFase(f);
-            const isOnce       = !!(f.unaTantum || f.once);
-            const perPieceMins = isOnce ? 0 : mins;
-            const totMins      = isOnce ? mins : mins * qtaRow;
-
-            rowsHTML.push(`
-              <tr>
-                <td>${idx === 0 ? esc(codice) : ''}</td>
-                <td>${idx === 0 ? esc(descr) : ''}</td>
-                <td class="right">${idx === 0 ? qtaRow : ''}</td>
-                <td class="right">${idx === 0 ? hhmmTotPerPezzoArt : ''}</td>
-                <td>${esc(f.lav || f.nome || f.descr || f.descrizione || '')}</td>
-                <td class="right">${perPieceMins ? min2hhmm(perPieceMins) : ''}</td>
-                <td class="right">${totMins ? min2hhmm(totMins) : ''}</td>
-              </tr>
-            `);
-          });
-        });
-
-        return rowsHTML.join('');
+      // se più codici articolo, il tempo per pezzo medio è poco significativo
+      const codes = new Set();
+      righeArt.forEach(row => {
+        const codice = row && (row.codice || row.codArticolo || row.cod);
+        if (codice) codes.add(String(codice));
+      });
+      if (codes.size > 1) {
+        orePerPezzo = '--';
       }
+    } catch (e) {
+      console.error('Errore calcolo ore previste in stampaCommessaV2:', e);
+    }
 
-      // Fallback legacy: fasi globali come prima
-      return (fasi.length ? fasi : []).map((f,i)=>`
-        <tr>
-          <td class="right">${i+1}</td>
-          <td>${f.lav||''}</td>
-          <td class="right">${f.hhmm||''}</td>
-          <td class="right">${PEZZI||0}</td>
-        </tr>
-      `).join('');
-    })();
-
-    // materiali: accetta r.materialiPrevisti o r.materiali
-    const mats0 = Array.isArray(r?.materialiPrevisti) ? r.materialiPrevisti
-                : Array.isArray(r?.materiali) ? r.materiali : [];
-    const materiali = mats0.map(m=>({
-      codice: String(m.codice||''),
-      descr:  String(m.descr||m.descrizione||''),
-      um:     String(m.um||''),
-      qta:    (m.qta!=null? m.qta : (m.quantita!=null? m.quantita : '')) || '',
-      note:   String(m.note||'')
+    // --- materiali previsti ---
+    const mats0 = Array.isArray(r.materialiPrevisti) ? r.materialiPrevisti
+      : Array.isArray(r.materiali) ? r.materiali : [];
+    const materiali = mats0.map(m => ({
+      codice: String(m.codice || ''),
+      descr: String(m.descr || m.descrizione || ''),
+      um: String(m.um || ''),
+      qta: (m.qta != null ? m.qta : (m.quantita != null ? m.quantita : '')) || '',
+      note: String(m.note || '')
     }));
 
-    // istruzioni: array o testo → bullet; fallback alle fasi.lav
-    const istrTxt = r?.istruzioni;
+    // --- istruzioni ---
+    const istrTxt = r.istruzioni;
     let istruzioni = [];
-    if (Array.isArray(istrTxt)) istruzioni = istrTxt.map(x=>String(x).trim()).filter(Boolean);
-    else if (typeof istrTxt === 'string') {
-      istruzioni = istrTxt.split(/\r?\n|;|•|- /).map(s=>s.trim()).filter(Boolean);
-    } else if (fasi.length) {
-      istruzioni = fasi.map(f=>f.lav).filter(Boolean);
+    if (Array.isArray(istrTxt)) {
+      istruzioni = istrTxt.map(x => String(x).trim()).filter(Boolean);
+    } else if (typeof istrTxt === 'string') {
+      istruzioni = istrTxt.split(/\r?\n|;|•|- /).map(s => s.trim()).filter(Boolean);
+    } else if (fasiGlobal.length) {
+      istruzioni = fasiGlobal.map(f => f.lav).filter(Boolean);
     }
 
-    // logo + QR URL
+    // --- logo + QR URL ---
     const logo = app.logoDataUrl || '';
-    const qrUrl = (function(){
-    try {
-    const cfgBase = (app.publicBaseUrl && String(app.publicBaseUrl).trim()) || '';
-    if (cfgBase) {
-      const base = cfgBase.replace(/\/+$/,''); // niente slash finale
-      return `${base}/#\/timbratura?job=${encodeURIComponent(ID)}`;
-    }
-    // fallback: origin corrente (funziona solo sullo stesso dispositivo)
-    const base = location.origin + location.pathname;
-    return `${base}#/timbratura?job=${encodeURIComponent(ID)}`;
-    } catch { return `#/timbratura?job=${encodeURIComponent(ID)}`; }
+    const qrUrl = (function () {
+      try {
+        const cfgBase = (app.publicBaseUrl && String(app.publicBaseUrl).trim()) || '';
+        if (cfgBase) {
+          const base = cfgBase.replace(/\/+$/, '');
+          return `${base}/#/timbratura?job=${encodeURIComponent(ID)}`;
+        }
+        const base = location.origin + location.pathname;
+        return `${base}#/timbratura?job=${encodeURIComponent(ID)}`;
+      } catch {
+        return `#/timbratura?job=${encodeURIComponent(ID)}`;
+      }
     })();
 
-
+    // --- CSS (A4 verticale) ---
     const css = `
       <style>
         *{box-sizing:border-box}
@@ -4368,23 +4282,36 @@ window.stampaCommessaV2 = function (r) {
       </style>
     `;
 
-    const righeArt = Array.isArray(r?.righeArticolo) ? r.righeArticolo : [];
+    // --- calcolo fasi per riga / globali ---
 
-    // c'è almeno una riga con fasi "vere"? (per-riga, con minuti >0 o almeno un nome fase)
-    const hasRowPhases = righeArt.some(row =>
-      Array.isArray(row?.fasi) &&
-      row.fasi.some(f => {
-        try{
-          if (typeof window !== 'undefined' && typeof window.plannedMinsFromFase === 'function'){
-            if (window.plannedMinsFromFase(f) > 0) return true;
+    // helper minuti da fase (usa HH:MM se presente, altrimenti plannedMinsFromFase)
+    function minsFromFase(f) {
+      const rawHHMM = String(
+        f?.orePrevHHMM ||
+        f?.oreHHMM ||
+        f?.hhmm ||
+        f?.orePrev ||
+        f?.durataHHMM ||
+        ''
+      ).trim();
+
+      let mins = 0;
+      if (rawHHMM) {
+        mins = hhmm2min(rawHHMM);
+      } else {
+        try {
+          if (typeof window !== 'undefined' && typeof window.plannedMinsFromFase === 'function') {
+            mins = window.plannedMinsFromFase(f);
+          } else if (typeof plannedMinsFromFase === 'function') {
+            mins = plannedMinsFromFase(f);
           }
-        }catch{}
-        const name = String(f?.lav || f?.nome || f?.descr || f?.descrizione || '').trim();
-        return !!name;
-      })
-    );
+        } catch { }
+      }
+      if (!Number.isFinite(mins)) mins = 0;
+      return mins;
+    }
 
-        const fasiHeaderHTML = (hasRowPhases && righeArt.length) ? `
+    const fasiHeaderHTML = (hasRowPhases && righeArt.length) ? `
           <thead>
             <tr>
               <th>Codice</th>
@@ -4409,47 +4336,20 @@ window.stampaCommessaV2 = function (r) {
       ? `<tr><td colspan="7" class="muted">Nessuna fase impostata</td></tr>`
       : `<tr><td colspan="4" class="muted">Nessuna fase impostata</td></tr>`;
 
-    const fasiRows = (function(){
-      // helper interno: da una fase → minuti previsti
-      function minsFromFase(f){
-        // 1) provo a leggere una stringa HH:MM dalla fase
-        const rawHHMM = String(
-          f?.orePrevHHMM ||
-          f?.oreHHMM     ||
-          f?.hhmm        ||
-          f?.orePrev     ||
-          f?.durataHHMM  ||
-          ''
-        ).trim();
-
-        if (rawHHMM){
-          return hhmm2min(rawHHMM);
-        }
-
-        // 2) fallback: uso l'helper globale se esiste
-        let mins = 0;
-        try{
-          if (typeof window !== 'undefined' && typeof window.plannedMinsFromFase === 'function'){
-            mins = window.plannedMinsFromFase(f);
-          }
-        }catch{}
-        if (!Number.isFinite(mins)) mins = 0;
-        return mins;
-      }
-
+    const fasiRows = (function () {
       // Caso nuovo: fasi per riga articolo
-      if (hasRowPhases && righeArt.length){
+      if (hasRowPhases && righeArt.length) {
         const rowsHTML = [];
 
         righeArt.forEach(row => {
           const codice = (row && (row.codice || row.codArticolo || row.cod)) || '';
-          const descr  = (row && (row.descrizione || row.descr || row.titolo)) || '';
+          const descr = (row && (row.descrizione || row.descr || row.titolo)) || '';
           const qtaRow = Math.max(1, Number(row?.qta || row?.qtaPezzi || row?.quantita || PEZZI || 1));
 
           const rowFasi = Array.isArray(row?.fasi) ? row.fasi : [];
           if (!rowFasi.length) return;
 
-          // TOT per pezzo dell'articolo = somma delle fasi non una-tantum
+          // TOT per pezzo dell'articolo = somma fasi non una-tantum
           let perPieceTotMinsArt = 0;
           rowFasi.forEach(f => {
             const mins = minsFromFase(f);
@@ -4458,12 +4358,12 @@ window.stampaCommessaV2 = function (r) {
           });
           const hhmmTotPerPezzoArt = perPieceTotMinsArt ? min2hhmm(perPieceTotMinsArt) : '';
 
-          // Righe di dettaglio fasi
+          // righe di dettaglio fasi
           rowFasi.forEach((f, idx) => {
             const mins = minsFromFase(f);
-            const isOnce       = !!(f.unaTantum || f.once);
+            const isOnce = !!(f.unaTantum || f.once);
             const perPieceMins = isOnce ? 0 : mins;
-            const totMins      = isOnce ? mins : mins * qtaRow;
+            const totMins = isOnce ? mins : mins * qtaRow;
 
             rowsHTML.push(`
               <tr>
@@ -4482,28 +4382,30 @@ window.stampaCommessaV2 = function (r) {
         return rowsHTML.join('');
       }
 
-      // Fallback legacy: fasi globali come prima
-      return (fasi.length ? fasi : []).map((f,i)=>`
+      // Fallback legacy: fasi globali (commessa senza fasi per riga)
+      return (fasiGlobal.length ? fasiGlobal : []).map((f, i) => `
         <tr>
-          <td class="right">${i+1}</td>
-          <td>${f.lav||''}</td>
-          <td class="right">${f.hhmm||''}</td>
-          <td class="right">${PEZZI||0}</td>
+          <td class="right">${i + 1}</td>
+          <td>${esc(f.lav || '')}</td>
+          <td class="right">${f.hhmm || ''}</td>
+          <td class="right">${PEZZI || 0}</td>
         </tr>
       `).join('');
     })();
 
-    const matRows = (materiali.length? materiali: []).map(m=>`
+    const matRows = (materiali.length ? materiali : []).map(m => `
       <tr>
         <td>${m.codice}</td>
         <td>${m.descr}</td>
         <td>${m.um}</td>
         <td class="right">${m.qta}</td>
-        <td>${m.note||''}</td>
+        <td>${m.note || ''}</td>
       </tr>
     `).join('');
 
-    const istrList = (istruzioni.length? `<ul>${istruzioni.map(x=>`<li>${x}</li>`).join('')}</ul>` : '');
+    const istrList = (istruzioni.length
+      ? `<ul>${istruzioni.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`
+      : '');
 
     const html = `
       <html>
@@ -4516,48 +4418,29 @@ window.stampaCommessaV2 = function (r) {
             <div class="brand">
               ${logo ? `<img class="logo" src="${logo}" alt="logo">` : `<div class="muted">[Logo non impostato]</div>`}
               <div>
-                <div style="font-weight:700">${CLIENTE || ''}</div>
-                <h1>${TIT || '-'}</h1>
-                <div class="pill"><span class="lab">Priorità:</span> ${PRIO||'-'}</div><br>
-                <div class="pill"><span class="lab">Consegna prevista:</span> ${fmtIT(DUE)||'-'}</div>
+                <div style="font-weight:700">${esc(CLIENTE || '')}</div>
+                <h1>${esc(TIT || '-')}</h1>
+                <div class="pill"><span class="lab">Priorità:</span> ${PRIO || '-'}</div><br>
+                <div class="pill"><span class="lab">Consegna prevista:</span> ${fmtIT(DUE) || '-'}</div>
               </div>
             </div>
           </div>
           <div class="qrwrap">
-            <div><b>Commessa: ${ID}</b></div>
+            <div><b>Commessa: ${esc(ID)}</b></div>
             <canvas id="qr"></canvas>
-            <small>${qrUrl}</small>
+            <small>${esc(qrUrl)}</small>
           </div>
         </div>
 
         <div class="kpis">
-          <div class="kpi"><div class="lab">Pezzi totali</div><div class="val">${PEZZI||0}</div></div>
+          <div class="kpi"><div class="lab">Pezzi totali</div><div class="val">${PEZZI || 0}</div></div>
           <div class="kpi"><div class="lab">Ore per pezzo (previste)</div><div class="val">${orePerPezzo}</div></div>
           <div class="kpi"><div class="lab">Ore totali (previste)</div><div class="val">${oreTotPrev}</div></div>
         </div>
 
-        ${articoliSummaryRows ? `
-        <h3>Articoli & tempi previsti</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>Codice</th>
-              <th>Descrizione</th>
-              <th class="right">Q.tà</th>
-              <th class="right">TOT HH:MM / pz</th>
-              <th class="right">TOT HH:MM commessa</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${articoliSummaryRows}
-          </tbody>
-        </table>
-        ` : ''}
-
         <h3>Fasi di lavorazione</h3>
         <table>
           ${fasiHeaderHTML}
-
           <tbody>
             ${fasiRows || fasiEmptyRow}
           </tbody>
@@ -4579,7 +4462,7 @@ window.stampaCommessaV2 = function (r) {
         <script>
           try {
             var c = document.getElementById('qr');
-            new QRious({ element: c, value: ${JSON.stringify(''+qrUrl)}, size: 140 });
+            new QRious({ element: c, value: ${JSON.stringify('' + (qrUrl || ''))}, size: 140 });
           } catch(e) { /* ignore */ }
           setTimeout(function(){ window.print(); }, 200);
         </script>
@@ -4587,28 +4470,38 @@ window.stampaCommessaV2 = function (r) {
     `;
 
     const f = document.createElement('iframe');
-    Object.assign(f.style, { position:'fixed', right:0, bottom:0, width:0, height:0, border:0 });
+    Object.assign(f.style, {
+      position: 'fixed',
+      right: 0,
+      bottom: 0,
+      width: 0,
+      height: 0,
+      border: 0
+    });
     document.body.appendChild(f);
     const w = f.contentWindow;
-    w.document.open(); w.document.write(html); w.document.close(); w.focus();
-        setTimeout(()=>{ try{ document.body.removeChild(f); }catch{} }, 1500);
-  } catch(e) {
-    console.error(e);
-
-    // fallback: se la V2 fallisce, provo il layout vecchio (printCommessa)
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => { try { w.print(); } catch(e){} }, 200);
+    setTimeout(() => { try { document.body.removeChild(f); } catch(e){} }, 1500);
+  } catch (e) {
+    console.error('Errore in stampaCommessaV2:', e);
+    // fallback sul vecchio layout se esiste
     try {
       if (window.printCommessa && r) {
         alert('Errore stampa commessa v2, provo il layout precedente…');
         window.printCommessa(r);
         return;
       }
-    } catch(e2) {
+    } catch (e2) {
       console.error('Fallback printCommessa fallito:', e2);
     }
-
     alert('Errore stampa commessa.');
   }
 };
+
  // === Scanner QR: usa BarcodeDetector se presente, altrimenti html5-qrcode ===
 if (!window.scanQR) window.scanQR = async function(){
   // 1) se il browser NON può usare la camera (HTTP su LAN), cado su prompt
