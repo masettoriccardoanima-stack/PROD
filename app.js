@@ -8349,7 +8349,22 @@ window.delCommessa     = window.delCommessa     || delCommessa;
                     e('input', { type:'checkbox', checked: !!sel[c.id], onChange: ()=>toggleRow(c.id) })
                   ),
                   e('td', null, e('a', { href:'#', onClick:(ev)=>{ ev.preventDefault(); startEdit(c); } }, c.id)),
-                  e('td', null, c.cliente||''),
+                                    e('td', null,
+                    e('div', { style:{ fontWeight:600 } }, c.cliente || ''),
+                    (() => {
+                      const raw = (c.priorita || c.priority || '').toString().trim().toUpperCase();
+                      if (!raw) return null;
+
+                      let color = '#666';
+                      if (raw === 'ALTA')  color = '#c0392b';   // rosso
+                      else if (raw === 'MEDIA') color = '#e67e22'; // arancio
+                      else if (raw === 'BASSA') color = '#27ae60'; // verde
+
+                      return e('div', {
+                        style:{ fontSize:'11px', color, marginTop:2 }
+                      }, `Priorità: ${raw}`);
+                    })()
+                  ),
                     // Descrizione: fino a 3 righe "CODICE - PrimaParola", poi badge (+N altri)
                     e('td', null, (() => {
                       const righe = Array.isArray(c.righeArticolo)
