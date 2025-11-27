@@ -4243,7 +4243,7 @@ window.stampaCommessaV2 = function (r) {
       ? `<tr><td colspan="6" class="muted">Nessuna fase impostata</td></tr>`
       : `<tr><td colspan="4" class="muted">Nessuna fase impostata</td></tr>`;
 
-    const fasiRows = (function(){
+        const fasiRows = (function(){
       // Caso nuovo: fasi per riga articolo
       if (hasRowPhases && righeArt.length){
         const rowsHTML = [];
@@ -4256,17 +4256,37 @@ window.stampaCommessaV2 = function (r) {
           if (!rowFasi.length) return;
 
           rowFasi.forEach((f, idx) => {
+            // 1) stringa HH:MM grezza dalla fase (come la vedi in edit)
+            const rawHHMM = String(
+              f.orePrevHHMM ||
+              f.oreHHMM     ||
+              f.hhmm        ||
+              f.orePrev     ||
+              f.durataHHMM  ||
+              ''
+            ).trim();
+
+            // 2) converto in minuti
             let mins = 0;
-            try{
-              if (typeof window !== 'undefined' && typeof window.plannedMinsFromFase === 'function'){
-                mins = window.plannedMinsFromFase(f);
-              }
-            }catch{}
+            if (rawHHMM){
+              mins = hhmm2min(rawHHMM);
+            } else {
+              // fallback: uso l'helper globale se disponibile
+              try{
+                if (typeof window !== 'undefined' && typeof window.plannedMinsFromFase === 'function'){
+                  mins = window.plannedMinsFromFase(f);
+                }
+              }catch{}
+            }
             if (!Number.isFinite(mins)) mins = 0;
 
+            // 3) gestione una tantum vs per pezzo
             const isOnce       = !!(f.unaTantum || f.once);
             const perPieceMins = isOnce ? 0 : mins;
             const totMins      = isOnce ? mins : mins * qtaRow;
+
+            const hhmmPerPiece = rawHHMM || (perPieceMins ? min2hhmm(perPieceMins) : '');
+            const hhmmTot      = totMins ? min2hhmm(totMins) : '';
 
             rowsHTML.push(`
               <tr>
@@ -4274,8 +4294,8 @@ window.stampaCommessaV2 = function (r) {
                 <td>${idx === 0 ? esc(descr) : ''}</td>
                 <td class="right">${idx === 0 ? qtaRow : ''}</td>
                 <td>${esc(f.lav || f.nome || f.descr || f.descrizione || '')}</td>
-                <td class="right">${perPieceMins ? min2hhmm(perPieceMins) : ''}</td>
-                <td class="right">${totMins ? min2hhmm(totMins) : ''}</td>
+                <td class="right">${hhmmPerPiece || ''}</td>
+                <td class="right">${hhmmTot || ''}</td>
               </tr>
             `);
           });
