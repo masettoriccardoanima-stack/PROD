@@ -4175,6 +4175,7 @@ window.stampaCommessaV2 = function (r) {
     // --- ore previste header (usa funzione "smart" se c'è) ---
     let orePerPezzo = '00:00';
     let oreTotPrev = '00:00';
+    let totalPlannedMins = 0; // somma minuti pianificati dalle fasi per-riga (se presenti)
     try {
       const pezzi = Math.max(1, PEZZI || 0);
       const fnSmart =
@@ -4365,6 +4366,10 @@ window.stampaCommessaV2 = function (r) {
             const perPieceMins = isOnce ? 0 : mins;
             const totMins = isOnce ? mins : mins * qtaRow;
 
+            if (totMins > 0) {
+              totalPlannedMins += totMins;
+            }
+
             rowsHTML.push(`
               <tr>
                 <td>${idx === 0 ? esc(codice) : ''}</td>
@@ -4392,6 +4397,11 @@ window.stampaCommessaV2 = function (r) {
         </tr>
       `).join('');
     })();
+
+    // Se abbiamo fasi per-riga e un totale calcolato, usiamo quello per le “Ore totali (previste)”
+    if (hasRowPhases && totalPlannedMins > 0) {
+      oreTotPrev = min2hhmm(totalPlannedMins);
+    }
 
     const matRows = (materiali.length ? materiali : []).map(m => `
       <tr>
@@ -4434,7 +4444,6 @@ window.stampaCommessaV2 = function (r) {
 
         <div class="kpis">
           <div class="kpi"><div class="lab">Pezzi totali</div><div class="val">${PEZZI || 0}</div></div>
-          <div class="kpi"><div class="lab">Ore per pezzo (previste)</div><div class="val">${orePerPezzo}</div></div>
           <div class="kpi"><div class="lab">Ore totali (previste)</div><div class="val">${oreTotPrev}</div></div>
         </div>
 
