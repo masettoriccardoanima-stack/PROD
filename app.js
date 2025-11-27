@@ -18938,9 +18938,12 @@ window.findCommessaById = window.findCommessaById || function(id){
 
   const e = React.createElement;
 
-   // ---------------- Sidebar (completa, con dedupe + toggle persistente) ----------------
+  // ---------------- Sidebar (completa, con dedupe + toggle persistente) ----------------
   window.__ALLOWED_WORKER_ROUTES = window.__ALLOWED_WORKER_ROUTES || new Set([
-    '#/timbratura'
+    '#/timbratura',
+    '#/commesse',
+    '#/ddt',
+    '#/impostazioni'
   ]);
   function Sidebar({ hash }) {
     const R   = (window.ROUTES || {});
@@ -18972,6 +18975,7 @@ window.findCommessaById = window.findCommessaById || function(id){
       ['__section__', 'Produzione'],
         ['#/commesse', 'Commesse'],
         ['#/ore', 'Ore'],
+        ['#/timbratura', 'Timbratura'],
 
       ['__section__', 'Anagrafiche'],
         ['#/clienti', 'Clienti'],
