@@ -12527,9 +12527,11 @@ window.printDDT = function(state){
   const fmt2 = n => Number(n||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});
   const pad3 = n => String(n).padStart(3,'0');
 
-        // DDT esistenti (per calcolare quanto è già stato spedito per riga)
-      const ddtRows = lsGet('ddtRows', []) || [];
-      const jobId   = String(commessa?.id || '');
+  // DDT esistenti (per calcolare quanto è già stato spedito per riga)
+  const ddtRows = lsGet('ddtRows', []) || [];
+  // In questo modulo non abbiamo una singola commessa attiva: jobId resta vuoto,
+  // così shippedForRow (qui) restituisce sempre 0 ed evita di usare variabili inesistenti.
+  const jobId   = '';
 
       function shippedForRow(r){
         const rowId = String(r?.rowId || r?.rowID || '').trim();
