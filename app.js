@@ -8058,13 +8058,20 @@ window.delCommessa     = window.delCommessa     || delCommessa;
         const um = String(r.um || r.UM || a?.um || a?.UM || 'PZ').toUpperCase();
         const prezzo = Number(r.prezzo ?? r.prezzoUnitario ?? a?.prezzo ?? a?.costo ?? 0) || 0;
 
+        // Quantità prevista a commessa per questa riga
+        const qOrig   = Number(r.qta ?? r.quantita ?? commessa.qtaPezzi ?? 0) || 0;
+        // Già spedito su DDT per questa riga
+        const shipped = shippedForRow(r);
+        // Residuo (mai negativo)
+        const resid   = Math.max(0, qOrig - shipped);
+
         return {
           commessaRowId: String(r.rowId || r.rowID || ''),
           codice: cod,
           descrizione: r.descrizione || r.articoloDescr || a?.descrizione || a?.descr || '',
           UM: um,
           um,
-          qta: Number(r.qta || r.quantita || 0) || 0,
+          qta: resid || 0,
           prezzo,
           note: r.note || commessa.noteSpedizione || ''
         };
@@ -12458,6 +12465,49 @@ window.printDDT = function(state){
   const todayISO = ()=> new Date().toISOString().slice(0,10);
   const fmt2 = n => Number(n||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});
   const pad3 = n => String(n).padStart(3,'0');
+
+        // DDT esistenti (per calcolare quanto è già stato spedito per riga)
+      const ddtRows = lsGet('ddtRows', []) || [];
+      const jobId   = String(commessa?.id || '');
+
+      function shippedForRow(r){
+        const rowId = String(r?.rowId || r?.rowID || '').trim();
+        if (!jobId) return 0;
+
+        let sum = 0;
+        (Array.isArray(ddtRows) ? ddtRows : []).forEach(ddt => {
+          if (!ddt) return;
+          if (ddt.annullato === true || String(ddt.stato||'') === 'Annullato') return;
+
+          const ddtJobId = String(
+            ddt.commessaId ||
+            ddt.commessaRif ||
+            ddt.__fromCommessaId ||
+            ''
+          );
+          if (ddtJobId !== jobId) return;
+
+          const righe = Array.isArray(ddt.righe) ? ddt.righe : [];
+          righe.forEach(dr => {
+            if (!dr) return;
+            const drRowId = String(dr.commessaRowId || dr.commessaRowID || '').trim();
+
+            // Se la commessa ha rowId usiamo il match per riga.
+            // Se la commessa non ha rowId, lavoriamo solo a livello commessa.
+            if (rowId){
+              if (drRowId !== rowId) return;
+            } else if (drRowId){
+              // riga commessa senza id ma DDT sì → evito di incrociare quantità a caso
+              return;
+            }
+
+            const q = Number(dr.qta ?? dr.quantita ?? 0);
+            if (Number.isFinite(q)) sum += q;
+          });
+        });
+
+        return Math.max(0, sum);
+      }
 
   // read-only: accountant
   const readOnly = (global.isReadOnlyUser ? !!global.isReadOnlyUser() : !!(global.__currentUser && global.__currentUser.role==='accountant'));
