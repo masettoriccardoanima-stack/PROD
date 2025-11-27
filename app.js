@@ -4131,9 +4131,49 @@ window.stampaCommessaV2 = function (r) {
       hhmm:  f.hhmm || f.durata || f.tempo || f.hh || f.min ? (f.hhmm || (f.min? min2hhmm(f.min): '')) : (f.durataHHMM || ''),
     })) : [];
 
-    // ore/pezzo: se mancante, somma delle fasi; ore totali = pezzi * ore/pezzo
-    const orePerPezzo = (r?.orePerPezzo && String(r.orePerPezzo)) || (fasi.length ? min2hhmm(fasi.reduce((s,x)=> s + hhmm2min(x.hhmm||0),0)) : '00:00');
-    const oreTotPrev  = (r?.oreTotaliPrev && String(r.oreTotaliPrev)) || (PEZZI>0 ? min2hhmm(hhmm2min(orePerPezzo)*PEZZI) : '00:00');
+    // --- ore previste header: per pezzo + totali ---
+    let orePerPezzo = '00:00';
+    let oreTotPrev  = '00:00';
+
+    try {
+      // pezzi totali per il calcolo
+      const pezzi = Math.max(1, Number(r?.qtaPezzi || r?.pezziTotali || 0));
+
+      // 1) se esiste la funzione "smart", uso quella (ritorna minuti totali)
+      const fnSmart =
+        (typeof window !== 'undefined' && typeof window.plannedMinTotalCommessaSmart === 'function')
+          ? window.plannedMinTotalCommessaSmart
+          : (typeof plannedMinTotalCommessaSmart === 'function'
+              ? plannedMinTotalCommessaSmart
+              : null);
+
+      if (fnSmart) {
+        const totMin = Number(fnSmart(r)) || 0;   // minuti totali previsti
+        const perMin = pezzi > 0 ? Math.round(totMin / pezzi) : totMin;
+
+        orePerPezzo = min2hhmm(perMin);
+        oreTotPrev  = min2hhmm(totMin);
+      } else {
+        // 2) fallback: uso i campi salvati nella commessa, se presenti
+        const rawPerPiece = (r?.orePerPezzoHHMM || r?.orePerPezzo || '').toString().trim();
+        const rawTot      = r?.oreTotaliPrev;
+
+        if (rawPerPiece) {
+          const perMin = /^[0-9]+:[0-5]?[0-9]$/.test(rawPerPiece)
+            ? hhmm2min(rawPerPiece)          // già HH:MM
+            : (Number(rawPerPiece) || 0);    // minuti numerici
+          orePerPezzo = min2hhmm(perMin);
+        }
+
+        if (rawTot != null) {
+          const totMin = Number(rawTot) || 0;     // se è 360 → 06:00
+          if (totMin > 0) oreTotPrev = min2hhmm(totMin);
+        }
+      }
+    } catch (e) {
+      console.error('Errore calcolo ore previste in stampaCommessaV2:', e);
+      // lascio i default 00:00
+    }
 
     // materiali: accetta r.materialiPrevisti o r.materiali
     const mats0 = Array.isArray(r?.materialiPrevisti) ? r.materialiPrevisti
