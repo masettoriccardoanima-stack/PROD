@@ -8059,7 +8059,7 @@ window.delCommessa     = window.delCommessa     || delCommessa;
         const prezzo = Number(r.prezzo ?? r.prezzoUnitario ?? a?.prezzo ?? a?.costo ?? 0) || 0;
 
         // Quantità prevista a commessa per questa riga
-        const qOrig   = Number(r.qta ?? r.quantita ?? commessa.qtaPezzi ?? 0) || 0;
+        const qOrig   = Number(r.qta ?? r.quantita ?? r.qtaPezzi ?? 0) || 0;
         // Già spedito su DDT per questa riga
         const shipped = shippedForRow(r);
         // Residuo (mai negativo)
