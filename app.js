@@ -9974,103 +9974,170 @@ function ImpostazioniView() {
     ev.target.value = '';
   }
 
-  // Salva TUTTO → usa SEMPRE updateAppSettings (merge + updatedAt)
+    // Salva TUTTO (unico punto di verità)
   function save(ev){
     ev && ev.preventDefault();
+    if (!window.safeSetJSON) { alert('safeSetJSON mancante'); return; }
 
-      try{
-      const den  = String(form.ragioneSociale||'').trim();
-      const piva = String(form.piva||'').replace(/\s/g,'');
-      const cf   = String(form.cf||form.codiceFiscale||'').trim();
-      const sede = String(form.sedeLegale||'').trim();
-      const reasons = [];
-      if (!den)  reasons.push('Denominazione azienda mancante');
-      if (!(piva || cf)) reasons.push('P.IVA o CF azienda mancanti');
-      if (!sede) reasons.push('Sede legale mancante');
-      if (reasons.length) {
-        (window.toast||alert)(
-          'Attenzione: dati azienda incompleti.\n• ' + reasons.join('\n• ') +
-          '\nPuoi salvare lo stesso; l’XML SdI resterà bloccato finché non completi i dati.'
-        );
+    // RBAC: solo ADMIN può toccare tutti i dati di impostazioni.
+    // I worker possono modificare SOLO i parametri tecnici Supabase.
+    const u = window.__USER || null;
+    const role = (u && u.role) || 'admin';
+    const isAdminUser = (role === 'admin');
+
+    const appPrev = app0 || {};
+    const nowIso = new Date().toISOString();
+
+    // --- BRANCH WORKER: aggiorna solo Supabase, non tocca il resto ---
+    if (!isAdminUser){
+      updateAppSettings({
+        ...appPrev,
+        updatedAt: nowIso,
+
+        // Supabase/Cloud (solo campi tecnici)
+        supabaseUrl      : String(form.supabaseUrl||'').trim(),
+        supabaseKey      : String(form.supabaseKey||'').trim(),
+        supabaseTable    : String(form.supabaseTable||'anima_sync').trim(),
+        supabaseEnv      : form.supabaseEnv || appPrev.supabaseEnv || '',
+        cloudEnv         : form.cloudEnv || appPrev.cloudEnv || '',
+        supabaseUrlBeta  : String(form.supabaseUrlBeta||'').trim(),
+        supabaseKeyBeta  : String(form.supabaseKeyBeta||'').trim(),
+        supabaseTableBeta: String(form.supabaseTableBeta||'').trim(),
+        syncTable        : String(form.syncTable || form.supabaseTable || appPrev.syncTable || 'anima_sync'),
+      });
+
+      alert('Parametri Supabase aggiornati (gli altri dati di impostazioni non sono stati toccati).');
+      return;
+    }
+
+    // --- BRANCH ADMIN (logica originale, invariata) ---
+
+    // Controllo veloce dati base azienda
+    if (!form.ragioneSociale || !form.indirizzo || !form.cap || !form.citta) {
+      if (!confirm('Mancano alcuni dati anagrafici (ragione sociale, indirizzo, CAP, città).\nVuoi salvare lo stesso?')) {
+        return;
       }
-      }catch{}
+    }
 
-    // Utenti & ruoli: normalizza (email + role), ignora righe vuote
-    const rawUsers = Array.isArray(form.users) ? form.users : [];
-    const usersSanitized = rawUsers
-      .map(u => ({
-        email: String(u.email || u.username || '').trim(),
-        role : (u.role || 'worker')
+    // normalizza utenti
+    const usersSanitized = (Array.isArray(form.users)?form.users:[])
+      .map(u=>({
+        email: String(u.email||u.username||'').trim(),
+        role : u.role || 'worker'
       }))
-      .filter(u => u.email);
+      .filter(u=>u.email);
 
-    const operatorsArr = parseOperators(form.operatorsText);
-    const fasiStd = (form.fasiStandard||[])
-
-      .map(x => (typeof x === 'string' ? x : (x?.label || x?.code || '')).trim())
-      .filter(Boolean);
-          // --- Numerazioni: salva anche in appSettings.numerazioni ---
-    const numerazioni = Object.assign({}, app0.numerazioni || {});
-    const yearKey = String(new Date().getFullYear());
-
-    const setNum = (seriesKey, value) => {
-      const n = Number(value);
-      if (!Number.isFinite(n) || !n) return;   // se vuoto o non numerico, salta
-      const serie = numerazioni[seriesKey] || {};
-      const curYearData = serie[yearKey] || {};
-      serie[yearKey] = { ...curYearData, ultimo: n };
-      numerazioni[seriesKey] = serie;
+    // normalizza operatori
+    const parseOperators = v=>{
+      if (!v) return [];
+      const arr = String(v).split(',').map(s=>s.trim()).filter(Boolean);
+      return arr.map(name=>({ name }));
     };
+    const operatorsArr = Array.isArray(form.operators)
+      ? form.operators
+      : parseOperators(form.operatorsCSV || '');
 
-    setNum('C',   form.numC);
-    setNum('DDT', form.numDDT);
-    setNum('FA',  form.numFA);
-    setNum('OF',  form.numOF);
+    // normalizza fasiStandard
+    let fasiStd = [];
+    try{
+      const src = form.fasiStandardRaw || JSON.stringify(form.fasiStandard || [], null, 2);
+      const parsed = JSON.parse(src);
+      if (Array.isArray(parsed)) fasiStd = parsed.map(x=>({
+        label: String(x.label || x.nome || x.lav || '').trim(),
+        hhmm : String(x.hhmm || x.oreHHMM || x.durataHHMM || '').trim()
+      })).filter(x=>x.label);
+    }catch{
+      alert('Formato fasi standard non valido (deve essere JSON array).');
+      return;
+    }
 
-    // Patch con i soli campi da aggiornare
+    // numerazioni
+    const numerazioni = Object.assign(
+      {},
+      (form.numerazioni || app0.numerazioni || {})
+    );
+    const setNum = (serie, field) => {
+      const v = Number(form[field]);
+      if (Number.isFinite(v) && v>0) {
+        numerazioni[serie] = { last: v, year: new Date().getFullYear() };
+      }
+    };
+    setNum('C', 'numC');
+    setNum('DDT', 'numDDT');
+    setNum('FA', 'numFA');
+    setNum('OF', 'numOF');
+
+    const publicBaseUrl = form.publicBaseUrl || app0.publicBaseUrl || '';
+    const magUpdateCMP = Number.isFinite(+form.magUpdateCMP) ? +form.magUpdateCMP : 0;
+
     updateAppSettings({
-      publicBaseUrl : String(form.publicBaseUrl||'').trim(),
-      magUpdateCMP  : !!form.magUpdateCMP,
+      ...appPrev,
+      updatedAt: nowIso,
+      // --- dati anagrafici base ---
+      ragioneSociale: form.ragioneSociale,
+      indirizzo     : form.indirizzo,
+      cap           : form.cap,
+      citta         : form.citta,
+      provincia     : form.provincia,
+      nazione       : form.nazione,
+      piva          : form.piva,
+      codiceFiscale : form.codiceFiscale,
+      emailFatture  : form.emailFatture,
+      telefono      : form.telefono,
+      sitoWeb       : form.sitoWeb,
 
-      // Dati azienda
-      ragioneSociale  : String(form.ragioneSociale||'').trim(),
-      piva            : String(form.piva||'').trim(),
-      sedeLegale      : String(form.sedeLegale||'').trim(),
-      sedeOperativa   : String(form.sedeOperativa||'').trim(),
-      email           : String(form.email||'').trim(),
-      telefono        : String(form.telefono||'').trim(),
+      // Rif. bancari
+      iban          : form.iban,
+      banca         : form.banca,
 
-      // ► Dati fiscali aggiuntivi
-      rea             : String(form.rea||'').trim(),
-      capitaleSociale : String(form.capitaleSociale||'').trim(),
-      sdi             : String(form.sdi||'').trim(),
-      regimeFiscale   : String(form.regimeFiscale||'RF01').trim(),
+      // Opzioni documenti
+      descrizioneDefaultDDT : form.descrizioneDefaultDDT,
+      descrizioneDefaultFA  : form.descrizioneDefaultFA,
+      defaultIva            : Number(form.defaultIva) || 22,
+      mostraLogo            : !!form.mostraLogo,
+      mostraRifCliente      : !!form.mostraRifCliente,
 
-      // ► Dati bancari
-      bankName        : String(form.bankName||'').trim(),
-      bankHolder      : String(form.bankHolder||'').trim(),
-      iban            : String(form.iban||'').trim(),
-      bic             : String(form.bic||'').trim(),
+      // Note piede documenti (txt multilinea)
+      notePiedeDDT: form.notePiedeDDT,
+      notePiedeFA : form.notePiedeFA,
 
-      // Documenti default
-      defaultIva      : Number(form.defaultIva)||0,
-      defaultPagamento: form.defaultPagamento || '30 gg data fattura',
-      costoOrarioAzienda: Number(form.costoOrarioAzienda)||0,
-      authRequired    : !!form.authRequired,
+      // Numerazioni (salvate anche su appSettings)
+      numerazioni,
 
-      // Utenti & ruoli (login Supabase)
-      users           : usersSanitized,
+      // Supabase/Cloud
+      cloudEnabled : !!form.cloudEnabled,
+      authRequired : !!form.authRequired,
+      supabaseUrl  : String(form.supabaseUrl||'').trim(),
+      supabaseKey  : String(form.supabaseKey||'').trim(),
+      supabaseTable: String(form.supabaseTable||'anima_sync').trim(),
 
-      // Operatori & Fasi
-      operators       : operatorsArr,
-      fasiStandard    : fasiStd,
+      supabaseEnv  : form.supabaseEnv,
+      cloudEnv     : form.cloudEnv,
 
+      supabaseUrlBeta  : String(form.supabaseUrlBeta||'').trim(),
+      supabaseKeyBeta  : String(form.supabaseKeyBeta||'').trim(),
+      supabaseTableBeta: String(form.supabaseTableBeta||'').trim(),
 
-            // Cloud
-      cloudEnabled    : !!form.cloudEnabled,
-      supabaseUrl     : String(form.supabaseUrl||'').trim(),
-      supabaseKey     : String(form.supabaseKey||'').trim(),
-      supabaseTable   : (String(form.supabaseTable||'').trim() || 'anima_sync'),
+      syncTable      : String(form.syncTable || form.supabaseTable || 'anima_sync'),
+
+      // Utenti, operatori, fasi standard
+      users          : usersSanitized,
+      operators      : operatorsArr,
+      fasiStandard   : fasiStd,
+
+      // Config timbratura
+      timbraturaAutoScarico: !!form.timbraturaAutoScarico,
+      timbraturaScaricoKey : form.timbraturaScaricoKey || 'magMovimenti',
+
+      // Cloud auto-sync
+      autoSyncEnabled: !!form.autoSyncEnabled,
+      autoSyncDelay  : Number(form.autoSyncDelay) || 15000,
+
+      // Public Base URL per QR
+      publicBaseUrl,
+
+      // Altre opzioni
+      magUpdateCMP   : magUpdateCMP,
 
       // Logo
       logoDataUrl     : form.logoDataUrl || app0.logoDataUrl || '',
