@@ -8350,8 +8350,62 @@ window.delCommessa     = window.delCommessa     || delCommessa;
                   ),
                   e('td', null, e('a', { href:'#', onClick:(ev)=>{ ev.preventDefault(); startEdit(c); } }, c.id)),
                   e('td', null, c.cliente||''),
-                    // Descrizione
+                    // Descrizione: fino a 3 righe "CODICE - PrimaParola", poi badge (+N altri)
                     e('td', null, (() => {
+                      const righe = Array.isArray(c.righeArticolo)
+                        ? c.righeArticolo
+                        : (Array.isArray(c.righe) ? c.righe : []);
+
+                      if (Array.isArray(righe) && righe.length) {
+                        const maxLines = 3;
+                        const lines = [];
+
+                        for (let i = 0; i < righe.length && lines.length < maxLines; i++) {
+                          const riga = righe[i] || {};
+                          const codice =
+                            riga.codice ||
+                            riga.codArticolo ||
+                            riga.code ||
+                            riga.cod ||
+                            '';
+                          const descrRaw =
+                            riga.descrizione ||
+                            riga.descr ||
+                            riga.titolo ||
+                            '';
+                          const firstWord = String(descrRaw || '')
+                            .trim()
+                            .split(/\s+/)[0] || '';
+
+                          const parts = [];
+                          if (codice) parts.push(String(codice));
+                          if (firstWord) parts.push(String(firstWord));
+                          const lineTxt = parts.join(' - ').trim();
+
+                          if (lineTxt) lines.push(lineTxt);
+                        }
+
+                        if (lines.length) {
+                          const extraCount = righe.length - lines.length;
+                          const children = lines.map((line, idx) =>
+                            e('div', {
+                              key: 'art' + idx,
+                              style:{ fontSize:'11px', lineHeight:1.2 }
+                            }, line)
+                          );
+                          if (extraCount > 0) {
+                            children.push(
+                              e('div', {
+                                key:'art-extra',
+                                style:{ fontSize:'10px', color:'#666' }
+                              }, `(+${extraCount} altri articoli)`)
+                            );
+                          }
+                          return children;
+                        }
+                      }
+
+                      // Fallback: helper globale se esiste, altrimenti descrizione commessa
                       if (window.previewDescrAndRef) {
                         try { return window.previewDescrAndRef(c).descr || ''; } catch {}
                       }
