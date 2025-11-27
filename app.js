@@ -4373,13 +4373,25 @@ window.stampaCommessaV2 = function (r) {
     document.body.appendChild(f);
     const w = f.contentWindow;
     w.document.open(); w.document.write(html); w.document.close(); w.focus();
-    setTimeout(()=>{ try{ document.body.removeChild(f); }catch{} }, 1500);
+        setTimeout(()=>{ try{ document.body.removeChild(f); }catch{} }, 1500);
   } catch(e) {
     console.error(e);
+
+    // fallback: se la V2 fallisce, provo il layout vecchio (printCommessa)
+    try {
+      if (window.printCommessa && r) {
+        alert('Errore stampa commessa v2, provo il layout precedente…');
+        window.printCommessa(r);
+        return;
+      }
+    } catch(e2) {
+      console.error('Fallback printCommessa fallito:', e2);
+    }
+
     alert('Errore stampa commessa.');
   }
 };
-// === Scanner QR: usa BarcodeDetector se presente, altrimenti html5-qrcode ===
+ // === Scanner QR: usa BarcodeDetector se presente, altrimenti html5-qrcode ===
 if (!window.scanQR) window.scanQR = async function(){
   // 1) se il browser NON può usare la camera (HTTP su LAN), cado su prompt
   const needsPrompt = !navigator.mediaDevices || !navigator.isSecureContext;
