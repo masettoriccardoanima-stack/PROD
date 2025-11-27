@@ -10226,25 +10226,31 @@ function ImpostazioniView() {
     e('div', {className:'card'},
       e('h3', null, 'Dati azienda'),
       e('div', {className:'form'},
-        e('div', null, e('label', null, 'Ragione sociale'), e('input', {name:'ragioneSociale', value:form.ragioneSociale, onChange:onChange})),
-        e('div', null, e('label', null, 'P. IVA'),          e('input', {name:'piva', value:form.piva, onChange:onChange})),
-        e('div', null, e('label', null, 'Sede legale'),     e('input', {name:'sedeLegale', value:form.sedeLegale, onChange:onChange})),
-        e('div', null, e('label', null, 'Sede operativa'),  e('input', {name:'sedeOperativa', value:form.sedeOperativa, onChange:onChange})),
-        e('div', null, e('label', null, 'Email'),           e('input', {name:'email', value:form.email, onChange:onChange})),
-        e('div', null, e('label', null, 'Telefono'),        e('input', {name:'telefono', value:form.telefono, onChange:onChange}))
+        e('div', null, e('label', null, 'Ragione sociale'), e('input', {name:'ragioneSociale', value:form.ragioneSociale, onChange:onChange, readOnly:!isAdmin})),
+        e('div', null, e('label', null, 'P. IVA'),          e('input', {name:'piva', value:form.piva, onChange:onChange, readOnly:!isAdmin})),
+        e('div', null, e('label', null, 'Sede legale'),     e('input', {name:'sedeLegale', value:form.sedeLegale, onChange:onChange, readOnly:!isAdmin})),
+        e('div', null, e('label', null, 'Sede operativa'),  e('input', {name:'sedeOperativa', value:form.sedeOperativa, onChange:onChange, readOnly:!isAdmin})),
+        e('div', null, e('label', null, 'Email'),           e('input', {name:'email', value:form.email, onChange:onChange, readOnly:!isAdmin})),
+        e('div', null, e('label', null, 'Telefono'),        e('input', {name:'telefono', value:form.telefono, onChange:onChange, readOnly:!isAdmin}))
       )
     ),
+
 
     // ► Dati fiscali aggiuntivi
     e('div', {className:'card'},
       e('h3', null, 'Dati fiscali aggiuntivi'),
       e('div', {className:'form'},
-        e('div', null, e('label', null, 'REA'),               e('input', {name:'rea', value:form.rea, onChange:onChange})),
-        e('div', null, e('label', null, 'Capitale sociale'),  e('input', {name:'capitaleSociale', value:form.capitaleSociale, onChange:onChange, placeholder:'es. € 10.000 i.v.'})),
-        e('div', null, e('label', null, 'Codice SDI'),        e('input', {name:'sdi', value:form.sdi, onChange:onChange})),
+        e('div', null, e('label', null, 'REA'),               e('input', {name:'rea', value:form.rea, onChange:onChange, readOnly:!isAdmin})),
+        e('div', null, e('label', null, 'Capitale sociale'),  e('input', {name:'capitaleSociale', value:form.capitaleSociale, onChange:onChange, readOnly:!isAdmin, placeholder:'es. € 10.000 i.v.'})),
+        e('div', null, e('label', null, 'Codice SDI'),        e('input', {name:'sdi', value:form.sdi, onChange:onChange, readOnly:!isAdmin})),
         e('div', null,
           e('label', null, 'Regime fiscale (RFxx)'),
-          e('select', {name:'regimeFiscale', value:form.regimeFiscale||'RF01', onChange:onChange},
+          e('select', {
+            name:'regimeFiscale',
+            value:form.regimeFiscale||'RF01',
+            onChange:onChange,
+            disabled: !isAdmin
+          },
             e('option',{value:'RF01'},'RF01 — Ordinario'),
             e('option',{value:'RF19'},'RF19 — Forfettario'),
             e('option',{value:'RF02'},'RF02 — Contribuenti minimi'),
@@ -10259,7 +10265,7 @@ function ImpostazioniView() {
     e('div', {className:'card'},
       e('h3', null, 'Logo per stampe'),
       e('div', {className:'row', style:{gap:8, alignItems:'center'}},
-        e('input', {type:'file', accept:'image/*', onChange:onPickLogo}),
+        e('input', {type:'file', accept:'image/*', onChange:onPickLogo, disabled:!isAdmin}),
         form.logoDataUrl
           ? e('img', {src:form.logoDataUrl, alt:'logo', style:{height:40, border:'1px solid #ddd', padding:4}})
           : e('div', {className:'muted'}, 'Nessun logo caricato')
@@ -10269,7 +10275,13 @@ function ImpostazioniView() {
     // Operatori
     e('div', {className:'card'},
       e('h3', null, 'Operatori (uno per riga)'),
-      e('textarea', {name:'operatorsText', value:form.operatorsText, onChange:onChange, rows:6})
+      e('textarea', {
+        name:'operatorsText',
+        value:form.operatorsText,
+        onChange:onChange,
+        rows:6,
+        readOnly: !isAdmin
+      })
     ),
 
     // Fasi standard
@@ -10277,13 +10289,28 @@ function ImpostazioniView() {
       e('h3', null, 'Fasi standard (tendina nelle commesse)'),
       e('div', null,
         (form.fasiStandard||[]).map((v,i)=> e('div',{key:i, className:'row', style:{gap:6, marginBottom:6}},
-          e('input', {value:v, onChange:ev=>{
-            const val = ev.target.value;
-            setForm(p=>({ ...p, fasiStandard: p.fasiStandard.map((x,ix)=> ix===i ? val : x) }));
-          }}),
-          e('button', {type:'button', className:'btn btn-outline', onClick:()=> setForm(p=>({...p, fasiStandard: p.fasiStandard.filter((_,ix)=>ix!==i)}))}, '🗑')
+          e('input', {
+            value:v,
+            onChange:ev=>{
+              if (!isAdmin) return;
+              const val = ev.target.value;
+              setForm(p=>({ ...p, fasiStandard: p.fasiStandard.map((x,ix)=> ix===i ? val : x) }));
+            },
+            readOnly: !isAdmin
+          }),
+          e('button', {
+            type:'button',
+            className:'btn btn-outline',
+            onClick:()=> setForm(p=>({...p, fasiStandard: p.fasiStandard.filter((_,ix)=>ix!==i)})),
+            disabled: !isAdmin
+          }, '🗑')
         )),
-        e('button', {type:'button', className:'btn', onClick:()=> setForm(p=>({...p, fasiStandard:[...(p.fasiStandard||[]), '']}))}, '➕ Aggiungi fase')
+        e('button', {
+          type:'button',
+          className:'btn',
+          onClick:()=> setForm(p=>({...p, fasiStandard:[...(p.fasiStandard||[]), '']})),
+          disabled: !isAdmin
+        }, '➕ Aggiungi fase')
       )
     ),
 
@@ -10291,10 +10318,10 @@ function ImpostazioniView() {
     e('div', {className:'card'},
       e('h3', null, 'Dati bancari (stampa fattura di cortesia)'),
       e('div', {className:'form'},
-        e('div', null, e('label', null, 'Banca'),            e('input', {name:'bankName', value:form.bankName, onChange:onChange, placeholder:'es. Intesa Sanpaolo'})),
-        e('div', null, e('label', null, 'Intestatario conto'),e('input', {name:'bankHolder', value:form.bankHolder, onChange:onChange, placeholder:'es. ANIMA S.r.l.'})),
-        e('div', null, e('label', null, 'IBAN'),             e('input', {name:'iban', value:form.iban, onChange:onChange})),
-        e('div', null, e('label', null, 'BIC/SWIFT'),        e('input', {name:'bic', value:form.bic, onChange:onChange}))
+        e('div', null, e('label', null, 'Banca'),            e('input', {name:'bankName', value:form.bankName, onChange:onChange, readOnly:!isAdmin, placeholder:'es. Intesa Sanpaolo'})),
+        e('div', null, e('label', null, 'Intestatario conto'),e('input', {name:'bankHolder', value:form.bankHolder, onChange:onChange, readOnly:!isAdmin, placeholder:'es. ANIMA S.r.l.'})),
+        e('div', null, e('label', null, 'IBAN'),             e('input', {name:'iban', value:form.iban, onChange:onChange, readOnly:!isAdmin})),
+        e('div', null, e('label', null, 'BIC/SWIFT'),        e('input', {name:'bic', value:form.bic, onChange:onChange, readOnly:!isAdmin}))
       )
     ),
 
@@ -10306,28 +10333,32 @@ function ImpostazioniView() {
           e('input', {
             type:'number',
             value: form.numC || '',
-            onChange: ev=> setForm(p=>({...p, numC: Number(ev.target.value)||0 }))
+            onChange: ev=> setForm(p=>({...p, numC: Number(ev.target.value)||0 })),
+            disabled: !isAdmin
           })
         ),
         e('label', null, 'DDT (DDT):',
           e('input', {
             type:'number',
             value: form.numDDT || '',
-            onChange: ev=> setForm(p=>({...p, numDDT: Number(ev.target.value)||0 }))
+            onChange: ev=> setForm(p=>({...p, numDDT: Number(ev.target.value)||0 })),
+            disabled: !isAdmin
           })
         ),
         e('label', null, 'Fatture (FA):',
           e('input', {
             type:'number',
             value: form.numFA || '',
-            onChange: ev=> setForm(p=>({...p, numFA: Number(ev.target.value)||0 }))
+            onChange: ev=> setForm(p=>({...p, numFA: Number(ev.target.value)||0 })),
+            disabled: !isAdmin
           })
         ),
         e('label', null, 'Ordini Fornitori (OF):',
           e('input', {
             type:'number',
             value: form.numOF || '',
-            onChange: ev=> setForm(p=>({...p, numOF: Number(ev.target.value)||0 }))
+            onChange: ev=> setForm(p=>({...p, numOF: Number(ev.target.value)||0 })),
+            disabled: !isAdmin
           })
         ),
         e('div', {className:'muted'}, 'Inserisci l’ULTIMO numero emesso nel ', new Date().getFullYear(), '. Dal prossimo documento proseguirà +1. Nel 2026 riparte da 1 automaticamente.')
@@ -10339,7 +10370,13 @@ function ImpostazioniView() {
       e('h3', null, 'Magazzino'),
       e('div', {className:'row', style:{gap:12, alignItems:'center'}},
         e('label', null,
-          e('input', { type:'checkbox', name:'magUpdateCMP', checked:!!form.magUpdateCMP, onChange:onChange }),
+          e('input', {
+            type:'checkbox',
+            name:'magUpdateCMP',
+            checked:!!form.magUpdateCMP,
+            onChange:onChange,
+            disabled: !isAdmin
+          }),
           ' Aggiorna automaticamente il CMP ai carichi da Ordini Fornitori'
         ),
         e('div', {className:'muted'}, 'Suggerito: OFF. Si può spuntare caso per caso nella ricezione.')
@@ -10468,7 +10505,8 @@ function ImpostazioniView() {
             name:'publicBaseUrl',
             value: form.publicBaseUrl,
             onChange: onChange,
-            placeholder: 'es. http://192.168.1.50:5500/App oppure https://miazienda.it/anima'
+            placeholder: 'es. http://192.168.1.50:5500/App oppure https://miazienda.it/anima',
+            readOnly: !isAdmin
           })
         )
       ),
@@ -10481,13 +10519,17 @@ function ImpostazioniView() {
     e('div', {className:'card'},
       e('h3', null, 'Backup dati'),
       e('div', {className:'row', style:{gap:8, flexWrap:'wrap', alignItems:'center'}},
-        e('button', {type:'button',className:'btn',
+        e('button', {
+          type:'button',
+          className:'btn',
           onClick:()=> {
-          if (window.exportBackupSmart) return window.exportBackupSmart();
-          if (window.downloadBackup)    return window.downloadBackup();
-          alert('Funzione di backup non trovata');
-      }
-    }, '💾 Scarica backup'),
+            if (!isAdmin) return; // i worker NON possono scaricare backup
+            if (window.exportBackupSmart) return window.exportBackupSmart();
+            if (window.downloadBackup)    return window.downloadBackup();
+            alert('Funzione di backup non trovata');
+          },
+          disabled: !isAdmin
+        }, '💾 Scarica backup'),
 
         // Ripristino da file .json
         e('label', {className:'btn btn-outline', htmlFor:'restore-file'}, '⤴️ Ripristina da file…'),
