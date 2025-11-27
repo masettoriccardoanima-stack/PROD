@@ -4250,31 +4250,137 @@ window.stampaCommessaV2 = function (r) {
       }
     })();
 
+    // dati azienda per intestazione
+    const aziendaNome = app.ragioneSociale || app.aziendaNome || '';
+    const aziendaIndirizzo =
+      app.sedeOperativa ||
+      app.sedeLegale ||
+      [app.indirizzo, app.cap, app.citta, app.provincia].filter(Boolean).join(' ');
+    const aziendaPiva = app.piva || app.pIva || app.codiceFiscale || '';
+
     // --- CSS (A4 verticale) ---
     const css = `
       <style>
         *{box-sizing:border-box}
-        body{font-family: Arial, Helvetica, sans-serif; color:#222; margin:20px; font-size:12px;}
-        .head{display:grid; grid-template-columns: 1fr 200px; gap:12px; align-items:start;}
-        .brand{display:flex; gap:12px; align-items:center;}
-        .logo{height:64px; border:1px solid #ddd; padding:4px; border-radius:4px;}
-        h1{font-size:18px; margin:0 0 2px;}
+        body{
+          font-family: Arial, Helvetica, sans-serif;
+          color:#222;
+          margin:20px;
+          font-size:12px;
+        }
+
         .muted{color:#666;}
-        .pill{display:inline-block; font-weight:700;}
-        .pill .lab{color:#666; margin-right:4px;}
-        .qrwrap{display:flex; flex-direction:column; align-items:flex-end; gap:6px;}
-        .qrwrap small{color:#666; word-break:break-all; max-width:200px; text-align:right;}
-        .kpis{display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; margin:12px 0;}
-        .kpi{border:1px solid #ddd; border-radius:6px; padding:10px;}
-        .kpi .lab{font-size:11px; color:#666; margin-bottom:4px;}
-        .kpi .val{font-weight:700; font-size:16px;}
-        table{width:100%; border-collapse:collapse; margin-top:8px;}
-        th,td{border:1px solid #ccc; padding:6px; text-align:left;}
-        th{background:#f7f7f7;}
         td.right, th.right{text-align:right;}
-        h3{font-size:14px; margin:14px 0 6px;}
-        .ibox{border:1px dashed #bbb; border-radius:6px; padding:10px; min-height:48px;}
+
+        /* Intestazione ANIMA + box COMMESSA */
+        .cm-header{
+          display:flex;
+          justify-content:space-between;
+          align-items:flex-start;
+          margin-bottom:8px;
+        }
+        .cm-azienda{
+          display:flex;
+          gap:8px;
+          align-items:flex-start;
+        }
+        .cm-logo{
+          height:48px;
+          border:1px solid #ddd;
+          padding:4px;
+          border-radius:4px;
+        }
+        .cm-azienda-text{
+          font-size:10px;
+          line-height:1.3;
+        }
+        .cm-azienda-ragione{
+          font-weight:700;
+          font-size:13px;
+          margin-bottom:2px;
+        }
+
+        .cm-commessa-box{
+          text-align:right;
+          font-size:11px;
+        }
+        .cm-commessa-title{
+          font-size:16px;
+          font-weight:700;
+          margin-bottom:4px;
+        }
+        .cm-commessa-id,
+        .cm-commessa-date{
+          font-size:11px;
+        }
+
+        /* Riquadro centrale + QR */
+        .cm-row2{
+          display:flex;
+          justify-content:space-between;
+          align-items:flex-start;
+          gap:12px;
+          margin-top:8px;
+        }
+        .cm-riep{
+          border-collapse:collapse;
+          width:65%;
+          font-size:11px;
+        }
+        .cm-riep th,
+        .cm-riep td{
+          border:1px solid #000;
+          padding:3px 6px;
+        }
+        .cm-riep th{
+          background:#f7f7f7;
+          text-align:left;
+          width:38%;
+        }
+        .cm-riep-cliente{
+          font-size:13px;
+          font-weight:700;
+        }
+
+        .cm-qr-card{
+          width:30%;
+          border:1px solid #000;
+          padding:6px;
+          text-align:center;
+        }
+        .cm-qr-code{
+          margin-bottom:4px;
+        }
+        .cm-qr-label{
+          font-size:10px;
+          margin-top:4px;
+        }
+
+        /* Tabelle generali */
+        table{
+          width:100%;
+          border-collapse:collapse;
+          margin-top:8px;
+        }
+        th,td{
+          border:1px solid #ccc;
+          padding:6px;
+          text-align:left;
+        }
+        th{background:#f7f7f7;}
+
+        h3{
+          font-size:14px;
+          margin:14px 0 6px;
+        }
+        .ibox{
+          border:1px dashed #bbb;
+          border-radius:6px;
+          padding:10px;
+          min-height:48px;
+        }
         ul{margin:6px 0 0 18px;}
+
         @page { size:A4 portrait; margin:0; }
         @media print{
           body{margin:16mm;}
@@ -4423,31 +4529,69 @@ window.stampaCommessaV2 = function (r) {
         <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
       </head>
       <body>
-        <div class="head">
-          <div>
-            <div class="brand">
-              ${logo ? `<img class="logo" src="${logo}" alt="logo">` : `<div class="muted">[Logo non impostato]</div>`}
-              <div>
-                <div style="font-weight:700">${esc(CLIENTE || '')}</div>
-                <h1>${esc(TIT || '-')}</h1>
-                <div class="pill"><span class="lab">Priorità:</span> ${PRIO || '-'}</div><br>
-                <div class="pill"><span class="lab">Consegna prevista:</span> ${fmtIT(DUE) || '-'}</div>
-              </div>
+        <div class="cm-header">
+          <div class="cm-azienda">
+            ${logo
+              ? `<img class="cm-logo" src="${logo}" alt="logo">`
+              : `<div class="muted">[Logo non impostato]</div>`}
+            <div class="cm-azienda-text">
+              <div class="cm-azienda-ragione">${esc(aziendaNome || '')}</div>
+              ${aziendaIndirizzo ? `<div>${esc(aziendaIndirizzo)}</div>` : ''}
+              ${aziendaPiva ? `<div>P.IVA: ${esc(aziendaPiva)}</div>` : ''}
             </div>
           </div>
-          <div class="qrwrap">
-            <div><b>Commessa: ${esc(ID)}</b></div>
-            <canvas id="qr"></canvas>
-            <small>${esc(qrUrl)}</small>
+          <div class="cm-commessa-box">
+            <div class="cm-commessa-title">COMMESSA</div>
+            <div class="cm-commessa-id">ID: ${esc(ID || '')}</div>
+            <div class="cm-commessa-date">
+              Data: ${fmtIT(r.data || r.dataCommessa || r.dataDocumento || r.createdAt || '') || ''}
+            </div>
           </div>
         </div>
 
-        <div class="kpis">
-          <div class="kpi"><div class="lab">Pezzi totali</div><div class="val">${PEZZI || 0}</div></div>
-          <div class="kpi"><div class="lab">Ore totali (previste)</div><div class="val">${oreTotPrev}</div></div>
+        <div class="cm-row2">
+          <table class="cm-riep">
+            <tr>
+              <th>Cliente</th>
+              <td class="cm-riep-cliente">${esc(CLIENTE || '-')}</td>
+            </tr>
+            <tr>
+              <th>Pezzi totali</th>
+              <td>${PEZZI || 0}</td>
+            </tr>
+            <tr>
+              <th>Ore totali (previste)</th>
+              <td>${oreTotPrev}</td>
+            </tr>
+            <tr>
+              <th>Scadenza</th>
+              <td>${fmtIT(DUE) || '-'}</td>
+            </tr>
+            <tr>
+              <th>Rif. ordine cliente</th>
+              <td>${esc(
+                r.rifOrdineCliente ||
+                r.ordineCliente ||
+                r.rifOrdine ||
+                r.ordineClienteNumero ||
+                ''
+              )}</td>
+            </tr>
+            <tr>
+              <th>Priorità</th>
+              <td>${PRIO || '-'}</td>
+            </tr>
+          </table>
+
+          <div class="cm-qr-card">
+            <div class="cm-qr-code">
+              <canvas id="qr"></canvas>
+            </div>
+            <div class="cm-qr-label">QR Timbratura</div>
+          </div>
         </div>
 
-        <h3>Fasi di lavorazione</h3>
+        <h3>Articoli da lavorare e fasi</h3>
         <table>
           ${fasiHeaderHTML}
           <tbody>
