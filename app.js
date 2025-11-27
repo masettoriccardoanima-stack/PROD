@@ -4105,6 +4105,17 @@ window.stampaCommessaV2 = function (r) {
     };
     const min2hhmm = m => `${pad2(Math.floor((+m||0)/60))}:${pad2((+m||0)%60)}`;
 
+        const esc = (s) => {
+      s = (s == null ? '' : String(s));
+      return s.replace(/[&<>"']/g, ch => (
+        ch === '&' ? '&amp;' :
+        ch === '<' ? '&lt;'  :
+        ch === '>' ? '&gt;'  :
+        ch === '"' ? '&quot;':
+        /* ch === "'" */ '&#39;'
+      ));
+    };
+
     // campi di comodo/robustezza
       const ID   = r?.id || '';
       const TIT  = r?.tipoArticolo || r?.titolo || r?.descrizione || '';
