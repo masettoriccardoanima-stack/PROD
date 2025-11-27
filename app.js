@@ -9806,6 +9806,17 @@ function ImpostazioniView() {
   const e = React.createElement;
 
   const isAdmin = window.hasRole && window.hasRole('admin');
+    const CLOUD_EDITABLE_FIELDS = [
+    'supabaseUrl',
+    'supabaseKey',
+    'supabaseTable',
+    'supabaseEnv',
+    'cloudEnv',
+    'supabaseUrlBeta',
+    'supabaseKeyBeta',
+    'supabaseTableBeta',
+    'syncTable'
+  ];
   // se non admin, non blocchiamo: mostriamo la vista ma disabilitiamo i campi più avanti (quando definisci gli <input>, metti disabled: !isAdmin)
 
 
@@ -9917,13 +9928,23 @@ function ImpostazioniView() {
     logoDataUrl      : app0.logoDataUrl || ''
   });
 
-  function onChange(ev){
+    function onChange(ev){
     const {name, value, type, checked} = ev.target;
-    setForm(p => ({ ...p, [name]: (type==='checkbox' ? !!checked : value) }));
+
+    // Se NON sei admin puoi modificare SOLO i campi di Cloud / Supabase
+    if (!isAdmin && CLOUD_EDITABLE_FIELDS.indexOf(name) === -1){
+      return;
+    }
+
+    setForm(p => ({
+      ...p,
+      [name]: (type === 'checkbox' ? !!checked : value)
+    }));
   }
 
   // Gestione utenti & ruoli (login Supabase)
   function addUserRow(){
+    if (!isAdmin) return;
     setForm(p => ({
       ...p,
       users: [
@@ -9934,6 +9955,7 @@ function ImpostazioniView() {
   }
 
   function updateUserField(index, field, value){
+    if (!isAdmin) return;
     setForm(p => {
       const arr = Array.isArray(p.users) ? [...p.users] : [];
       if (!arr[index]) arr[index] = { email:'', role:'worker' };
@@ -9943,6 +9965,7 @@ function ImpostazioniView() {
   }
 
   function removeUserRow(index){
+    if (!isAdmin) return;
     setForm(p => ({
       ...p,
       users: (Array.isArray(p.users) ? p.users : []).filter((_,i)=> i!==index)
@@ -9961,7 +9984,11 @@ function ImpostazioniView() {
   }
 
   // Upload logo
-  async function onPickLogo(ev){
+  function onPickLogo(ev){
+    if (!isAdmin) {
+      ev.target.value = '';
+      return;
+    }
     const f = ev.target.files && ev.target.files[0];
     if (!f) return;
     const b64 = await new Promise((res,rej)=>{
