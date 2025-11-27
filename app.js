@@ -8032,87 +8032,148 @@ window.delCommessa     = window.delCommessa     || delCommessa;
 
   // --- DDT: singola & multiple ---
   function timbrUrl(id){ return `#/timbratura?job=${encodeURIComponent(id||'')}`; }
-    function creaDDTdaCommessa(commessa){
+  function creaDDTdaCommessa(commessa){
     try{
-      const lsGet = window.lsGet || ((k,d)=>{ try{ return JSON.parse(localStorage.getItem(k)||'null') ?? d; }catch{ return d; }});
+      const lsGet = window.lsGet || ((k,d)=>{ 
+        try{
+          const v = localStorage.getItem(k);
+          return v ? JSON.parse(v) : d;
+        }catch{
+          return d;
+        }
+      });
+
       const articoli = lsGet('magArticoli', []) || [];
-      const cli = (lsGet('clientiRows', [])||[]).find(x => String(x.id)===String(commessa.clienteId)) || null;
+      const clienti  = lsGet('clientiRows', []) || [];
+      const cli = clienti.find(x => String(x.id) === String(commessa.clienteId)) || null;
       const todayISO = ()=> new Date().toISOString().slice(0,10);
 
-      // righe commessa (nuovo modello o fallback)
+      // --- righe commessa (nuovo modello o fallback singola riga) ---
       const righeSrc =
         (Array.isArray(commessa.righeArticolo) && commessa.righeArticolo.length)
           ? commessa.righeArticolo
           : [{
-              codice: commessa.articoloCodice || '',
-              descrizione: commessa.descrizione || '',
-              um: commessa.articoloUM || 'PZ',
-              qta: Math.max(1, Number(commessa.qtaPezzi || 1)),
-              note: ''
+              rowId       : commessa.rowId || commessa.rowID || null,
+              codice      : commessa.articoloCodice || '',
+              descrizione : commessa.descrizione || '',
+              um          : commessa.articoloUM || 'PZ',
+              qta         : Math.max(1, Number(commessa.qtaPezzi || commessa.qta || 1)),
+              note        : commessa.noteSpedizione || commessa.note || ''
             }];
 
+      // --- DDT esistenti per calcolare quanto è già stato spedito ---
+      const ddtRows = lsGet('ddtRows', []) || [];
+      const jobId   = String(commessa && commessa.id || '');
+
+      function shippedForRow(row){
+        const rowId = String(
+          row && (row.rowId || row.rowID || row.commessaRowId || row.commessaRowID || '')
+        ).trim();
+        const hasRowId = !!rowId;
+        let sum = 0;
+
+        (Array.isArray(ddtRows) ? ddtRows : []).forEach(ddt => {
+          if (!ddt) return;
+          if (ddt.annullato === true || String(ddt.stato || '') === 'Annullato') return;
+
+          const ddtJobId = String(
+            ddt.commessaId ||
+            ddt.commessaRif ||
+            ddt.__fromCommessaId ||
+            ''
+          );
+          if (ddtJobId !== jobId) return;
+
+          const righe = Array.isArray(ddt.righe) ? ddt.righe : [];
+          righe.forEach(dr => {
+            if (!dr) return;
+            const drRowId = String(dr.commessaRowId || dr.commessaRowID || '').trim();
+
+            if (hasRowId){
+              if (drRowId !== rowId) return;
+            } else if (drRowId){
+              // riga commessa senza id ma riga DDT sì → non la associo per evitare casini
+              return;
+            }
+
+            const q = Number(dr.qta ?? dr.quantita ?? 0);
+            if (Number.isFinite(q)) sum += q;
+          });
+        });
+
+        return Math.max(0, sum);
+      }
+
+      // --- righe DDT precompilate con "residuo per riga" ---
       const righeDDT = righeSrc.map(r => {
         const cod = String(r.codice || r.articoloCodice || '').trim();
-        const a = articoli.find(x => String(x.codice||x.id||'').trim() === cod) || null;
+        const a = articoli.find(x => String(x.codice || x.id || '').trim() === cod) || null;
 
         const um = String(r.um || r.UM || a?.um || a?.UM || 'PZ').toUpperCase();
-        const prezzo = Number(r.prezzo ?? r.prezzoUnitario ?? a?.prezzo ?? a?.costo ?? 0) || 0;
+        const prezzo = Number(
+          r.prezzo ?? r.prezzoUnitario ?? a?.prezzo ?? a?.costo ?? 0
+        ) || 0;
 
-        // Quantità prevista a commessa per questa riga
+        // quantità "di progetto" per questa riga
         const qOrig   = Number(r.qta ?? r.quantita ?? r.qtaPezzi ?? 0) || 0;
-        // Già spedito su DDT per questa riga
+        // quanto è già stato spedito per questa riga (su tutti i DDT attivi)
         const shipped = shippedForRow(r);
-        // Residuo (mai negativo)
+        // residuo non negativo
         const resid   = Math.max(0, qOrig - shipped);
 
         return {
           commessaRowId: String(r.rowId || r.rowID || ''),
-          codice: cod,
-          descrizione: r.descrizione || r.articoloDescr || a?.descrizione || a?.descr || '',
-          UM: um,
-          um,
-          qta: resid || 0,
-          prezzo,
-          note: r.note || commessa.noteSpedizione || ''
+          codice       : cod,
+          descrizione  : r.descrizione || r.articoloDescr || a?.descrizione || a?.descr || '',
+          UM           : um,
+          um           : um,
+          qta          : resid || 0,
+          prezzo       : prezzo,
+          note         : r.note || commessa.noteSpedizione || commessa.note || ''
         };
       });
-        
+
+      // --- Riferimento cliente (testo pulito) ---
       const rifClienteTxt =
         (window.refClienteToText
-          ? window.refClienteToText(commessa?.rifCliente)
+          ? window.refClienteToText(commessa && commessa.rifCliente)
           : '') ||
-        (window.orderRefFor ? window.orderRefFor(commessa) : '') ||
+        (window.orderRefFor
+          ? window.orderRefFor(commessa)
+          : '') ||
         '';
 
+      // --- Prefill DDT ---
       const pf = {
         id: (typeof window.nextIdDDT === 'function')
               ? window.nextIdDDT()
               : `DDT-${new Date().getFullYear()}-${String(Date.now()).slice(-3)}`,
         data: todayISO(),
 
-        clienteId: commessa.clienteId || '',
-        clienteRagione: commessa.cliente || (cli && (cli.ragione||cli.ragioneSociale||'')) || '',
-        commessaId: commessa.id || '',
-        commessaRif: commessa.id || '',
+        clienteId      : commessa.clienteId || '',
+        clienteRagione : commessa.cliente || (cli && (cli.ragioneSociale || cli.ragione || '')) || '',
+        commessaId     : commessa.id || '',
+        commessaRif    : commessa.id || '',
 
-        luogoConsegna: commessa.luogoConsegna || (cli && (cli.sedeOperativa || cli.sede) || ''),
+        luogoConsegna  : commessa.luogoConsegna || (cli && (cli.sedeOperativa || cli.sede) || ''),
         causaleTrasporto: commessa.causaleTrasporto || '',
 
-        rifCliente: rifClienteTxt,
-        rifClienteTipo: (commessa.rifCliente && commessa.rifCliente.tipo) || commessa.rifClienteTipo || '',
-        rifClienteNum:  (commessa.rifCliente && commessa.rifCliente.numero) || commessa.rifClienteNum || '',
-        rifClienteData: (commessa.rifCliente && commessa.rifCliente.data) || commessa.rifClienteData || '',
+        rifCliente     : rifClienteTxt,
+        rifClienteTipo : (commessa.rifCliente && commessa.rifCliente.tipo)   || commessa.rifClienteTipo  || '',
+        rifClienteNum  : (commessa.rifCliente && commessa.rifCliente.numero) || commessa.rifClienteNum   || '',
+        rifClienteData : (commessa.rifCliente && commessa.rifCliente.data)   || commessa.rifClienteData  || '',
 
-        note: commessa.noteSpedizione || commessa.note || '',
-        righe: righeDDT
+        note  : commessa.noteSpedizione || commessa.note || '',
+        righe : righeDDT
       };
 
       localStorage.setItem('prefillDDT', JSON.stringify(pf));
       location.hash = '#/ddt';
-    }catch(e){
+    } catch(e){
       alert('Impossibile preparare il DDT: ' + (e && e.message ? e.message : e));
     }
   }
+
     function creaDDTdaSelezionate(){
     const list = selectedList;
     if (!list.length) { alert('Nessuna commessa selezionata.'); return; }
