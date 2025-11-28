@@ -3206,17 +3206,21 @@ window.ensureXLSX = window.ensureXLSX || (function () {
     const now = new Date().toISOString();
     const snap = takeSnapshot();
 
-    const rows = Object.keys(snap).map(k => ({
-      bucket: 'local',
-      k,
-      payload: snap[k],
-      updated_at: now
-    }));
+    // esporta solo le chiavi che hanno un payload NON nullo
+    const rows = Object.keys(snap)
+      .filter(k => snap[k] != null)
+      .map(k => ({
+        bucket: 'local',
+        k,
+        payload: snap[k],
+        updated_at: now
+      }));
+
+    if (!rows.length) return;
 
     await sbRequest(cfg, 'POST', `/rest/v1/${tbl}?on_conflict=bucket,k`, rows);
     window.__anima_dirty = false;
     window.__anima_lastPush = Date.now();
-    
   }
 
   async function exportOnly(onlyKeys){
@@ -3228,10 +3232,14 @@ window.ensureXLSX = window.ensureXLSX || (function () {
 
     const rows = [];
     for (const k of SYNC_KEYS){
-      if (!onlyKeys || onlyKeys.includes(k)) {
+      // includi solo chiavi richieste E con payload non nullo
+      if ((!onlyKeys || onlyKeys.includes(k)) && snap[k] != null) {
         rows.push({ bucket:'local', k, payload: snap[k], updated_at: now });
       }
     }
+
+    if (!rows.length) return;
+
     await sbRequest(cfg, 'POST', `/rest/v1/${tbl}?on_conflict=bucket,k`, rows);
     window.__anima_lastPush = Date.now();
   }
