@@ -10200,39 +10200,10 @@ function ImpostazioniView() {
   const lsGet = window.lsGet || ((k,d)=>{ try{ const v=JSON.parse(localStorage.getItem(k)); return (v??d);}catch{return d;}});
 
   // Fallback locale se l'helper globale non fosse presente
-  // Merge DIFENSIVO: non sovrascrivere valori pieni con valori vuoti da altri device
   const updateAppSettings = window.updateAppSettings || function(patch){
     try{
       const cur = JSON.parse(localStorage.getItem('appSettings')||'{}') || {};
-      const rawPatch = patch || {};
-      const safePatch = { ...rawPatch };
-
-      // helper: considera "vuoti" stringhe vuote, null/undefined, oggetti/array vuoti
-      const isEmptyValue = (v) => {
-        if (v === null || v === undefined) return true;
-        if (typeof v === 'string') return v.trim() === '';
-        if (Array.isArray(v)) return v.length === 0;
-        if (typeof v === 'object') return Object.keys(v).length === 0;
-        return false;
-      };
-      const hasMeaningfulValue = (v) => {
-        if (v === null || v === undefined) return false;
-        if (typeof v === 'string') return v.trim() !== '';
-        if (Array.isArray(v)) return v.length > 0;
-        if (typeof v === 'object') return Object.keys(v).length > 0;
-        return true;
-      };
-
-      // non permettere a un patch "vuoto" di cancellare valori già presenti
-      Object.keys(safePatch).forEach((k)=>{
-        const nv = safePatch[k];
-        const cv = cur[k];
-        if (isEmptyValue(nv) && hasMeaningfulValue(cv)) {
-          delete safePatch[k];
-        }
-      });
-
-      const next = { ...cur, ...safePatch, updatedAt: new Date().toISOString() };
+      const next = { ...cur, ...(patch||{}), updatedAt: new Date().toISOString() };
       localStorage.setItem('appSettings', JSON.stringify(next));
       window.__anima_dirty = true;
       return next;
@@ -10459,29 +10430,27 @@ function ImpostazioniView() {
       }))
       .filter(u=>u.email);
 
-    // normalizza operatori
-    const parseOperators = v=>{
-      if (!v) return [];
-      const arr = String(v).split(',').map(s=>s.trim()).filter(Boolean);
-      return arr.map(name=>({ name }));
-    };
-    const operatorsArr = Array.isArray(form.operators)
-      ? form.operators
-      : parseOperators(form.operatorsCSV || '');
+    // normalizza operatori: prendi dalla textarea "operatorsText" (uno per riga)
+    const operatorsArr = String(form.operatorsText || '')
+      .split(/\r?\n/)
+      .map(s => s.trim())
+      .filter(Boolean)
+      .map(name => ({ name }));
 
-    // normalizza fasiStandard
-    let fasiStd = [];
-    try{
-      const src = form.fasiStandardRaw || JSON.stringify(form.fasiStandard || [], null, 2);
-      const parsed = JSON.parse(src);
-      if (Array.isArray(parsed)) fasiStd = parsed.map(x=>({
-        label: String(x.label || x.nome || x.lav || '').trim(),
-        hhmm : String(x.hhmm || x.oreHHMM || x.durataHHMM || '').trim()
-      })).filter(x=>x.label);
-    }catch{
-      alert('Formato fasi standard non valido (deve essere JSON array).');
-      return;
-    }
+    // normalizza fasiStandard: lista semplice -> oggetti {label, hhmm}
+    const fasiStd = (Array.isArray(form.fasiStandard) ? form.fasiStandard : [])
+      .map(v => {
+        if (typeof v === 'string') {
+          const label = v.trim();
+          if (!label) return null;
+          return { label, hhmm: '' };
+        }
+        const label = String(v.label || v.nome || v.lav || '').trim();
+        const hhmm  = String(v.hhmm || v.oreHHMM || v.durataHHMM || '').trim();
+        if (!label) return null;
+        return { label, hhmm };
+      })
+      .filter(Boolean);
 
     // numerazioni
     const numerazioni = Object.assign(
