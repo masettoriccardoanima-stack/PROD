@@ -10435,8 +10435,13 @@ function ImpostazioniView() {
     // --- BRANCH ADMIN (logica originale, invariata) ---
 
     // Controllo veloce dati base azienda
-    if (!form.ragioneSociale || !form.indirizzo || !form.cap || !form.citta) {
-      if (!confirm('Mancano alcuni dati anagrafici (ragione sociale, indirizzo, CAP, città).\nVuoi salvare lo stesso?')) {
+    // Usiamo i campi REALI del form: ragione sociale, sede (legale o operativa) e P. IVA
+    if (
+      !form.ragioneSociale ||
+      !(form.sedeOperativa || form.sedeLegale) ||
+      !form.piva
+    ) {
+      if (!confirm('Mancano alcuni dati anagrafici (ragione sociale, sede e P. IVA).\nVuoi salvare lo stesso?')) {
         return;
       }
     }
@@ -10505,6 +10510,12 @@ function ImpostazioniView() {
       emailFatture  : form.emailFatture,
       telefono      : form.telefono,
       sitoWeb       : form.sitoWeb,
+
+      // Dati fiscali aggiuntivi
+      rea            : form.rea,
+      capitaleSociale: form.capitaleSociale,
+      sdi            : form.sdi,
+      regimeFiscale  : form.regimeFiscale,
 
       // Rif. bancari
       iban          : form.iban,
