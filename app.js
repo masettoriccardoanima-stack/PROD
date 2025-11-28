@@ -16708,7 +16708,14 @@ function _saveImportedCloudIds(set){
         e('div', null, e('label', null, 'Operatore'),
           e('select', {value:flt.operatore, onChange:ev=>setFlt(p=>({...p, operatore: ev.target.value}))},
             e('option', {value:''}, '— tutti —'),
-            opsImpostazioni.map((op,i)=> e('option', {key:i, value:op}, op))
+              opsImpostazioni.map((op,i)=>{
+              const label = (typeof op === 'string')
+                ? op
+                : String(op.name || op.label || '').trim();
+              if (!label) return null;
+              return e('option', {key:i, value:label}, label);
+            })
+
           )
         ),
         e('div', null, e('label', null, 'Fase'),
