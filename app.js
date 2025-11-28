@@ -13516,16 +13516,15 @@ window.printDDT = function(state){
         tr{page-break-inside:avoid}
 
         .footer{
-          position:fixed;
-          left:8mm;
-          right:8mm;
-          bottom:20mm;                       /* totali un po' sopra il bordo */
+          /* il riepilogo IVA e i totali seguono il flusso
+             e non si sovrappongono alle righe della tabella */
+          position:relative;
+          margin-top:12px;
           display:grid;
           grid-template-columns:1fr 280px;
           gap:10px;
+          page-break-inside:avoid;   /* il blocco footer resta tutto sulla stessa pagina */
         }
-        /* Spazio utile per il numeratore in basso a destra */
-        .content{ margin-bottom: 30mm; }
         .bank{margin-top:6px}
 
         .pagebox{
@@ -13534,6 +13533,7 @@ window.printDDT = function(state){
           bottom:8mm;                        /* numero pagina sotto al footer */
           font-size:12px;
         }
+
         .pageX[data-mode="css"]::after{content: counter(page)}
         @media screen { th,td{ border-color: transparent } }
         @media print  { th,td{ border:1px solid #e5e7eb } }

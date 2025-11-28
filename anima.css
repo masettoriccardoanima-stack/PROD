@@ -28,8 +28,49 @@ body { margin:0; font-family:system-ui, Arial, sans-serif; background:#f5f6f8; }
 .row { display:flex; align-items:center; gap:8px; }
 .table { width:100%; border-collapse:collapse; }
 .table th, .table td { padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:left; }
+
+/* Tabella 2 colonne usata in Timbratura (Descrizione / Q.tà / Prodotta / Residua) */
+.table.two-cols{
+  width:100%;
+  table-layout:fixed;       /* le colonne si dividono lo spazio e NON allargano la card */
+}
+.table.two-cols th,
+.table.two-cols td{
+  vertical-align:top;
+}
+
+/* Su schermi piccoli: niente colonne strette, ogni riga diventa "scheda" label + valore */
+@media (max-width: 640px){
+  .table.two-cols,
+  .table.two-cols tbody,
+  .table.two-cols tr,
+  .table.two-cols th,
+  .table.two-cols td{
+    display:block;
+    width:100%;
+  }
+
+  .table.two-cols tr{
+    border-bottom:1px solid #e5e7eb;
+    padding:4px 0;
+  }
+
+  .table.two-cols th{
+    padding:4px 6px 0;
+    font-size:13px;
+    font-weight:600;
+  }
+
+  .table.two-cols td{
+    padding:0 6px 6px;
+    font-size:13px;
+    word-wrap:break-word;
+  }
+}
+
 .progress { background:#e5e7eb; height:8px; border-radius:999px; overflow:hidden; }
 .progress > div { height:100%; background:#111827; }
+
 .badge-red { color:#b91c1c; }
 .badge-yellow { color:#b45309; }
 .badge-green { color:#065f46; }
