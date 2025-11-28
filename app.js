@@ -511,9 +511,10 @@ window.sortNewestFirst = window.sortNewestFirst || function listSort(arr, opts){
   // Sola lettura: l’accountant non può scrivere; se non loggato → NON blocchiamo (così puoi lavorare offline)
   // --- RBAC: unica fonte di verità ---
   window.isReadOnlyUser = function(){
-    return !!(window.__USER && window.__USER.role === 'accountant');
+      const r = window.__USER && window.__USER.role;
+    return r === 'accountant' || r === 'viewer' || r === 'mobile';
   };
-  
+ 
   // Props da spalmare sui pulsanti che scrivono
   window.roProps = function(){
     return window.isReadOnlyUser() ? { disabled:true, title:'Sola lettura (accountant)' } : {};
@@ -1941,14 +1942,25 @@ window.navigateTo = window.navigateTo || function(label){
     'TIMBRATURA':'#/timbratura','Timbratura':'#/timbratura'
   };
   const target = map[label] || '#/dashboard';
+  const u     = window.__USER || null;
+  const role  = u && u.role;
+  const isAdmin  = role === 'admin';
+  const isViewer = (role === 'viewer' || role === 'mobile');
 
-  const u = window.__USER || null;
-  const isAdmin = !!(u && u.role === 'admin');
-  const allowed = new Set(['#/timbratura', '#/commesse', '#/impostazioni', '#/login', '#/ddt']);
-  if (!isAdmin && !allowed.has(target)) {
-    return (location.hash = '#/timbratura');
+  if (!isAdmin) {
+    const allowed = isViewer
+      // Utente viewer/mobile: solo consultazione (timbratura, commesse, DDT, login)
+      ? new Set(['#/timbratura', '#/commesse', '#/ddt', '#/login'])
+      // Worker / altri non-admin: comportamento attuale (incluso accesso a impostazioni)
+      : new Set(['#/timbratura', '#/commesse', '#/impostazioni', '#/login', '#/ddt']);
+
+    if (!allowed.has(target)) {
+      return (location.hash = '#/timbratura');
+    }
   }
+
   location.hash = target;
+
 };
 
 
