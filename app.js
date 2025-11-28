@@ -10200,10 +10200,39 @@ function ImpostazioniView() {
   const lsGet = window.lsGet || ((k,d)=>{ try{ const v=JSON.parse(localStorage.getItem(k)); return (v??d);}catch{return d;}});
 
   // Fallback locale se l'helper globale non fosse presente
+  // Merge DIFENSIVO: non sovrascrivere valori pieni con valori vuoti da altri device
   const updateAppSettings = window.updateAppSettings || function(patch){
     try{
       const cur = JSON.parse(localStorage.getItem('appSettings')||'{}') || {};
-      const next = { ...cur, ...(patch||{}), updatedAt: new Date().toISOString() };
+      const rawPatch = patch || {};
+      const safePatch = { ...rawPatch };
+
+      // helper: considera "vuoti" stringhe vuote, null/undefined, oggetti/array vuoti
+      const isEmptyValue = (v) => {
+        if (v === null || v === undefined) return true;
+        if (typeof v === 'string') return v.trim() === '';
+        if (Array.isArray(v)) return v.length === 0;
+        if (typeof v === 'object') return Object.keys(v).length === 0;
+        return false;
+      };
+      const hasMeaningfulValue = (v) => {
+        if (v === null || v === undefined) return false;
+        if (typeof v === 'string') return v.trim() !== '';
+        if (Array.isArray(v)) return v.length > 0;
+        if (typeof v === 'object') return Object.keys(v).length > 0;
+        return true;
+      };
+
+      // non permettere a un patch "vuoto" di cancellare valori già presenti
+      Object.keys(safePatch).forEach((k)=>{
+        const nv = safePatch[k];
+        const cv = cur[k];
+        if (isEmptyValue(nv) && hasMeaningfulValue(cv)) {
+          delete safePatch[k];
+        }
+      });
+
+      const next = { ...cur, ...safePatch, updatedAt: new Date().toISOString() };
       localStorage.setItem('appSettings', JSON.stringify(next));
       window.__anima_dirty = true;
       return next;
