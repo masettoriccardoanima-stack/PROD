@@ -19629,7 +19629,20 @@ window.findCommessaById = window.findCommessaById || function(id){
 
     // — Filtro ruoli: worker / viewer / mobile vedono solo alcune rotte
     const USER = window.__USER || null;
-    const role = (USER && USER.role) || 'admin';
+    let role = USER && USER.role;
+
+    // Se non c'è utente loggato:
+    // - su schermi piccoli → trattalo come worker (menu limitato, niente Impostazioni)
+    // - su desktop → mantieni comportamento attuale (admin implicito offline)
+    if (!role) {
+      const MOBILE_W = 1024;
+      if (window.innerWidth <= MOBILE_W) {
+        role = 'worker';
+      } else {
+        role = 'admin';
+      }
+    }
+
     const lowerRole = String(role).toLowerCase();
     const isAdmin = (lowerRole === 'admin');
     const isWorkerLike = (lowerRole === 'worker' || lowerRole === 'viewer' || lowerRole === 'mobile');
@@ -20935,9 +20948,15 @@ if (typeof window !== 'undefined') { window.TimbraturaMobileView = TimbraturaMob
     if (window.innerWidth > MOBILE_W) return;
     if (document.getElementById('anima-hamburger')) return; // idempotente
 
-    const rawRole = (window.__USER && window.__USER.role) || 'admin';
-    const role = String(rawRole).toLowerCase();
+    let rawRole = window.__USER && window.__USER.role;
 
+    // Se non c'è utente loggato, di default consideralo worker su mobile
+    // (menu limitato; se poi fai login come admin, role diventa 'admin' e vedi tutto)
+    if (!rawRole) {
+      rawRole = 'worker';
+    }
+
+    const role = String(rawRole).toLowerCase();
     let items;
     if (role === 'operator') {
       items = [ { label:'Timbratura', hash:'#/timbratura' } ];
