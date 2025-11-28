@@ -10868,7 +10868,9 @@ function ImpostazioniView() {
                 e('option', {value:'admin'},      'Admin'),
                 e('option', {value:'resp'},       'Responsabile produzione'),
                 e('option', {value:'worker'},     'Worker (solo timbratura/etichette)'),
-                e('option', {value:'accountant'}, 'Accountant (solo lettura)')
+                e('option', {value:'accountant'}, 'Accountant (solo lettura)'),
+                e('option', {value:'viewer'},     'Viewer (solo consultazione, accesso limitato)'),
+                e('option', {value:'mobile'},     'Mobile (solo consultazione da smartphone)')
               ),
               e('button', {
                 type:'button',
