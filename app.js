@@ -13797,13 +13797,17 @@ window.printDDT = function(state){
 
       </body></html>`;
 
-      if (window.safePrintHTMLString) {
+      // Prima scelta: numerazione pagine "furba" (come DDT)
+      if (window.safePrintHTMLStringWithPageNum) {
+        window.safePrintHTMLStringWithPageNum(html);
+
+      // Fallback: stampa semplice in iframe
+      } else if (window.safePrintHTMLString) {
         window.safePrintHTMLString(html);
+
+      // Fallback legacy globale, se esistesse
       } else if (global.safePrintHTMLString) {
         global.safePrintHTMLString(html);
-      } else if (window.safePrintHTMLStringWithPageNum) {
-        // fallback estremo, ma non dovrebbe servire per le fatture
-        window.safePrintHTMLStringWithPageNum(html);
       }
 
     }catch(e){
