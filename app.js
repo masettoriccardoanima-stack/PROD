@@ -20572,7 +20572,12 @@ var TimbraturaMobileView = function(){
   const effMins    = effMinsPhase;
   const residuoMins = Math.max(0, pianMins - effMins);
 
-  const card = (children)=> e('div',{className:'card', style:{maxWidth:520, margin:'0 auto'}}, children);
+  // Card centrata: su desktop max 520px, su smartphone prende il 100% dello schermo
+  const card = (children)=> e(
+    'div',
+    { className:'card', style:{ maxWidth:520, width:'100%', margin:'0 auto' } },
+    children
+  );
 
   return e('div', {style:{padding:8}},
     card([

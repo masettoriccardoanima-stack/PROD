@@ -798,6 +798,40 @@ aside.sidebar + aside.card, aside.sidebar ~ aside.card { display: none !importan
   }
 }
 
+/* === Timbratura mobile: riepilogo commessa (Descrizione / Q.tà / Prodotta / Residua) === */
+.table.two-cols{
+  width:100% !important;
+  max-width:100% !important;
+  table-layout:fixed !important;
+  border-collapse:collapse !important;
+}
+
+.table.two-cols th,
+.table.two-cols td{
+  padding:6px 8px !important;
+  font-size:14px !important;
+}
+
+.table.two-cols th{
+  width:60% !important;
+  text-align:left !important;
+}
+
+.table.two-cols td{
+  width:40% !important;
+  text-align:right !important;
+  white-space:nowrap !important;      /* numeri e testi corti su una sola riga */
+  overflow:hidden !important;
+  text-overflow:ellipsis !important;
+}
+
+@media (max-width:640px){
+  .table.two-cols th,
+  .table.two-cols td{
+    padding:4px 6px !important;
+    font-size:13px !important;
+  }
+}
 
 
 
