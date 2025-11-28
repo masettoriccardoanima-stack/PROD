@@ -653,16 +653,16 @@ aside.sidebar + aside.card, aside.sidebar ~ aside.card { display: none !importan
 /* Le card non devono tagliare menu o bottoni */
 .card{ overflow: visible !important; }
 
-/* Tabella fluida e leggibile */
-.table{
+/* Tabella fluida e leggibile (tutte tranne quelle .two-cols compatte) */
+.table:not(.two-cols){
   width:100% !important;
   table-layout:auto !important;
   border-collapse:collapse !important;
 }
 
 /* Celle: wrapping consentito, niente ritagli strani */
-.table th,
-.table td{
+.table:not(.two-cols) th,
+.table:not(.two-cols) td{
   padding:8px 10px !important;
   vertical-align:middle !important;
   white-space:normal !important;
@@ -672,7 +672,7 @@ aside.sidebar + aside.card, aside.sidebar ~ aside.card { display: none !importan
 }
 
 /* Colonna azioni: sempre usabile, va a capo */
-.table tr > td:last-child{
+.table:not(.two-cols) tr > td:last-child{
   display:flex !important;
   flex-wrap:wrap !important;
   gap:6px !important;
@@ -680,7 +680,7 @@ aside.sidebar + aside.card, aside.sidebar ~ aside.card { display: none !importan
 }
 
 /* Bottoni compatti coerenti */
-.table .btn{
+.table:not(.two-cols) .btn{
   padding:6px 10px !important;
   font-size:12px !important;
   line-height:1.1 !important;
@@ -699,8 +699,31 @@ aside.sidebar + aside.card, aside.sidebar ~ aside.card { display: none !importan
   border:1px solid #e5e7eb !important;
   border-radius:10px !important;
   padding:8px !important;
-  box-shadow:0 12px 30px rgba(0,0,0,.12) !important;
+  box-shadow:0 12px 30px rgba(0,0,0,12) !important;
   z-index:99999 !important;
+}
+
+/* Tabelle compatte per timbratura/mobile (2 colonne: label + valore) */
+.table.two-cols{
+  width:100% !important;
+  table-layout:fixed !important;
+  border-collapse:collapse !important;
+}
+.table.two-cols th,
+.table.two-cols td{
+  padding:4px 8px !important;
+  font-size:13px !important;
+  white-space:nowrap !important;      /* 🔒 numeri e testi corti su una sola riga */
+  overflow:hidden !important;
+  text-overflow:ellipsis !important;
+}
+.table.two-cols th{
+  text-align:left !important;
+  width:55% !important;
+}
+.table.two-cols td{
+  text-align:right !important;
+  width:45% !important;
 }
 
 /* ===== CANONICO FINALE: SIDEBAR & LAYOUT (vince sui duplicati sopra) ===== */

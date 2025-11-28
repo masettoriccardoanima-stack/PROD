@@ -13511,9 +13511,18 @@ window.printDDT = function(state){
         @media print {
           th,td{ border:1px solid #e5e7eb; }
         }
-                .ctr{text-align:center}
-        .num{text-align:right}
-        tr{page-break-inside:avoid}
+  .ctr{text-align:center}
+  .num{text-align:right; white-space:nowrap}
+  .footer{
+    position:fixed;
+    left:8mm;
+    right:8mm;
+    bottom:6mm;
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    gap:12px;
+  }
 
         .footer{
           /* il riepilogo IVA e i totali seguono il flusso
