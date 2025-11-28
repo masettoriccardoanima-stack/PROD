@@ -13685,11 +13685,19 @@ window.printDDT = function(state){
         }
 
         .pagebox{
-          margin-top:6px;
+          position:fixed;
+          right:12mm;
+          bottom:8mm;           /* sotto il footer, lato destro */
           font-weight:700;
           text-align:right;
           font-size:11px;
         }
+
+        /* Numero pagina generato dal browser: Pag. 1, Pag. 2, ... */
+        .pageNum::after{
+          content: counter(page);
+        }
+
       </style>`;
 
       const html = `<!doctype html><html><head><meta charset="utf-8">${css}</head><body>
@@ -13718,7 +13726,19 @@ window.printDDT = function(state){
             ${cliInd   ? `<div class="small">${cliInd}</div>` : ''}
             ${cliPiva  ? `<div class="muted small">P.IVA: ${cliPiva}</div>` : ''}
             ${ (cliEmail||cliTel) ? `<div class="muted small">${[cliEmail,cliTel].filter(Boolean).join(' · ')}</div>` : '' }
-            <div class="small">Pagamento: <strong>${esc(fa.pagamento||'')}</strong></div>
+          </div>
+
+          <div class="box">
+            <div class="muted">Dati pagamento</div>
+            <div class="small">
+              ${fa.pagamento ? `<div>Pagamento: <strong>${esc(fa.pagamento)}</strong></div>` : ''}
+              ${[
+                bancaInt   && ('Intestatario: ' + bancaInt),
+                bancaIstit && ('Banca: ' + bancaIstit),
+                bancaIban  && ('IBAN: ' + bancaIban),
+                bancaBic   && ('BIC/SWIFT: ' + bancaBic)
+              ].filter(Boolean).map(esc).join('<br>')}
+            </div>
           </div>
         </div>
 
@@ -13751,11 +13771,6 @@ window.printDDT = function(state){
 
             ${(fa.note||'').trim() ? `<div class="muted small" style="margin-top:8px">Note: ${esc(fa.note).replace(/\n/g,' ')}</div>` : ''}
 
-            <div class="bank">
-              <div style="font-weight:600; margin-bottom:4px">Dati pagamento</div>
-              <div class="small">${['Intestatario: '+bancaInt, bancaIstit && ('Banca: '+bancaIstit), bancaIban && ('IBAN: '+bancaIban), bancaBic && ('BIC/SWIFT: '+bancaBic)]
-                .filter(s=>s && !/:\s*$/.test(s.replace(/\s+/g,''))).map(esc).join('<br>')}</div>
-            </div>
           </div>
 
           <div class="box">
@@ -13765,15 +13780,22 @@ window.printDDT = function(state){
               <strong>Totale: <span style="float:right">${fmt2(totale)}</span></strong>
             </div>
           </div>
-          <div id="pagebox" class="pagebox">Pag. <span class="pageNum" data-mode="css"></span></div>
+
+          <div id="pagebox" class="pagebox">
+            Pag. <span class="pageNum"></span>
+          </div>
         </div>
 
       </body></html>`;
 
-      if (window.safePrintHTMLStringWithPageNum) window.safePrintHTMLStringWithPageNum(html);
-      else (window.safePrintHTMLStringWithPageNum
-        ? window.safePrintHTMLStringWithPageNum(html)
-        : (global.safePrintHTMLString ? global.safePrintHTMLString(html) : window.safePrintHTMLString(html)));
+      if (window.safePrintHTMLString) {
+        window.safePrintHTMLString(html);
+      } else if (global.safePrintHTMLString) {
+        global.safePrintHTMLString(html);
+      } else if (window.safePrintHTMLStringWithPageNum) {
+        // fallback estremo, ma non dovrebbe servire per le fatture
+        window.safePrintHTMLStringWithPageNum(html);
+      }
 
     }catch(e){
       alert('Errore Fattura: ' + (e?.message || e));
