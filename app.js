@@ -13581,64 +13581,115 @@ window.printDDT = function(state){
       }).join('') || `<tr><td class="ctr">${fa.plafond ? 'Plafond (art. 8 DPR 633/72)' : '—'}</td><td class="num">0,00</td><td class="num">0,00</td></tr>`;
 
       const css = `<style>
-        @page { size: A4; margin: 10mm 8mm; }
-        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        html,body{margin:0;padding:0}
-        body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:#0f172a;font-size:12px}
-        .muted{color:#64748b}
-        .small{font-size:11px}
-        .doc-title{font-size:20px;font-weight:700;letter-spacing:.3px}
-        .hdr{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0 8px;border-bottom:2px solid #111}
-        .content{ margin-top: 6mm; }
-        .idbox{border:1px solid #cbd5e1;border-radius:8px;padding:8px 10px;min-width:210px}
-        .box{border:1px solid #cbd5e1;border-radius:8px;padding:8px 10px}
-        .logo{ height:80px; max-height:80px; object-fit:contain }
-        .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
-        table{width:100%;border-collapse:collapse;margin-top:8px}
-        thead{display:table-header-group}
-        th,td{border:1px solid #e2e8f0;padding:6px;vertical-align:top}
-        th{background:#f8fafc}
-        @media screen {
-          th,td{ border-color: transparent; }
+        @page {
+          size: A4;
+          margin: 16mm 12mm 22mm 12mm; /* margini in linea con il DDT */
         }
-        @media print {
-          th,td{ border:1px solid #e5e7eb; }
+        * {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
         }
-  .ctr{text-align:center}
-  .num{text-align:right; white-space:nowrap}
-  .footer{
-    position:fixed;
-    left:8mm;
-    right:8mm;
-    bottom:6mm;
-    display:flex;
-    justify-content:space-between;
-    align-items:flex-end;
-    gap:12px;
-  }
-
-        .footer{
-          /* il riepilogo IVA e i totali seguono il flusso
-             e non si sovrappongono alle righe della tabella */
-          position:relative;
-          margin-top:12px;
-          display:grid;
-          grid-template-columns:1fr 280px;
-          gap:10px;
-          page-break-inside:avoid;   /* il blocco footer resta tutto sulla stessa pagina */
+        html,body{
+          margin:0;
+          padding:0;
         }
-        .bank{margin-top:6px}
-
-        .pagebox{
-          position:fixed;
-          right:8mm;
-          bottom:8mm;                        /* numero pagina sotto al footer */
+        body{
+          font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;
+          color:#0f172a;
           font-size:12px;
         }
 
-        .pageX[data-mode="css"]::after{content: counter(page)}
-        @media screen { th,td{ border-color: transparent } }
-        @media print  { th,td{ border:1px solid #e5e7eb } }
+        .muted{color:#64748b;}
+        .small{font-size:11px;}
+
+        .doc-title{
+          font-size:20px;
+          font-weight:700;
+          letter-spacing:.3px;
+        }
+
+        .hdr{
+          border-bottom:2px solid #111;
+          padding:6px 0;
+          display:flex;
+          justify-content:space-between;
+          align-items:center;
+          gap:12px;
+        }
+        .hdr .logo{
+          height:80px;
+          max-height:80px;
+          object-fit:contain;
+          margin-left:2mm;
+        }
+
+        .content{
+          margin-top:6mm;
+        }
+
+        .grid2{
+          display:grid;
+          grid-template-columns:1fr 1fr;
+          gap:10px;
+          margin:10px 0;
+        }
+
+        .box{
+          border:1px solid #cbd5e1;
+          border-radius:8px;
+          padding:8px 10px;
+        }
+
+        table{
+          width:100%;
+          border-collapse:collapse;
+          margin-top:10px;
+          page-break-inside:auto;
+        }
+        thead{
+          display:table-header-group; /* header ripetuto se va a pagina 2 */
+        }
+        tfoot{
+          display:table-footer-group;
+        }
+        th,td{
+          border:1px solid #e5e7eb;
+          padding:6px;
+          vertical-align:top;
+        }
+        th{
+          background:#f8fafc;
+        }
+
+        .ctr{text-align:center;}
+        .num{text-align:right; white-space:nowrap;}
+
+        .footer{
+          margin-top:12px;
+          display:grid;
+          grid-template-columns:1.3fr 1fr; /* iva + note | totali + banca */
+          gap:10px;
+          page-break-inside:avoid; /* non spezzare il blocco totali */
+        }
+        .footer .box{
+          font-size:11px;
+        }
+
+        .totali{
+          border:1px solid #e5e7eb;
+          border-radius:6px;
+          padding:6px;
+        }
+        .totali table{
+          margin-top:4px;
+        }
+
+        .pagebox{
+          margin-top:6px;
+          font-weight:700;
+          text-align:right;
+          font-size:11px;
+        }
       </style>`;
 
       const html = `<!doctype html><html><head><meta charset="utf-8">${css}</head><body>
