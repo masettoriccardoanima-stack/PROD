@@ -13615,6 +13615,11 @@ window.printDDT = function(state){
           justify-content:space-between;
           align-items:center;
           gap:12px;
+          position:fixed;
+          top:16mm;         /* dentro al margine pagina */
+          left:12mm;
+          right:12mm;
+          background:#fff;
         }
         .hdr .logo{
           height:80px;
@@ -13624,7 +13629,8 @@ window.printDDT = function(state){
         }
 
         .content{
-          margin-top:6mm;
+          margin-top:42mm;   /* spazio per header */
+          margin-bottom:40mm;/* spazio per footer */
         }
 
         .grid2{
@@ -13665,11 +13671,15 @@ window.printDDT = function(state){
         .num{text-align:right; white-space:nowrap;}
 
         .footer{
-          margin-top:12px;
+          position:fixed;
+          left:12mm;
+          right:12mm;
+          bottom:10mm;   /* sempre a fondo pagina */
           display:grid;
-          grid-template-columns:1.3fr 1fr; /* iva + note | totali + banca */
+          grid-template-columns:1.3fr 1fr; /* iva + note | totali */
           gap:10px;
-          page-break-inside:avoid; /* non spezzare il blocco totali */
+          page-break-inside:avoid;
+          background:#fff;
         }
         .footer .box{
           font-size:11px;
@@ -13685,9 +13695,7 @@ window.printDDT = function(state){
         }
 
         .pagebox{
-          position:fixed;
-          right:12mm;
-          bottom:8mm;           /* sotto il footer, lato destro */
+          margin-top:6px;
           font-weight:700;
           text-align:right;
           font-size:11px;
@@ -13719,6 +13727,7 @@ window.printDDT = function(state){
             <div>Data: <strong>${esc(fa.data||'')}</strong></div>
           </div>
         </div>
+                <div class="content">
         <div class="grid2">
           <div class="box">
             <div class="muted">Cliente</div>
@@ -13756,7 +13765,7 @@ window.printDDT = function(state){
           </tr></thead>
           <tbody>${righeHTML || `<tr><td colspan="7" class="muted">Nessuna riga</td></tr>`}</tbody>
         </table>
-
+      </div> <!-- fine .content -->
         <div class="footer">
           <div class="box">
             <div style="font-weight:600; margin-bottom:6px">Riepilogo IVA</div>
