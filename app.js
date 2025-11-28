@@ -10235,9 +10235,19 @@ function ImpostazioniView() {
   };
 
 
+  // Operatori iniziali: app0.operators può essere array di {name} o di stringhe
   const operatorsTextInitial =
-    Array.isArray(app0.operators) ? app0.operators.join('\n')
-    : (typeof app0.operators==='string' ? String(app0.operators).replace(/[,;|]/g,'\n') : '');
+    Array.isArray(app0.operators)
+      ? app0.operators
+          .map(o => {
+            if (typeof o === 'string') return o;
+            return String(o.name || o.label || '').trim();
+          })
+          .filter(Boolean)
+          .join('\n')
+      : (typeof app0.operators === 'string'
+          ? String(app0.operators).replace(/[,;|]/g, '\n')
+          : '');
 
     // Utenti e ruoli (login Supabase) iniziali
   const usersInitial = Array.isArray(app0.users)
@@ -10245,6 +10255,15 @@ function ImpostazioniView() {
         email: String(u.email || u.username || '').trim(),
         role : (u.role || 'worker')
       }))
+    : [];
+    
+      const fasiStandardInitial = Array.isArray(app0.fasiStandard)
+    ? app0.fasiStandard
+        .map(f => {
+          if (typeof f === 'string') return f;
+          return String(f.label || f.nome || f.lav || '').trim();
+        })
+        .filter(Boolean)
     : [];
 
   const [form, setForm] = React.useState({
@@ -10298,7 +10317,7 @@ function ImpostazioniView() {
     supabaseTable    : app0.supabaseTable || 'anima_sync',
 
     // Fasi standard
-    fasiStandard     : Array.isArray(app0.fasiStandard) ? app0.fasiStandard : [],
+    fasiStandard     : fasiStandardInitial,
 
     // Logo (base64 per stampe)
     logoDataUrl      : app0.logoDataUrl || ''
@@ -10658,27 +10677,39 @@ function ImpostazioniView() {
       })
     ),
 
-    // Fasi standard
+    // Fasi standard (tendina nelle commesse)
     e('div', {className:'card'},
       e('h3', null, 'Fasi standard (tendina nelle commesse)'),
       e('div', null,
-        (form.fasiStandard||[]).map((v,i)=> e('div',{key:i, className:'row', style:{gap:6, marginBottom:6}},
-          e('input', {
-            value:v,
-            onChange:ev=>{
-              if (!isAdmin) return;
-              const val = ev.target.value;
-              setForm(p=>({ ...p, fasiStandard: p.fasiStandard.map((x,ix)=> ix===i ? val : x) }));
-            },
-            readOnly: !isAdmin
-          }),
-          e('button', {
-            type:'button',
-            className:'btn btn-outline',
-            onClick:()=> setForm(p=>({...p, fasiStandard: p.fasiStandard.filter((_,ix)=>ix!==i)})),
-            disabled: !isAdmin
-          }, '🗑')
-        )),
+        (form.fasiStandard || []).map((v,i) => {
+          const val = (typeof v === 'string')
+            ? v
+            : String(v.label || v.nome || v.lav || '').trim();
+
+          return e('div',{key:i, className:'row', style:{gap:6, marginBottom:6}},
+            e('input', {
+              value: val,
+              onChange: ev => {
+                if (!isAdmin) return;
+                const newVal = ev.target.value;
+                setForm(p => ({
+                  ...p,
+                  fasiStandard: (p.fasiStandard || []).map((x,ix) => ix === i ? newVal : x)
+                }));
+              },
+              readOnly: !isAdmin
+            }),
+            e('button', {
+              type:'button',
+              className:'btn btn-outline',
+              onClick: () => setForm(p => ({
+                ...p,
+                fasiStandard: (p.fasiStandard || []).filter((_,ix) => ix !== i)
+              })),
+              disabled: !isAdmin
+            }, '🗑')
+          );
+        }),
         e('button', {
           type:'button',
           className:'btn',
