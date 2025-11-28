@@ -20604,13 +20604,16 @@ var TimbraturaMobileView = function(){
         const prodUI  = producedPiecesUI(commessa, rIdxNum);
         const residUI = Math.max(0, totUI - prodUI);
 
-        return e('div',{className:'card', style:{marginBottom:8}},
-          e('table',{className:'table two-cols'},
-            e('tbody',null,
-              e('tr',null, e('th',null,'Descrizione'), e('td',null, commessa.descrizione || '-')),
-              e('tr',null, e('th',null, hasRow ? 'Q.tà riga' : 'Q.tà totale'), e('td',null, String(totUI))),
-              e('tr',null, e('th',null, hasRow ? 'Prodotta riga' : 'Prodotta finora'), e('td',null, String(prodUI))),
-              e('tr',null, e('th',null, hasRow ? 'Residua riga' : 'Residua'), e('td',null, String(residUI)))
+        // Card riepilogo timbratura: full-width + niente overflow orizzontale
+        return e('div',{className:'card timbratura-summary', style:{marginBottom:8}},
+          e('div',{className:'timbratura-summary-inner'},
+            e('table',{className:'table two-cols'},
+              e('tbody',null,
+                e('tr',null, e('th',null,'Descrizione'), e('td',null, commessa.descrizione || '-')),
+                e('tr',null, e('th',null, hasRow ? 'Q.tà riga' : 'Q.tà totale'), e('td',null, String(totUI))),
+                e('tr',null, e('th',null, hasRow ? 'Prodotta riga' : 'Prodotta finora'), e('td',null, String(prodUI))),
+                e('tr',null, e('th',null, hasRow ? 'Residua riga' : 'Residua'), e('td',null, String(residUI)))
+              )
             )
           )
         );

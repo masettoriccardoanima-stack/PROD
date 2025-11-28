@@ -843,6 +843,7 @@ aside.sidebar + aside.card, aside.sidebar ~ aside.card { display: none !importan
 .timbratura-summary table{
   width:100% !important;
   max-width:100% !important;
+  min-width:0 !important;   /* sovrascrive il min-width:860px delle tabelle normali */
 }
 
 
