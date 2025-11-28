@@ -12296,7 +12296,8 @@ css += `
 
              /* Layout verticale: pagina intera, footer spinto in basso */
     .page{
-      min-height:100vh;
+      /* altezza determinata dal contenuto per evitare che il footer
+         venga spinto su un foglio successivo */
       display:flex;
       flex-direction:column;
       page-break-after: always;      /* OGNI .page va su un foglio */
@@ -12304,6 +12305,7 @@ css += `
     .page:last-child{
       page-break-after: auto;        /* l’ultima non aggiunge pagina bianca */
     }
+
     .content{
       flex:1;
       margin:8mm 0 8mm 0;
@@ -12393,11 +12395,12 @@ css += `
   const firmaConducenteHtml   = esc(ddt?.firmaConducente||'');
   const firmaDestinatarioHtml = esc(ddt?.firmaDestinatario||'');
 
-  // --- Impostazione pagine multiple: header + footer ripetuti ---
   const rows = (righe && righe.length) ? righe : [{}];
 
-  // numero righe per pagina (più conservativo se ci sono note)
-  const ROWS_PER_PAGE = hasNote ? 10 : 14;
+  // numero righe per pagina:
+  // usiamo un valore più prudente per essere sicuri che header + tabella + footer
+  // stiano sempre nello stesso foglio
+  const ROWS_PER_PAGE = hasNote ? 8 : 12;
 
   const pages = [];
   for (let i = 0; i < rows.length; i += ROWS_PER_PAGE) {
