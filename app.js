@@ -5311,7 +5311,7 @@ window.prefillDDTfromCommessa = function(comm){
 
       // RBAC: sola lettura per accountant (fonte unica: utente corrente)
   global.isReadOnlyUser = function () {
-    // prendiamo il puntatore utente più “affidabile” disponibile
+    // puntatore utente più “affidabile” disponibile
     const u =
       window.__USER ||
       window.currentUser ||
@@ -5319,7 +5319,9 @@ window.prefillDDTfromCommessa = function(comm){
       global.currentUser ||
       null;
 
-    return !!(u && u.role === 'accountant');
+    if (!u || !u.role) return false;
+    const role = String(u.role).toLowerCase();
+    return (role === 'accountant' || role === 'viewer' || role === 'mobile');
   };
 
   global.canWrite = function () {
@@ -19568,8 +19570,7 @@ window.findCommessaById = window.findCommessaById || function(id){
   window.__ALLOWED_WORKER_ROUTES = window.__ALLOWED_WORKER_ROUTES || new Set([
     '#/timbratura',
     '#/commesse',
-    '#/ddt',
-    '#/impostazioni'
+    '#/ddt'
   ]);
   function Sidebar({ hash }) {
     const R   = (window.ROUTES || {});
@@ -19626,18 +19627,27 @@ window.findCommessaById = window.findCommessaById || function(id){
         ['#/impostazioni', 'Impostazioni'],
     ];
 
-        // — Filtro ruoli: i worker vedono solo alcune rotte
+    // — Filtro ruoli: worker / viewer / mobile vedono solo alcune rotte
     const USER = window.__USER || null;
     const role = (USER && USER.role) || 'admin';
-    const isWorker = (role === 'worker');
+    const lowerRole = String(role).toLowerCase();
+    const isAdmin = (lowerRole === 'admin');
+    const isWorkerLike = (lowerRole === 'worker' || lowerRole === 'viewer' || lowerRole === 'mobile');
 
-    const LINKS = isWorker
-      ? ALL_LINKS.filter(([href]) =>
-          href === '__title__' ||
-          href === '__section__' ||
-          (window.__ALLOWED_WORKER_ROUTES && window.__ALLOWED_WORKER_ROUTES.has(href))
-        )
-      : ALL_LINKS;
+    let LINKS = ALL_LINKS;
+
+    if (isWorkerLike) {
+      LINKS = ALL_LINKS.filter(([href]) =>
+        href === '__title__' ||
+        href === '__section__' ||
+        (window.__ALLOWED_WORKER_ROUTES && window.__ALLOWED_WORKER_ROUTES.has(href))
+      );
+    }
+
+    // Solo ADMIN vede la voce "Impostazioni" nel menu
+    if (!isAdmin) {
+      LINKS = LINKS.filter(([href]) => href !== '#/impostazioni');
+    }
 
     // Link factory (nome diverso per evitare conflitti)
     const mkLink = (h, label) =>
@@ -19708,7 +19718,7 @@ window.findCommessaById = window.findCommessaById || function(id){
   // ---------------- pickView centralizzato (ignora query e applica RBAC) ----------------
   window.pickView = function () {
     const raw = (location.hash || '#/dashboard').toLowerCase();
-    const h = raw.split('?')[0]; // ignora query es. #/timbratura?job=...
+    let h = raw.split('?')[0]; // ignora query es. #/timbratura?job=...
 
     // se già autenticato, non restare su #/login
     if (h === '#/login' && (window.__USER || window.currentUser)) {
@@ -19716,21 +19726,40 @@ window.findCommessaById = window.findCommessaById || function(id){
       return () => e('div', null);
     }
 
-    // RBAC: i worker possono solo certe viste
-    const u = window.__USER || null;
-    const isAdmin = !!(u && u.role === 'admin');
+    // RBAC: restrizioni per ruolo
+    const u = window.__USER || window.currentUser || null;
+    const role = (u && String(u.role || '').toLowerCase()) || 'admin';
+    const isAdmin = (role === 'admin');
+    const isMobileLike = (role === 'viewer' || role === 'mobile');
+
     if (!isAdmin) {
-      const allowed = new Set(['#/timbratura', '#/commesse', '#/impostazioni', '#/login', '#/ddt']);
-      if (!allowed.has(h)) {
-        location.hash = '#/timbratura';
-        return () => e('div', null);
+      if (isMobileLike) {
+        // viewer / mobile: solo timbratura, commesse, DDT e login
+        const allowed = new Set(['#/timbratura', '#/commesse', '#/ddt', '#/login']);
+        if (!allowed.has(h)) {
+          if (h !== '#/timbratura') {
+            location.hash = '#/timbratura';
+          }
+          h = '#/timbratura';
+        }
+      } else {
+        // worker / accountant / altri non-admin: blocca solo accesso a Impostazioni
+        if (h === '#/impostazioni') {
+          if (h !== '#/timbratura') {
+            location.hash = '#/timbratura';
+          }
+          h = '#/timbratura';
+        }
       }
     }
 
     const R = window.ROUTES || {};
-    return R[h] || R['#/ddt'] || function () {
-      return e('div', { className: 'page' }, 'Vista non trovata: ' + h);
-    };
+    const Comp = R[h] || R['#/ddt'];
+    return (typeof Comp === 'function')
+      ? Comp
+      : function () {
+          return e('div', { className: 'page' }, 'Vista non trovata: ' + h);
+        };
   };
 
   // ---------------- App + Router (unico) ----------------
@@ -20906,19 +20935,27 @@ if (typeof window !== 'undefined') { window.TimbraturaMobileView = TimbraturaMob
     if (window.innerWidth > MOBILE_W) return;
     if (document.getElementById('anima-hamburger')) return; // idempotente
 
-    const role = (window.__USER && window.__USER.role) || 'admin';
-    const items = (role === 'operator')
-      ? [ { label:'Timbratura', hash:'#/timbratura' } ]
-      : [
-          { label:'Dashboard',    hash:'#/dashboard' },
-          { label:'Commesse',     hash:'#/commesse' },
-          { label:'Clienti',      hash:'#/clienti' },
-          { label:'Fornitori',    hash:'#/fornitori' },
-          { label:'Ore',          hash:'#/ore' },
-          { label:'Timbratura',   hash:'#/timbratura' },
-          { label:'Report',       hash:'#/report' },
-          { label:'Impostazioni', hash:'#/impostazioni' }
-        ];
+    const rawRole = (window.__USER && window.__USER.role) || 'admin';
+    const role = String(rawRole).toLowerCase();
+
+    let items;
+    if (role === 'operator') {
+      items = [ { label:'Timbratura', hash:'#/timbratura' } ];
+    } else {
+      items = [
+        { label:'Dashboard',    hash:'#/dashboard' },
+        { label:'Commesse',     hash:'#/commesse' },
+        { label:'Clienti',      hash:'#/clienti' },
+        { label:'Fornitori',    hash:'#/fornitori' },
+        { label:'Ore',          hash:'#/ore' },
+        { label:'Timbratura',   hash:'#/timbratura' },
+        { label:'Report',       hash:'#/report' }
+      ];
+      // Solo admin vede "Impostazioni" nell’hamburger
+      if (role === 'admin') {
+        items.push({ label:'Impostazioni', hash:'#/impostazioni' });
+      }
+    }
 
     const btn = document.createElement('button');
     btn.id='anima-hamburger'; btn.className='mobile-only'; btn.type='button';
