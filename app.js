@@ -7550,7 +7550,15 @@ function CommesseView({ query = '' }) {
     }));
   }, []);
   const articoliA = React.useMemo(() => lsGet('magArticoli', []) , []);
-  const FASI_STD  = Array.isArray(app.fasiStandard) ? app.fasiStandard.filter(Boolean) : [];
+  const FASI_STD  = Array.isArray(app.fasiStandard)
+    ? app.fasiStandard
+        .map(f => {
+          if (typeof f === 'string') return f.trim();             // compat vecchi dati
+          if (!f) return '';
+          return String(f.label || f.nome || f.lav || '').trim(); // nuovo formato {label, hhmm}
+        })
+        .filter(Boolean)
+  : [];
 
   // --- ordinamento per più-recenti/decrescente (C-YYYY-NNN) ---
   function idKeyC(row){
