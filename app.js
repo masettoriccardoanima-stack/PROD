@@ -10234,28 +10234,40 @@ function ImpostazioniView() {
 
   // Stato iniziale da appSettings
   const app0 = lsGet('appSettings', {}) || {};
-  const counters0 = lsGet('counters', {}) || {};
+const counters0 = lsGet('counters', {}) || {};
   const Y = new Date().getFullYear();
+
   const last = (series) => {
     const c = counters0[series];
     return (c && c.year === Y) ? Number(c.num) || 0 : 0;
   };
-    const initNum = (seriesKey) => {
+
+  const initNum = (seriesKey) => {
     const base = last(seriesKey) || 0;
 
     // prova a leggere eventuali numerazioni salvate in appSettings
     const numer = app0.numerazioni || app0.numeratori || {};
     const perSerie = numer[seriesKey] || {};
+
+    // nuovo schema per-anno: numerazioni[serie][YYYY].ultimo
     const byYear = perSerie[String(Y)] && perSerie[String(Y)].ultimo;
-    const flat   = perSerie.ultimo;
+
+    // campo flat per compatibilità: numerazioni[serie].ultimo
+    const flat = perSerie.ultimo;
+
+    // schema che usavamo prima: { last, year }
+    const modern = (perSerie.year === Y && Number.isFinite(+perSerie.last))
+      ? +perSerie.last
+      : 0;
+
+    // fallback legacy (vecchi campi sparsi in appSettings)
     const legacy = app0[seriesKey + '_last'] ?? app0['ultimo' + seriesKey];
 
-    const saved = Number(byYear ?? flat ?? legacy ?? 0) || 0;
+    const saved = Number(byYear ?? flat ?? modern ?? legacy ?? 0) || 0;
     const val = Math.max(base, saved);
 
     return val || '';
   };
-
 
   // Operatori iniziali: app0.operators può essere array di {name} o di stringhe
   const operatorsTextInitial =
@@ -10503,16 +10515,33 @@ function ImpostazioniView() {
       {},
       (form.numerazioni || app0.numerazioni || {})
     );
+
     const setNum = (serie, field) => {
       const v = Number(form[field]);
-      if (Number.isFinite(v) && v>0) {
-        numerazioni[serie] = { last: v, year: new Date().getFullYear() };
-      }
+      if (!Number.isFinite(v) || v <= 0) return;
+
+      const Y = String(new Date().getFullYear());
+
+      // prendi l’oggetto esistente per quella serie (se c’è)
+      const cur = (numerazioni[serie] && typeof numerazioni[serie] === 'object')
+        ? { ...numerazioni[serie] }
+        : {};
+
+      // schema per-anno: numerazioni[serie][YYYY].ultimo
+      cur[Y] = Object.assign({}, cur[Y], { ultimo: v });
+
+      // helper flat per compatibilità
+      cur.ultimo = v;
+      cur.last   = v;
+      cur.year   = Number(Y);
+
+      numerazioni[serie] = cur;
     };
-    setNum('C', 'numC');
+
+    setNum('C',   'numC');
     setNum('DDT', 'numDDT');
-    setNum('FA', 'numFA');
-    setNum('OF', 'numOF');
+    setNum('FA',  'numFA');
+    setNum('OF',  'numOF');
 
     const publicBaseUrl = form.publicBaseUrl || app0.publicBaseUrl || '';
     const magUpdateCMP = Number.isFinite(+form.magUpdateCMP) ? +form.magUpdateCMP : 0;
