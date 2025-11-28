@@ -8143,18 +8143,23 @@ window.delCommessa     = window.delCommessa     || delCommessa;
           : '') ||
         '';
 
+      // 👇 calcolo una volta sola la ragione sociale del cliente
+      const clienteRag =
+        commessa.cliente ||
+        (cli && (cli.ragioneSociale || cli.ragione || '')) ||
+        '';
+
       // --- Prefill DDT ---
       const pf = {
-        id: (typeof window.nextIdDDT === 'function')
-              ? window.nextIdDDT()
-              : `DDT-${new Date().getFullYear()}-${String(Date.now()).slice(-3)}`,
+        // lascio l'ID vuoto: lo genera la save() usando i contatori delle Impostazioni
+        id: '',
         data: todayISO(),
 
         clienteId      : commessa.clienteId || '',
-        clienteRagione : commessa.cliente || (cli && (cli.ragioneSociale || cli.ragione || '')) || '',
+        clienteRagione : clienteRag,
+        cliente        : clienteRag,   // 👈 così la lista DDT vede subito il nome cliente
         commessaId     : commessa.id || '',
         commessaRif    : commessa.id || '',
-
         luogoConsegna  : commessa.luogoConsegna || (cli && (cli.sedeOperativa || cli.sede) || ''),
         causaleTrasporto: commessa.causaleTrasporto || '',
 
@@ -8219,18 +8224,22 @@ window.delCommessa     = window.delCommessa     || delCommessa;
 
     if (!righe.length) { alert('Nessuna riga valida nelle commesse selezionate.'); return; }
 
-        const rifClienteTxt =
+    const rifClienteTxt =
       (window.refClienteToText ? window.refClienteToText(list[0]?.rifCliente) : '') ||
       (window.orderRefFor ? window.orderRefFor(list[0]) : '') ||
       '';
 
+    const clienteRag =
+      list[0].cliente ||
+      (cli && (cli.ragione || cli.ragioneSociale || '')) ||
+      '';
+
     const pf = {
-      id: (typeof window.nextIdDDT === 'function')
-            ? window.nextIdDDT()
-            : `DDT-${new Date().getFullYear()}-${String(Date.now()).slice(-3)}`,
+      id: '',                // idem: ID generato in save()
       data: todayISO(),
       clienteId,
-      clienteRagione: list[0].cliente || (cli && (cli.ragione||cli.ragioneSociale||'')) || '',
+      clienteRagione: clienteRag,
+      cliente       : clienteRag,
       luogoConsegna: list[0].luogoConsegna || (cli && (cli.sedeOperativa || cli.sede) || ''),
       causaleTrasporto: list[0].causaleTrasporto || '',
       note: list.map(c=>c.noteSpedizione||c.note||'').filter(Boolean).join(' | '),
@@ -11576,13 +11585,18 @@ function delRec(id){
   }
 
   // ricerca + ordinamento
-  const filteredDDT = React.useMemo(()=>{
+const filteredDDT = React.useMemo(()=>{
     const s = String(qDDT||'').toLowerCase();
     return (Array.isArray(rowsDDT)?rowsDDT:[])
-      .filter(r =>
-        (String(r.id||'')+' '+String(r.cliente||'')+' '+String(r.note||'')+' '+String(r.commessaRif||'')+' '+String(r.rifCliente||''))
-        .toLowerCase().includes(s)
-      )
+      .filter(r => {
+        const hay =
+          String(r.id||'')+' '+
+          String(r.cliente || r.clienteRagione || '')+' '+
+          String(r.note||'')+' '+
+          String(r.commessaRif||'')+' '+
+          String(r.rifCliente||'');
+        return hay.toLowerCase().includes(s);
+      })
       .sort((a,b)=>{
         const ma = String(a.id||'').match(/^DDT-(\d{4})-(\d{3})$/);
         const mb = String(b.id||'').match(/^DDT-(\d{4})-(\d{3})$/);
@@ -11590,7 +11604,8 @@ function delRec(id){
           if (+mb[1] !== +ma[1]) return +mb[1] - +ma[1];
           if (+mb[2] !== +ma[2]) return +mb[2] - +ma[2];
         }
-        const ta = (Date.parse(b.updatedAt||b.__CreatedAt||b.__createdAt||0) - Date.parse(a.updatedAt||a.__CreatedAt||a.__createdAt||0));
+        const ta = (Date.parse(b.updatedAt||b.__CreatedAt||b.__createdAt||0) -
+                    Date.parse(a.updatedAt||a.__CreatedAt||a.__createdAt||0));
         if (ta !== 0 && isFinite(ta)) return ta;
         return String(b.id||'').localeCompare(String(a.id||''));
       });
@@ -11701,7 +11716,7 @@ function delRec(id){
           filteredDDT.map(r => e('tr', { key:r.id },
             e('td', null, r.id),
             e('td', null, r.data || ''),
-            e('td', null, r.cliente || ''),
+            e('td', null, r.cliente || r.clienteRagione || ''),
             e('td', null, r.note || ''),
             e('td', null,
                 e('button', { className:'btn btn-outline',
@@ -12273,7 +12288,7 @@ css += `
       font-weight: 700;
       text-align: right;
     }
-    .footer .pagebox .pageNum{
+    .footer .pagebox .pageNumDDT{
       display:inline-block;
       min-width:38px;
       text-align:right;
@@ -12284,6 +12299,10 @@ css += `
       min-height:100vh;
       display:flex;
       flex-direction:column;
+      page-break-after: always;      /* OGNI .page va su un foglio */
+    }
+    .page:last-child{
+      page-break-after: auto;        /* l’ultima non aggiunge pagina bianca */
     }
     .content{
       flex:1;
@@ -12363,7 +12382,32 @@ css += `
     ? `<div class="box" style="margin-top:8px">Causale del trasporto: <b>${esc(ddt.causaleTrasporto)}</b></div>`
     : ``;
 
-  const tabella = `
+  const vettoreHtml   = vettore   ? `<b>${vettore}</b>` : '';
+  const aspettoHtml   = aspetto   ? `<b>${aspetto}</b>` : '';
+  const colliHtml     = colli     ? `<b>${colli}</b>` : '';
+  const dataOraHtml   = dataOra   ? `<b>${dataOra}</b>` : '';
+  const pesoNettoHtml = pesoNetto ? `<b>${pesoNetto}</b>` : '';
+  const pesoLordoHtml = pesoLordo ? `<b>${pesoLordo}</b>` : '';
+
+  const firmaVettoreHtml      = esc(ddt?.firmaVettore||'');
+  const firmaConducenteHtml   = esc(ddt?.firmaConducente||'');
+  const firmaDestinatarioHtml = esc(ddt?.firmaDestinatario||'');
+
+  // --- Impostazione pagine multiple: header + footer ripetuti ---
+  const rows = (righe && righe.length) ? righe : [{}];
+
+  // numero righe per pagina (più conservativo se ci sono note)
+  const ROWS_PER_PAGE = hasNote ? 10 : 14;
+
+  const pages = [];
+  for (let i = 0; i < rows.length; i += ROWS_PER_PAGE) {
+    pages.push({ start: i, rows: rows.slice(i, i + ROWS_PER_PAGE) });
+  }
+  if (!pages.length) pages.push({ start: 0, rows: [{}] });
+
+  const totalPages = pages.length;
+
+  const tableHeadHTML = `
     <table>
       <thead><tr>
         <th class="ctr" style="width:26px">#</th>
@@ -12372,53 +12416,73 @@ css += `
         <th class="ctr" style="width:60px">UM</th>
         <th class="ctr" style="width:64px">Q.tà</th>
         ${hasNote ? `<th style="width:160px">Note</th>` : ``}
-      </tr></thead>
-      <tbody>${rowsHTML}</tbody>
+      </tr></thead>`;
+
+  const pagesHTML = pages.map((p, pageIdx) => {
+    const bodyRowsHTML = (p.rows && p.rows.length ? p.rows : [{}]).map((r, i) => `
+      <tr>
+        <td class="ctr">${righe.length ? (p.start + i + 1) : ''}</td>
+        <td>${esc(r.codice || r.articoloCodice || '')}</td>
+        <td>${esc(r.descrizione || '')}</td>
+        <td class="ctr">${esc(r.UM || r.um || '')}</td>
+        <td class="ctr">${r.qta ?? r.quantita ?? ''}</td>
+        ${hasNote ? `<td>${esc(r.note||'')}</td>` : ``}
+      </tr>
+    `).join('');
+
+    const tabellaPagina = `
+      ${tableHeadHTML}
+      <tbody>${bodyRowsHTML}</tbody>
     </table>`;
 
-    const footer = `
+    const footerPagina = `
   <div class="footer">
     <div class="grid">
-      <div class="box">Vettore: <b>${vettore || '—'}</b></div>
-      <div class="box">Aspetto beni: <b>${aspetto || '—'}</b></div>
-      <div class="box">Colli: <b>${colli || '—'}</b></div>
-      <div class="box">Data/ora: <b>${dataOra || '—'}</b></div>
-      <div class="box">Peso netto: <b>${pesoNetto || '—'}</b></div>
-      <div class="box">Peso lordo: <b>${pesoLordo || '—'}</b></div>
+      <div class="box">Vettore: ${vettoreHtml}</div>
+      <div class="box">Aspetto beni: ${aspettoHtml}</div>
+      <div class="box">Colli: ${colliHtml}</div>
+      <div class="box">Data/ora: ${dataOraHtml}</div>
+      <div class="box">Peso netto: ${pesoNettoHtml}</div>
+      <div class="box">Peso lordo: ${pesoLordoHtml}</div>
     </div>
 
     <!-- FIRME come a video -->
     <div class="grid firme" style="margin-top:6px; display:grid; grid-template-columns:repeat(3,1fr); gap:6px">
       <div class="box" style="min-height:40px">
         Firma vettore:
-        <div style="margin-top:6px; font-weight:700">${esc(ddt?.firmaVettore||'') || '—'}</div>
+        <div style="margin-top:6px; font-weight:700">${firmaVettoreHtml}</div>
       </div>
       <div class="box" style="min-height:40px">
         Firma conducente:
-        <div style="margin-top:6px; font-weight:700">${esc(ddt?.firmaConducente||'') || '—'}</div>
+        <div style="margin-top:6px; font-weight:700">${firmaConducenteHtml}</div>
       </div>
       <div class="box" style="min-height:40px">
         Firma destinatario:
-        <div style="margin-top:6px; font-weight:700">${esc(ddt?.firmaDestinatario||'') || '—'}</div>
+        <div style="margin-top:6px; font-weight:700">${firmaDestinatarioHtml}</div>
       </div>
     </div>
 
-    <div id="pagebox" class="pagebox">Pag. <span class="pageNum"></span></div>
+    <div class="pagebox">Pag. <span class="pageNumDDT">${pageIdx+1} / ${totalPages}</span></div>
   </div>
 `;
 
-    return `<!doctype html><html><head><meta charset="utf-8">${css}</head>
-  <body>
+    return `
     <div class="page">
       <div class="content">
         ${header}
         ${mittDest}
         ${causale}
-        ${tabella}
+        ${tabellaPagina}
       </div>
-      ${footer}
-    </div>
+      ${footerPagina}
+    </div>`;
+  }).join('');
+
+  return `<!doctype html><html><head><meta charset="utf-8">${css}</head>
+  <body>
+    ${pagesHTML}
   </body></html>`;
+
 };
 
 
@@ -12442,9 +12506,9 @@ window.printDDT = function(state){
     if (!w) { alert('Popup bloccato: consenti i pop-up per la stampa.'); return; }
     w.document.open(); w.document.write(html); w.document.close();
 
-    // DEDUPE: se per errore ci sono più pagebox, tieni il primo
+    // DEDUPE legacy: ora i DDT hanno una pagebox per pagina, quindi non tocchiamo le pagebox
     try{
-      const boxes = Array.from(w.document.querySelectorAll('.pagebox'));
+      const boxes = Array.from(w.document.querySelectorAll('#pagebox'));
       boxes.forEach((el, i) => { if (i>0) el.remove(); });
     }catch{}
 
