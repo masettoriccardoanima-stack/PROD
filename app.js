@@ -20948,15 +20948,47 @@ if (typeof window !== 'undefined') { window.TimbraturaMobileView = TimbraturaMob
   if (typeof window.pickView !== 'function') {
     window.pickView = function(){
       const raw = (location.hash || '#/dashboard').toLowerCase();
-      const h = raw.split('?')[0]; // ignora ?job=...
+      let h = raw.split('?')[0]; // ignora ?job=...
+
       const R = window.ROUTES || {};
+
+      // --- RBAC: filtro rotta anche se l'hash viene digitato a mano ---
+      const USER = window.__USER || null;
+      const role = (USER && USER.role) || 'admin';
+      const lowerRole = String(role).toLowerCase();
+      const isAdmin  = (lowerRole === 'admin');
+      const isViewer = (lowerRole === 'viewer' || lowerRole === 'mobile');
+
+      if (!isAdmin) {
+        // 1) viewer/mobile → SOLO timbratura, commesse, DDT, login
+        if (isViewer) {
+          const allowed = new Set(['#/timbratura', '#/commesse', '#/ddt', '#/login']);
+          if (!allowed.has(h)) {
+            h = '#/timbratura';
+            if (location.hash !== h) {
+              try { location.replace(h); } catch {}
+            }
+          }
+        }
+
+        // 2) Qualunque non-admin che tenta #/impostazioni → blocco
+        if (h === '#/impostazioni') {
+          try {
+            alert('Accesso a "Impostazioni" riservato solo agli amministratori.');
+          } catch {}
+          h = '#/timbratura';
+          if (location.hash !== h) {
+            try { location.replace(h); } catch {}
+          }
+        }
+      }
+
       const Comp = R[h] || R['#/ddt'];
-        return (typeof Comp === 'function')
+      return (typeof Comp === 'function')
         ? Comp
         : function(){ return e('div',{className:'page'}, 'Vista non definita: '+h); };
     };
   }
-
 
   // 4) Helper di navigazione per pulsanti/alias legacy
   window.openReport            = () => { location.hash = '#/report'; };
@@ -20988,8 +21020,17 @@ if (typeof window !== 'undefined') { window.TimbraturaMobileView = TimbraturaMob
     const role = String(rawRole).toLowerCase();
     let items;
     if (role === 'operator') {
+      // Operatore puro → solo timbratura
       items = [ { label:'Timbratura', hash:'#/timbratura' } ];
+    } else if (role === 'viewer' || role === 'mobile') {
+      // Ruoli solo-consultazione: viste limitate
+      items = [
+        { label:'Timbratura', hash:'#/timbratura' },
+        { label:'Commesse',   hash:'#/commesse' },
+        { label:'DDT',        hash:'#/ddt' }
+      ];
     } else {
+      // Admin / worker / accountant → menù completo "amministrativo"
       items = [
         { label:'Dashboard',    hash:'#/dashboard' },
         { label:'Commesse',     hash:'#/commesse' },
@@ -21017,8 +21058,25 @@ if (typeof window !== 'undefined') { window.TimbraturaMobileView = TimbraturaMob
     nav.appendChild(title);
 
     items.forEach(it=>{
-      const a=document.createElement('a');
-      a.className='drawer-link'; a.href=it.hash; a.textContent=it.label;
+      const a = document.createElement('a');
+      a.className = 'drawer-link';
+      a.href = it.hash;
+      a.textContent = it.label;
+
+      a.addEventListener('click', function(ev){
+        ev.preventDefault();
+        try {
+          if (window.navigateTo) {
+            window.navigateTo(it.label);
+          } else {
+            location.hash = it.hash;
+          }
+        } catch (e) {
+          location.hash = it.hash;
+        }
+        nav.classList.remove('open');
+      });
+
       nav.appendChild(a);
     });
     document.body.appendChild(nav);
