@@ -13798,13 +13798,21 @@ window.printDDT = function(state){
 
       </body></html>`;
 
+      // Fattura: numerazione via CSS (counter(page)), niente JS che "indovina" le pagine
       if (window.safePrintHTMLString) {
         window.safePrintHTMLString(html);
+
       } else if (global.safePrintHTMLString) {
         global.safePrintHTMLString(html);
-      } else if (window.safePrintHTMLStringWithPageNum) {
-        // fallback estremo, ma non dovrebbe servire per le fatture
-        window.safePrintHTMLStringWithPageNum(html);
+
+      } else {
+        // Fallback estremo: popup
+        const w = window.open('', '_blank');
+        if (w) {
+          w.document.write(html);
+          w.document.close();
+          try { w.focus(); w.print(); } catch {}
+        }
       }
 
     }catch(e){
