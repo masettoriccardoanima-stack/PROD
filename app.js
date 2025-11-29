@@ -13497,9 +13497,6 @@ window.printDDT = function(state){
   const fmt2 = n => Number(n || 0)
     .toLocaleString('it-IT',{ minimumFractionDigits:2, maximumFractionDigits:2 });
 
-  // quante righe per pagina (con codici + DDT per riga 10 è prudente)
-  const MAX_ROWS_PER_PAGE = 10;
-
   window.printFattura = function printFattura(fa){
     try{
       // --- intestazione azienda / cliente -----------------------------------
@@ -13545,6 +13542,17 @@ window.printDDT = function(state){
       const ivaMap = {};
       let imponibile = 0;
       let imposta    = 0;
+
+            // righe per pagina "adattive":
+      // - se ci sono molte info (DDT per riga / descrizioni lunghe) stiamo più stretti
+      // - altrimenti possiamo metterne di più
+      const hasExtraInfo = righe.some(r =>
+        r && (
+          r.ddtId || r.ddtData ||
+          String(r.descrizione || '').length > 80
+        )
+      );
+      const MAX_ROWS_PER_PAGE = hasExtraInfo ? 10 : 16;
 
       // elenco DDT a livello documento (deduplicati)
       const ddtRefs = [];
@@ -13798,7 +13806,7 @@ window.printDDT = function(state){
 
         + '.header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px;}'
         + '.logo-box{display:flex;align-items:center;gap:8px;}'
-        + '.logo{width:60px;height:60px;object-fit:contain;margin-right:4px;}'
+        + '.logo{width:90px;height:90px;object-fit:contain;margin-right:4px;}'
         + '.doc-title{font-size:18px;font-weight:700;letter-spacing:.3px;}'
 
         + '.muted{color:#64748b;}'
