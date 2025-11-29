@@ -13630,7 +13630,7 @@ window.printDDT = function(state){
 
         .content{
           margin-top:42mm;   /* spazio per header */
-          margin-bottom:40mm;/* spazio per footer */
+          margin-bottom:70mm;/* spazio per footer */
         }
 
         .grid2{
@@ -13695,9 +13695,10 @@ window.printDDT = function(state){
         }
 
         .pagebox{
-          margin-top:6px;
+          position:fixed;
+          right:12mm;
+          bottom:8mm;
           font-weight:700;
-          text-align:right;
           font-size:11px;
         }
 
@@ -13797,22 +13798,19 @@ window.printDDT = function(state){
 
       </body></html>`;
 
-      // Prima scelta: numerazione pagine "furba" (come DDT)
-      if (window.safePrintHTMLStringWithPageNum) {
-        window.safePrintHTMLStringWithPageNum(html);
-
-      // Fallback: stampa semplice in iframe
-      } else if (window.safePrintHTMLString) {
+      if (window.safePrintHTMLString) {
         window.safePrintHTMLString(html);
-
-      // Fallback legacy globale, se esistesse
       } else if (global.safePrintHTMLString) {
         global.safePrintHTMLString(html);
+      } else if (window.safePrintHTMLStringWithPageNum) {
+        // fallback estremo, ma non dovrebbe servire per le fatture
+        window.safePrintHTMLStringWithPageNum(html);
       }
 
     }catch(e){
       alert('Errore Fattura: ' + (e?.message || e));
     }
+
   };
 })(window);
 
