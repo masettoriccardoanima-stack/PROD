@@ -13744,43 +13744,50 @@ window.printDDT = function(state){
           + '</div>';
       });
 
-      // CSS stampa dedicato fattura, appoggiandosi al tema comune se esiste
-      let css = '';
-      if (window.__PRINT_CSS) {
-        css = window.__PRINT_CSS({ top:10, right:8, bottom:10, left:8 });
-      } else {
-        css =
-          '<style>'
-          + '@page{size:A4;margin:10mm 8mm 10mm 8mm;}'
-          + '*{-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
-          + 'html,body{margin:0;padding:0;height:100%;}'
-          + 'body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:#0f172a;font-size:12px;}'
-          + '</style>';
-      }
-
-      css +=
+      // CSS stampa dedicato SOLO alle fatture (niente __PRINT_CSS)
+      const css =
         '<style>'
-        + '.page{page-break-after:always;}'
+        // margini abbastanza stretti ma puliti
+        + '@page{size:A4;margin:8mm 8mm 12mm 8mm;}'
+        + '*{-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
+        + 'html,body{margin:0;padding:0;height:100%;}'
+        + 'body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:#0f172a;font-size:12px;}'
+
+        // ogni pagina è un blocco separato
+        + '.page{page-break-after:always;padding-top:4mm;}'
         + '.page:last-child{page-break-after:auto;}'
-        + '.header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px;}'
+
+        // intestazione azienda
+        + '.header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px;}'
         + '.logo-box{display:flex;align-items:center;gap:8px;}'
-        + '.logo{width:46px;height:46px;object-fit:contain;margin-right:4px;}'
-        + '.doc-title{font-size:20px;font-weight:700;letter-spacing:.3px;}'
+        + '.logo{width:40px;height:40px;object-fit:contain;margin-right:4px;}'
+        + '.doc-title{font-size:18px;font-weight:700;letter-spacing:.3px;}'
+
         + '.muted{color:#64748b;}'
         + '.small{font-size:11px;}'
-        + '.box{border:1px solid #cbd5e1;border-radius:8px;padding:8px 10px;}'
-        + '.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0;}'
-        + '.content{margin-top:6px;}'
-        + 'table.righe{width:100%;border-collapse:collapse;margin-top:8px;page-break-inside:avoid;}'
-        + 'table.righe th,table.righe td{border:1px solid #e5e7eb;padding:6px;vertical-align:top;}'
+        + '.box{border:1px solid #cbd5e1;border-radius:8px;padding:6px 8px;}'
+        + '.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0;}'
+
+        // blocco cliente/pagamento
+        + '.top-info{margin-bottom:4px;}'
+        + '.content{margin-top:4px;}'
+
+        // tabella righe
+        + 'table.righe{width:100%;border-collapse:collapse;margin-top:6px;page-break-inside:avoid;}'
+        + 'table.righe th,table.righe td{border:1px solid #e5e7eb;padding:5px;vertical-align:top;}'
         + 'table.righe th{background:#f8fafc;}'
         + '.ctr{text-align:center;}'
         + '.num{text-align:right;white-space:nowrap;}'
-        + '.footer{margin-top:10px;display:grid;grid-template-columns:1.3fr 1fr;gap:10px;align-items:flex-start;}'
+
+        // footer con riepilogo IVA + totali
+        + '.footer{margin-top:8px;display:grid;grid-template-columns:1.4fr 1fr;gap:8px;align-items:flex-start;page-break-inside:avoid;}'
         + '.iva-box table{width:100%;border-collapse:collapse;margin-top:4px;}'
         + '.iva-box th,.iva-box td{border:1px solid #e5e7eb;padding:4px 6px;vertical-align:top;}'
         + '.iva-box th{background:#f8fafc;}'
-        + '.pagebox{text-align:right;font-size:11px;margin-top:4px;}'
+
+        // numerazione: NON fixed, niente sovrapposizioni
+        + '.pagebox{margin-top:4px;font-size:11px;text-align:right;}'
+
         + '</style>';
 
       const html =
