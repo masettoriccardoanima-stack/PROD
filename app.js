@@ -13490,39 +13490,36 @@ window.printDDT = function(state){
 })(window);
 
 
-// ===== Stampa Fattura aggiornata =====
+// ===== Stampa Fattura aggiornata (paginata) =====
 (function (global) {
-  const esc = s => String(s==null?'':s).replace(/[<>&]/g, c=>({ '<':'&lt;','>':'&gt;','&':'&amp;' }[c]));
-  const fmt2 = n => Number(n||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});
-            
+  const esc = s => String(s == null ? '' : s)
+    .replace(/[<>&]/g, c => ({ '<':'&lt;','>':'&gt;','&':'&amp;' }[c]));
+  const fmt2 = n => Number(n || 0)
+    .toLocaleString('it-IT',{ minimumFractionDigits:2, maximumFractionDigits:2 });
+
+  // max righe per pagina (puoi regolare se serve)
+  const MAX_ROWS_PER_PAGE = 12;
+
   window.printFattura = function printFattura(fa){
-    
     try{
-      const app  = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; }catch{return{}} })();
+      // ---- App settings / intestazione azienda ----
+      let app = {};
+      try { app = JSON.parse(localStorage.getItem('appSettings') || '{}') || {}; } catch {}
       const logo = app.logoDataUrl || '';
-      const clienti = (function(){ try{ return JSON.parse(localStorage.getItem('clientiRows')||'[]')||[]; }catch{return[]} })();
-      const cli = clienti.find(c=> String(c.id)===String(fa.clienteId)) || null;
 
-      const ragAzi  = esc(app.ragioneSociale||'');
-      const pivaAzi = esc(app.piva||app.pIva||'');
-      const sedeLeg  = esc(app.sedeLegale || app.companyLegal || '');
-      const sedeOp   = esc(app.sedeOperativa || app.companyOperational || '');
-      const emailAzi = esc(app.email || '');
-      const pecAzi   = esc(app.pec   || '');
-      const telAzi   = esc(app.telefono || '');
+      let clienti = [];
+      try { clienti = JSON.parse(localStorage.getItem('clientiRows') || '[]') || []; } catch {}
+      const cli = clienti.find(c => String(c.id) === String(fa.clienteId)) || null;
 
-
-      const sedeOpe = esc(app.sedeOperativa||'');
-      const emailAz = esc(app.email||'');
-      const telAz   = esc(app.telefono||'');
+      const ragAzi  = esc(app.ragioneSociale || '');
+      const pivaAzi = esc(app.piva || app.pIva || '');
+      const sedeLeg = esc(app.sedeLegale || app.companyLegal || '');
+      const sedeOpe = esc(app.sedeOperativa || app.companyOperational || '');
+      const emailAz = esc(app.email || '');
+      const telAz   = esc(app.telefono || '');
       const rea     = esc(app.rea || '');
-      const capSoc  = esc(app.capitaleSociale || '');
-      const sdi     = esc(app.codiceSDI || app.sdi || '');
-
-      const bancaInt = esc(app.bancaIntestatario || '');
-      const bancaIstit = esc(app.bancaIstituto || '');
-      const bancaIban = esc(app.bancaIban || '');
-      const bancaBic  = esc(app.bancaBicSwift || app.bicswift || '');
+      const capSoc  = esc(app.capitaleSociale || app.capitale || '');
+      const sdi     = esc(app.sdi || app.codiceSdi || '');
 
       const cliRag   = esc(fa.cliente || cli?.ragione || cli?.ragioneSociale || cli?.denominazione || cli?.nome || '');
       const cliPiva  = esc(cli?.piva || cli?.pIva || '');
@@ -13531,282 +13528,272 @@ window.printDDT = function(state){
       const cliTel   = esc(cli?.telefono || '');
 
       const causale  = esc(fa.causale || '');
-      const ddtId    = esc(fa.ddtId || '');
-      const ddtData  = esc(fa.ddtData || '');
+      const rifNorm  = esc(fa.rifNormativo || '');
+      const note     = esc(fa.note || '');
 
-      // Righe + totali per aliquota (con sconto)
+      // bancari (footer opzionale)
+      const bancaInt   = esc(app.bankHolder || '');
+      const bancaIstit = esc(app.bankName || '');
+      const bancaIban  = esc(app.iban || '');
+      const bancaBic   = esc(app.bic || '');
+
+      // ---- righe + totali IVA ----
       const righe = Array.isArray(fa.righe) ? fa.righe : [];
-      const ivaMap = {}; // {aliq: imponibile}
-      let imponibile=0, imposta=0;
+      const ivaMap = {}; // {aliquota: imponibile}
+      let imponibile = 0;
+      let imposta = 0;
 
-      const righeHTML = righe.map((r,i)=>{
-        const qty = Number(r.qta||0);
-        const pr  = Number(r.prezzo||0);
-        const sc  = Number(r.sconto||r.scontoPerc||0);
-        const iva = Number(r.iva||0);
-        const base = qty*pr*(1 - (sc/100));
+      const righeArr = righe.map((r, idx) => {
+        const qty = Number(r.qta || 0);
+        const pr  = Number(r.prezzo || 0);
+        const sc  = Number(r.sconto || r.scontoPerc || 0);
+        const iva = Number(r.iva || 0);
+        const base = qty * pr * (1 - (sc / 100));
+
         imponibile += base;
-        imposta    += base * iva/100;
-        ivaMap[iva] = (ivaMap[iva]||0) + base;
+        imposta    += base * iva / 100;
+        ivaMap[iva] = (ivaMap[iva] || 0) + base;
 
-        const desc = esc(r.descrizione||'').replace(/\n/g,'<br>');
-        const um   = esc(r.UM||r.um||'');
-        const ddtRef = (r.ddtId || ddtId) ? `<div class="muted small">Rif. DDT ${esc(r.ddtId||ddtId)}${(r.ddtData||ddtData)?(' del '+esc(r.ddtData||ddtData)) : ''}</div>` : '';
+        const desc = esc(r.descrizione || '').replace(/\n/g, '<br>');
+        const qStr  = qty ? fmt2(qty).replace(',00','') : '';
+        const scStr = sc  ? fmt2(sc).replace(',00','')  : '';
 
-        return `<tr>
-          <td class="ctr">${i+1}</td>
-          <td>${desc}${ddtRef}</td>
-          <td class="ctr">${um||''}</td>
-          <td class="ctr">${qty||''}</td>
-          <td class="num">${fmt2(pr)}</td>
-          <td class="ctr">${(sc? fmt2(sc) : '')}</td>
-          <td class="num">${fmt2(base)}</td>
-        </tr>`;
-      }).join('');
+        return (
+          '<tr>'
+            + '<td class="ctr">'+ (idx + 1) +'</td>'
+            + '<td>'+ desc +'</td>'
+            + '<td class="ctr">'+ esc(r.UM || r.um || '') +'</td>'
+            + '<td class="ctr">'+ qStr +'</td>'
+            + '<td class="num">'+ fmt2(pr) +'</td>'
+            + '<td class="ctr">'+ scStr +'</td>'
+            + '<td class="num">'+ fmt2(base) +'</td>'
+          + '</tr>'
+        );
+      });
 
       const totale = imponibile + imposta;
 
-      // Riepilogo IVA
-      const ivaRows = Object.keys(ivaMap).sort((a,b)=>Number(a)-Number(b)).map(k=>{
-        const aliq = Number(k||0);
-        const impB = ivaMap[k]||0;
-        const impI = impB*aliq/100;
-        const aliqLbl = (aliq>0) ? (aliq.toFixed(0)+'%')
-                       : (fa.plafond ? 'Plafond (art. 8 DPR 633/72)' : '0%');
-        return `<tr>
-          <td class="ctr">${aliqLbl}</td>
-          <td class="num">${fmt2(impB)}</td>
-          <td class="num">${fmt2(impI)}</td>
-        </tr>`;
-      }).join('') || `<tr><td class="ctr">${fa.plafond ? 'Plafond (art. 8 DPR 633/72)' : '—'}</td><td class="num">0,00</td><td class="num">0,00</td></tr>`;
+      // riepilogo IVA globale
+      const ivaRowsHTML = Object.keys(ivaMap)
+        .sort((a,b) => Number(a) - Number(b))
+        .map(k => {
+          const aliq = Number(k || 0);
+          const impB = ivaMap[k] || 0;
+          const impI = impB * aliq / 100;
+          const aliqLbl = aliq > 0
+            ? aliq.toFixed(0) + '%'
+            : (fa.plafond ? 'Plafond (art. 8 DPR 633/72)' : '0%');
+          return (
+            '<tr>'
+              + '<td class="ctr">'+ aliqLbl +'</td>'
+              + '<td class="num">'+ fmt2(impB) +'</td>'
+              + '<td class="num">'+ fmt2(impI) +'</td>'
+            + '</tr>'
+          );
+        }).join('') || (
+          '<tr><td colspan="3" class="muted ctr">Nessuna IVA</td></tr>'
+        );
 
-      const css = `<style>
-        @page {
-          size: A4;
-          margin: 16mm 12mm 22mm 12mm; /* margini in linea con il DDT */
+      // header documento (logo + dati azienda + info fattura)
+      const headerHTML =
+        '<div class="header">'
+          + '<div class="logo-box">'
+            + (logo ? '<img src="'+logo+'" class="logo">' : '')
+            + '<div>'
+              + '<div class="doc-title">'+ ragAzi +'</div>'
+              + '<div class="muted small">'
+                + [pivaAzi && ('P.IVA '+pivaAzi), sdi && ('SDI '+sdi)]
+                    .filter(Boolean).join(' · ')
+              + '</div>'
+              + (sedeLeg || sedeOpe
+                ? '<div class="muted small">'
+                    + [sedeLeg && ('Sede legale: '+sedeLeg),
+                       sedeOpe && ('Sede operativa: '+sedeOpe)]
+                       .filter(Boolean).join(' · ')
+                  + '</div>'
+                : '')
+              + (emailAz || telAz
+                ? '<div class="muted small">'
+                    + [emailAz, telAz].filter(Boolean).join(' · ')
+                  + '</div>'
+                : '')
+              + ((rea || capSoc)
+                ? '<div class="muted small">'
+                    + [rea && ('REA: '+rea),
+                       capSoc && ('Cap. soc.: '+capSoc)]
+                       .filter(Boolean).join(' · ')
+                  + '</div>'
+                : '')
+            + '</div>'
+          + '</div>'
+          + '<div class="idbox">'
+            + '<div><strong>FATTURA</strong></div>'
+            + '<div><strong>'+ esc(fa.id || '') +'</strong></div>'
+            + '<div>Data: <strong>'+ esc(fa.data || '') +'</strong></div>'
+          + '</div>'
+        + '</div>';
+
+      // blocco cliente + pagamento (solo pagina 1)
+      const topInfoHTML =
+        '<div class="top-info">'
+          + '<div class="grid2">'
+            + '<div class="box">'
+              + '<div class="muted">Cliente</div>'
+              + '<div><strong>'+ cliRag +'</strong></div>'
+              + (cliInd   ? '<div class="small">'+ cliInd +'</div>' : '')
+              + (cliPiva  ? '<div class="muted small">P.IVA: '+ cliPiva +'</div>' : '')
+              + ((cliEmail || cliTel)
+                  ? '<div class="muted small">'
+                      + [cliEmail, cliTel].filter(Boolean).join(' · ')
+                    + '</div>'
+                  : '')
+            + '</div>'
+            + '<div class="box">'
+              + '<div class="muted">Dati pagamento</div>'
+              + (fa.pagamento
+                  ? '<div class="small">Pagamento: <strong>'+ esc(fa.pagamento) +'</strong></div>'
+                  : '')
+              + (
+                [bancaInt && ('Intestatario: '+bancaInt),
+                 bancaIstit && ('Banca: '+bancaIstit),
+                 bancaIban && ('IBAN: '+bancaIban),
+                 bancaBic && ('BIC/SWIFT: '+bancaBic)]
+                 .filter(Boolean).length
+                  ? '<div class="small">'
+                      + [bancaInt && ('Intestatario: '+bancaInt),
+                         bancaIstit && ('Banca: '+bancaIstit),
+                         bancaIban && ('IBAN: '+bancaIban),
+                         bancaBic && ('BIC/SWIFT: '+bancaBic)]
+                         .filter(Boolean).map(esc).join('<br>')
+                    + '</div>'
+                  : '')
+            + '</div>'
+          + '</div>'
+          + (causale ? '<div class="box" style="margin-top:8px"><strong>Causale:</strong> '+ causale +'</div>' : '')
+          + (rifNorm ? '<div class="box small" style="margin-top:8px"><strong>Rif. normativo:</strong> '+ rifNorm +'</div>' : '')
+        + '</div>';
+
+      const tableHeadHTML =
+        '<table class="righe">'
+          + '<thead><tr>'
+            + '<th style="width:26px" class="ctr">#</th>'
+            + '<th>Descrizione</th>'
+            + '<th style="width:60px" class="ctr">UM</th>'
+            + '<th style="width:70px" class="ctr">Q.tà</th>'
+            + '<th style="width:100px" class="num">Prezzo un.</th>'
+            + '<th style="width:80px" class="ctr">Sconto %</th>'
+            + '<th style="width:110px" class="num">Importo</th>'
+          + '</tr></thead>'
+          + '<tbody>';
+
+      const tableFootHTML = '</tbody></table>';
+
+      // chunk righe in pagine logiche
+      const pagesRows = [];
+      if (righeArr.length === 0) {
+        pagesRows.push(['<tr><td colspan="7" class="muted ctr">Nessuna riga</td></tr>']);
+      } else {
+        for (let i = 0; i < righeArr.length; i += MAX_ROWS_PER_PAGE) {
+          pagesRows.push(righeArr.slice(i, i + MAX_ROWS_PER_PAGE));
         }
-        * {
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
-        }
-        html,body{
-          margin:0;
-          padding:0;
-        }
-        body{
-          font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;
-          color:#0f172a;
-          font-size:12px;
-        }
+      }
 
-        .muted{color:#64748b;}
-        .small{font-size:11px;}
+      const totalPages = pagesRows.length;
 
-        .doc-title{
-          font-size:20px;
-          font-weight:700;
-          letter-spacing:.3px;
-        }
+      function footerHTML(pageIndex){
+        return (
+          '<div class="footer">'
+            + '<div class="box iva-box">'
+              + '<div style="font-weight:600; margin-bottom:6px">Riepilogo IVA</div>'
+              + '<table>'
+                + '<thead><tr>'
+                  + '<th class="ctr" style="width:140px">Aliquota</th>'
+                  + '<th class="num">Imponibile</th>'
+                  + '<th class="num">Imposta</th>'
+                + '</tr></thead>'
+                + '<tbody>'+ ivaRowsHTML +'</tbody>'
+              + '</table>'
+            + '</div>'
+            + '<div class="box tot-box">'
+              + '<div>Imponibile: <span style="float:right">'+ fmt2(imponibile) +'</span></div>'
+              + '<div>Imposta IVA: <span style="float:right">'+ fmt2(imposta) +'</span></div>'
+              + '<div style="border-top:1px solid #cbd5e1;margin-top:6px;padding-top:6px">'
+                + '<strong>Totale: <span style="float:right">'+ fmt2(totale) +'</span></strong>'
+              + '</div>'
+            + '</div>'
+            + '<div class="pagebox">'
+              + 'Pag. '+ (pageIndex + 1) +' / '+ totalPages +
+            '</div>'
+          + '</div>'
+        );
+      }
 
-        .hdr{
-          border-bottom:2px solid #111;
-          padding:6px 0;
-          display:flex;
-          justify-content:space-between;
-          align-items:center;
-          gap:12px;
-          position:fixed;
-          top:16mm;         /* dentro al margine pagina */
-          left:12mm;
-          right:12mm;
-          background:#fff;
-        }
-        .hdr .logo{
-          height:80px;
-          max-height:80px;
-          object-fit:contain;
-          margin-left:2mm;
-        }
+      // costruisci pagine
+      let pagesHTML = '';
+      pagesRows.forEach((rowsHTML, pageIndex) => {
+        pagesHTML +=
+          '<div class="page">'
+            + headerHTML
+            + '<div class="content">'
+              + (pageIndex === 0 ? topInfoHTML : '')
+              + tableHeadHTML
+              + rowsHTML.join('')
+              + tableFootHTML
+            + '</div>'
+            + footerHTML(pageIndex)
+          + '</div>';
+      });
 
-        .content{
-          margin-top:42mm;   /* spazio per header */
-          margin-bottom:70mm;/* spazio per footer */
-        }
+      // CSS stampa dedicato fattura, appoggiandosi al tema comune se esiste
+      let css = '';
+      if (window.__PRINT_CSS) {
+        css = window.__PRINT_CSS({ top:10, right:8, bottom:10, left:8 });
+      } else {
+        css =
+          '<style>'
+          + '@page{size:A4;margin:10mm 8mm 10mm 8mm;}'
+          + '*{-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
+          + 'html,body{margin:0;padding:0;height:100%;}'
+          + 'body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:#0f172a;font-size:12px;}'
+          + '</style>';
+      }
 
-        .grid2{
-          display:grid;
-          grid-template-columns:1fr 1fr;
-          gap:10px;
-          margin:10px 0;
-        }
+      css +=
+        '<style>'
+        + '.page{page-break-after:always;}'
+        + '.page:last-child{page-break-after:auto;}'
+        + '.header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px;}'
+        + '.logo-box{display:flex;align-items:center;gap:8px;}'
+        + '.logo{width:46px;height:46px;object-fit:contain;margin-right:4px;}'
+        + '.doc-title{font-size:20px;font-weight:700;letter-spacing:.3px;}'
+        + '.muted{color:#64748b;}'
+        + '.small{font-size:11px;}'
+        + '.box{border:1px solid #cbd5e1;border-radius:8px;padding:8px 10px;}'
+        + '.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0;}'
+        + '.content{margin-top:6px;}'
+        + 'table.righe{width:100%;border-collapse:collapse;margin-top:8px;page-break-inside:avoid;}'
+        + 'table.righe th,table.righe td{border:1px solid #e5e7eb;padding:6px;vertical-align:top;}'
+        + 'table.righe th{background:#f8fafc;}'
+        + '.ctr{text-align:center;}'
+        + '.num{text-align:right;white-space:nowrap;}'
+        + '.footer{margin-top:10px;display:grid;grid-template-columns:1.3fr 1fr;gap:10px;align-items:flex-start;}'
+        + '.iva-box table{width:100%;border-collapse:collapse;margin-top:4px;}'
+        + '.iva-box th,.iva-box td{border:1px solid #e5e7eb;padding:4px 6px;vertical-align:top;}'
+        + '.iva-box th{background:#f8fafc;}'
+        + '.pagebox{text-align:right;font-size:11px;margin-top:4px;}'
+        + '</style>';
 
-        .box{
-          border:1px solid #cbd5e1;
-          border-radius:8px;
-          padding:8px 10px;
-        }
+      const html =
+        '<!doctype html><html><head><meta charset="utf-8">'+ css +'</head><body>'
+        + pagesHTML
+        + (note ? '<div style="margin-top:8px;font-size:11px" class="small"><strong>Note:</strong> '+ note +'</div>' : '')
+        + '</body></html>';
 
-        table{
-          width:100%;
-          border-collapse:collapse;
-          margin-top:10px;
-          page-break-inside:auto;
-        }
-        thead{
-          display:table-header-group; /* header ripetuto se va a pagina 2 */
-        }
-        tfoot{
-          display:table-footer-group;
-        }
-        th,td{
-          border:1px solid #e5e7eb;
-          padding:6px;
-          vertical-align:top;
-        }
-        th{
-          background:#f8fafc;
-        }
-
-        .ctr{text-align:center;}
-        .num{text-align:right; white-space:nowrap;}
-
-        .footer{
-          position:fixed;
-          left:12mm;
-          right:12mm;
-          bottom:10mm;   /* sempre a fondo pagina */
-          display:grid;
-          grid-template-columns:1.3fr 1fr; /* iva + note | totali */
-          gap:10px;
-          page-break-inside:avoid;
-          background:#fff;
-        }
-        .footer .box{
-          font-size:11px;
-        }
-
-        .totali{
-          border:1px solid #e5e7eb;
-          border-radius:6px;
-          padding:6px;
-        }
-        .totali table{
-          margin-top:4px;
-        }
-
-        .pagebox{
-          position:fixed;
-          right:12mm;
-          bottom:8mm;
-          font-weight:700;
-          font-size:11px;
-        }
-
-        /* Numero pagina generato dal browser: Pag. 1, Pag. 2, ... */
-        .pageNum::after{
-          content: counter(page);
-        }
-
-      </style>`;
-
-      const html = `<!doctype html><html><head><meta charset="utf-8">${css}</head><body>
-
-        <div class="hdr">
-          <div style="display:flex;align-items:center;gap:12px">
-            ${logo ? `<img src="${logo}" class="logo">` : ``}
-            <div>
-              <div class="doc-title">${ragAzi}</div>
-              <div class="muted small">${[pivaAzi && 'P.IVA '+pivaAzi, sdi && ('SDI '+sdi)].filter(Boolean).join(' · ')}</div>
-              <div class="muted small">${[sedeLeg && ('Sede legale: '+sedeLeg), sedeOpe && ('Sede operativa: '+sedeOpe)].filter(Boolean).join(' · ')}</div>
-              <div class="muted small">${[emailAz, telAz].filter(Boolean).join(' · ')}</div>
-              ${ (rea||capSoc) ? `<div class="muted small">${[rea && ('REA: '+rea), capSoc && ('Cap. soc.: '+capSoc)].filter(Boolean).join(' · ')}</div>` : '' }
-            </div>
-          </div>
-          <div class="idbox">
-            <div><strong>FATTURA</strong></div>
-            <div><strong>${esc(fa.id||'')}</strong></div>
-            <div>Data: <strong>${esc(fa.data||'')}</strong></div>
-          </div>
-        </div>
-                <div class="content">
-        <div class="grid2">
-          <div class="box">
-            <div class="muted">Cliente</div>
-            <div><strong>${cliRag}</strong></div>
-            ${cliInd   ? `<div class="small">${cliInd}</div>` : ''}
-            ${cliPiva  ? `<div class="muted small">P.IVA: ${cliPiva}</div>` : ''}
-            ${ (cliEmail||cliTel) ? `<div class="muted small">${[cliEmail,cliTel].filter(Boolean).join(' · ')}</div>` : '' }
-          </div>
-
-          <div class="box">
-            <div class="muted">Dati pagamento</div>
-            <div class="small">
-              ${fa.pagamento ? `<div>Pagamento: <strong>${esc(fa.pagamento)}</strong></div>` : ''}
-              ${[
-                bancaInt   && ('Intestatario: ' + bancaInt),
-                bancaIstit && ('Banca: ' + bancaIstit),
-                bancaIban  && ('IBAN: ' + bancaIban),
-                bancaBic   && ('BIC/SWIFT: ' + bancaBic)
-              ].filter(Boolean).map(esc).join('<br>')}
-            </div>
-          </div>
-        </div>
-
-        ${causale ? `<div class="box"><strong>Causale:</strong> ${causale}</div>` : ''}
-
-        <table>
-          <thead><tr>
-            <th style="width:28px" class="ctr">#</th>
-            <th>Descrizione</th>
-            <th style="width:60px" class="ctr">UM</th>
-            <th style="width:70px" class="ctr">Q.tà</th>
-            <th style="width:100px" class="num">Prezzo un.</th>
-            <th style="width:80px" class="ctr">Sconto %</th>
-            <th style="width:110px" class="num">Importo</th>
-          </tr></thead>
-          <tbody>${righeHTML || `<tr><td colspan="7" class="muted">Nessuna riga</td></tr>`}</tbody>
-        </table>
-      </div> <!-- fine .content -->
-        <div class="footer">
-          <div class="box">
-            <div style="font-weight:600; margin-bottom:6px">Riepilogo IVA</div>
-            <table style="width:100%; border-collapse:collapse">
-              <thead><tr>
-                <th class="ctr" style="width:140px">Aliquota</th>
-                <th class="num">Imponibile</th>
-                <th class="num">Imposta</th>
-              </tr></thead>
-              <tbody>${ivaRows}</tbody>
-            </table>
-
-            ${(fa.note||'').trim() ? `<div class="muted small" style="margin-top:8px">Note: ${esc(fa.note).replace(/\n/g,' ')}</div>` : ''}
-
-          </div>
-
-          <div class="box">
-            <div>Imponibile: <span style="float:right">${fmt2(imponibile)}</span></div>
-            <div>Imposta IVA: <span style="float:right">${fmt2(imposta)}</span></div>
-            <div style="border-top:1px solid #cbd5e1;margin-top:6px;padding-top:6px">
-              <strong>Totale: <span style="float:right">${fmt2(totale)}</span></strong>
-            </div>
-          </div>
-
-          <div id="pagebox" class="pagebox">
-            Pag. <span class="pageNum"></span>
-          </div>
-        </div>
-
-      </body></html>`;
-
-      // Fattura: numerazione via CSS (counter(page)), niente JS che "indovina" le pagine
       if (window.safePrintHTMLString) {
         window.safePrintHTMLString(html);
-
       } else if (global.safePrintHTMLString) {
         global.safePrintHTMLString(html);
-
       } else {
-        // Fallback estremo: popup
         const w = window.open('', '_blank');
         if (w) {
           w.document.write(html);
@@ -13814,11 +13801,9 @@ window.printDDT = function(state){
           try { w.focus(); w.print(); } catch {}
         }
       }
-
     }catch(e){
-      alert('Errore Fattura: ' + (e?.message || e));
+      alert('Errore Fattura: ' + (e && e.message ? e.message : e));
     }
-
   };
 })(window);
 
