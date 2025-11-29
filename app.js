@@ -13497,12 +13497,12 @@ window.printDDT = function(state){
   const fmt2 = n => Number(n || 0)
     .toLocaleString('it-IT',{ minimumFractionDigits:2, maximumFractionDigits:2 });
 
-  // max righe per pagina (puoi regolare se serve)
-  const MAX_ROWS_PER_PAGE = 12;
+  // quante righe per pagina (con codici + DDT per riga 10 è prudente)
+  const MAX_ROWS_PER_PAGE = 10;
 
   window.printFattura = function printFattura(fa){
     try{
-      // ---- App settings / intestazione azienda ----
+      // --- intestazione azienda / cliente -----------------------------------
       let app = {};
       try { app = JSON.parse(localStorage.getItem('appSettings') || '{}') || {}; } catch {}
       const logo = app.logoDataUrl || '';
@@ -13511,15 +13511,20 @@ window.printDDT = function(state){
       try { clienti = JSON.parse(localStorage.getItem('clientiRows') || '[]') || []; } catch {}
       const cli = clienti.find(c => String(c.id) === String(fa.clienteId)) || null;
 
-      const ragAzi  = esc(app.ragioneSociale || '');
-      const pivaAzi = esc(app.piva || app.pIva || '');
-      const sedeLeg = esc(app.sedeLegale || app.companyLegal || '');
-      const sedeOpe = esc(app.sedeOperativa || app.companyOperational || '');
-      const emailAz = esc(app.email || '');
-      const telAz   = esc(app.telefono || '');
-      const rea     = esc(app.rea || '');
-      const capSoc  = esc(app.capitaleSociale || app.capitale || '');
-      const sdi     = esc(app.sdi || app.codiceSdi || '');
+      const ragAzi   = esc(app.ragioneSociale || '');
+      const pivaAzi  = esc(app.piva || app.pIva || '');
+      const sedeLeg  = esc(app.sedeLegale || app.companyLegal || '');
+      const sedeOp   = esc(app.sedeOperativa || app.companyOperational || '');
+      const emailAzi = esc(app.email || '');
+      const telAzi   = esc(app.telefono || '');
+      const rea      = esc(app.rea || '');
+      const capSoc   = esc(app.capitaleSociale || '');
+      const sdi      = esc(app.codiceSDI || app.sdi || '');
+
+      const bancaInt   = esc(app.bancaIntestatario || '');
+      const bancaIstit = esc(app.bancaIstituto || '');
+      const bancaIban  = esc(app.bancaIban || '');
+      const bancaBic   = esc(app.bancaBicSwift || app.bicswift || '');
 
       const cliRag   = esc(fa.cliente || cli?.ragione || cli?.ragioneSociale || cli?.denominazione || cli?.nome || '');
       const cliPiva  = esc(cli?.piva || cli?.pIva || '');
@@ -13531,17 +13536,31 @@ window.printDDT = function(state){
       const rifNorm  = esc(fa.rifNormativo || '');
       const note     = esc(fa.note || '');
 
-      // bancari (footer opzionale)
-      const bancaInt   = esc(app.bankHolder || '');
-      const bancaIstit = esc(app.bankName || '');
-      const bancaIban  = esc(app.iban || '');
-      const bancaBic   = esc(app.bic || '');
+      // campi globali DDT (se usati)
+      const ddtNumero = esc(fa.ddtId || '');
+      const ddtData   = esc(fa.ddtData || '');
 
-      // ---- righe + totali IVA ----
+      // --- righe + totali IVA ----------------------------------------------
       const righe = Array.isArray(fa.righe) ? fa.righe : [];
-      const ivaMap = {}; // {aliquota: imponibile}
+      const ivaMap = {};
       let imponibile = 0;
-      let imposta = 0;
+      let imposta    = 0;
+
+      // elenco DDT a livello documento (deduplicati)
+      const ddtRefs = [];
+      const ddtSeen = new Set();
+      function pushDDTRef(idRaw, dataRaw){
+        const id  = String(idRaw || '').trim();
+        const dat = String(dataRaw || '').trim();
+        if (!id && !dat) return;
+        const key = id + '|' + dat;
+        if (ddtSeen.has(key)) return;
+        ddtSeen.add(key);
+        ddtRefs.push({ id, data: dat });
+      }
+
+      // 1) eventuale DDT globale sulla fattura
+      pushDDTRef(fa.ddtId, fa.ddtData);
 
       const righeArr = righe.map((r, idx) => {
         const qty = Number(r.qta || 0);
@@ -13554,14 +13573,31 @@ window.printDDT = function(state){
         imposta    += base * iva / 100;
         ivaMap[iva] = (ivaMap[iva] || 0) + base;
 
+        const cod = esc(r.codice || '');
         const desc = esc(r.descrizione || '').replace(/\n/g, '<br>');
+
+        const ddtIdRow   = esc(r.ddtId || '');
+        const ddtDataRow = esc(r.ddtData || '');
+        if (ddtIdRow || ddtDataRow){
+          // 2) DDT a livello riga
+          pushDDTRef(ddtIdRow, ddtDataRow);
+        }
+
         const qStr  = qty ? fmt2(qty).replace(',00','') : '';
         const scStr = sc  ? fmt2(sc).replace(',00','')  : '';
+
+        const ddtInfo = (ddtIdRow || ddtDataRow)
+          ? '<div class="riga-ddt small muted">DDT: '
+              + (ddtIdRow ? ddtIdRow : '')
+              + (ddtDataRow ? ' del ' + ddtDataRow : '')
+            + '</div>'
+          : '';
 
         return (
           '<tr>'
             + '<td class="ctr">'+ (idx + 1) +'</td>'
-            + '<td>'+ desc +'</td>'
+            + '<td class="code">'+ cod +'</td>'
+            + '<td>'+ desc + ddtInfo +'</td>'
             + '<td class="ctr">'+ esc(r.UM || r.um || '') +'</td>'
             + '<td class="ctr">'+ qStr +'</td>'
             + '<td class="num">'+ fmt2(pr) +'</td>'
@@ -13573,7 +13609,6 @@ window.printDDT = function(state){
 
       const totale = imponibile + imposta;
 
-      // riepilogo IVA globale
       const ivaRowsHTML = Object.keys(ivaMap)
         .sort((a,b) => Number(a) - Number(b))
         .map(k => {
@@ -13594,7 +13629,7 @@ window.printDDT = function(state){
           '<tr><td colspan="3" class="muted ctr">Nessuna IVA</td></tr>'
         );
 
-      // header documento (logo + dati azienda + info fattura)
+      // --- header fattura ---------------------------------------------------
       const headerHTML =
         '<div class="header">'
           + '<div class="logo-box">'
@@ -13605,25 +13640,20 @@ window.printDDT = function(state){
                 + [pivaAzi && ('P.IVA '+pivaAzi), sdi && ('SDI '+sdi)]
                     .filter(Boolean).join(' · ')
               + '</div>'
-              + (sedeLeg || sedeOpe
-                ? '<div class="muted small">'
-                    + [sedeLeg && ('Sede legale: '+sedeLeg),
-                       sedeOpe && ('Sede operativa: '+sedeOpe)]
-                       .filter(Boolean).join(' · ')
-                  + '</div>'
-                : '')
-              + (emailAz || telAz
-                ? '<div class="muted small">'
-                    + [emailAz, telAz].filter(Boolean).join(' · ')
-                  + '</div>'
-                : '')
+              + (sedeLeg ? '<div class="muted small">Sede legale: '+ sedeLeg +'</div>' : '')
+              + (sedeOp  ? '<div class="muted small">Sede operativa: '+ sedeOp +'</div>' : '')
+              + ((emailAzi || telAzi)
+                  ? '<div class="muted small">'
+                      + [emailAzi, telAzi].filter(Boolean).join(' · ')
+                    + '</div>'
+                  : '')
               + ((rea || capSoc)
-                ? '<div class="muted small">'
-                    + [rea && ('REA: '+rea),
-                       capSoc && ('Cap. soc.: '+capSoc)]
-                       .filter(Boolean).join(' · ')
-                  + '</div>'
-                : '')
+                  ? '<div class="muted small">'
+                      + [rea && ('REA: '+rea),
+                         capSoc && ('Cap. soc.: '+capSoc)]
+                         .filter(Boolean).join(' · ')
+                    + '</div>'
+                  : '')
             + '</div>'
           + '</div>'
           + '<div class="idbox">'
@@ -13633,7 +13663,7 @@ window.printDDT = function(state){
           + '</div>'
         + '</div>';
 
-      // blocco cliente + pagamento (solo pagina 1)
+      // --- blocco cliente + pagamento --------------------------------------
       const topInfoHTML =
         '<div class="top-info">'
           + '<div class="grid2">'
@@ -13669,29 +13699,41 @@ window.printDDT = function(state){
                   : '')
             + '</div>'
           + '</div>'
-          + (causale ? '<div class="box" style="margin-top:8px"><strong>Causale:</strong> '+ causale +'</div>' : '')
-          + (rifNorm ? '<div class="box small" style="margin-top:8px"><strong>Rif. normativo:</strong> '+ rifNorm +'</div>' : '')
+          + (causale ? '<div class="box" style="margin-top:6px"><strong>Causale:</strong> '+ causale +'</div>' : '')
+          + (rifNorm ? '<div class="box small" style="margin-top:6px"><strong>Rif. normativo:</strong> '+ rifNorm +'</div>' : '')
         + '</div>';
 
+      // blocco riferimenti DDT (document-level)
+      const ddtBlockHTML = ddtRefs.length
+        ? '<div class="box ddt-block small" style="margin-top:6px">'
+            + '<strong>Documento riferito a DDT:</strong><br>'
+            + ddtRefs.map(r =>
+                'DDT ' + esc(r.id || '') + (r.data ? ' del ' + esc(r.data) : '')
+              ).join('<br>')
+          + '</div>'
+        : '';
+
+      // --- tabella righe ----------------------------------------------------
       const tableHeadHTML =
         '<table class="righe">'
           + '<thead><tr>'
             + '<th style="width:26px" class="ctr">#</th>'
+            + '<th style="width:80px" class="code">Codice</th>'
             + '<th>Descrizione</th>'
             + '<th style="width:60px" class="ctr">UM</th>'
             + '<th style="width:70px" class="ctr">Q.tà</th>'
-            + '<th style="width:100px" class="num">Prezzo un.</th>'
-            + '<th style="width:80px" class="ctr">Sconto %</th>'
-            + '<th style="width:110px" class="num">Importo</th>'
+            + '<th style="width:90px" class="num">Prezzo un.</th>'
+            + '<th style="width:70px" class="ctr">Sconto %</th>'
+            + '<th style="width:100px" class="num">Importo</th>'
           + '</tr></thead>'
           + '<tbody>';
 
       const tableFootHTML = '</tbody></table>';
 
-      // chunk righe in pagine logiche
+      // --- spezza righe in pagine logiche ----------------------------------
       const pagesRows = [];
       if (righeArr.length === 0) {
-        pagesRows.push(['<tr><td colspan="7" class="muted ctr">Nessuna riga</td></tr>']);
+        pagesRows.push(['<tr><td colspan="8" class="muted ctr">Nessuna riga</td></tr>']);
       } else {
         for (let i = 0; i < righeArr.length; i += MAX_ROWS_PER_PAGE) {
           pagesRows.push(righeArr.slice(i, i + MAX_ROWS_PER_PAGE));
@@ -13704,10 +13746,10 @@ window.printDDT = function(state){
         return (
           '<div class="footer">'
             + '<div class="box iva-box">'
-              + '<div style="font-weight:600; margin-bottom:6px">Riepilogo IVA</div>'
+              + '<div style="font-weight:600; margin-bottom:4px">Riepilogo IVA</div>'
               + '<table>'
                 + '<thead><tr>'
-                  + '<th class="ctr" style="width:140px">Aliquota</th>'
+                  + '<th class="ctr" style="width:130px">Aliquota</th>'
                   + '<th class="num">Imponibile</th>'
                   + '<th class="num">Imposta</th>'
                 + '</tr></thead>'
@@ -13717,25 +13759,23 @@ window.printDDT = function(state){
             + '<div class="box tot-box">'
               + '<div>Imponibile: <span style="float:right">'+ fmt2(imponibile) +'</span></div>'
               + '<div>Imposta IVA: <span style="float:right">'+ fmt2(imposta) +'</span></div>'
-              + '<div style="border-top:1px solid #cbd5e1;margin-top:6px;padding-top:6px">'
+              + '<div style="border-top:1px solid #cbd5e1;margin-top:4px;padding-top:4px">'
                 + '<strong>Totale: <span style="float:right">'+ fmt2(totale) +'</span></strong>'
               + '</div>'
+              + '<div class="pagebox">Pag. '+ (pageIndex + 1) +' / '+ totalPages +'</div>'
             + '</div>'
-            + '<div class="pagebox">'
-              + 'Pag. '+ (pageIndex + 1) +' / '+ totalPages +
-            '</div>'
           + '</div>'
         );
       }
 
-      // costruisci pagine
+      // --- costruisci pagine -----------------------------------------------
       let pagesHTML = '';
       pagesRows.forEach((rowsHTML, pageIndex) => {
         pagesHTML +=
           '<div class="page">'
             + headerHTML
             + '<div class="content">'
-              + (pageIndex === 0 ? topInfoHTML : '')
+              + (pageIndex === 0 ? (topInfoHTML + ddtBlockHTML) : '')
               + tableHeadHTML
               + rowsHTML.join('')
               + tableFootHTML
@@ -13744,49 +13784,46 @@ window.printDDT = function(state){
           + '</div>';
       });
 
-      // CSS stampa dedicato SOLO alle fatture (niente __PRINT_CSS)
+      // --- CSS di stampa dedicato alla fattura -----------------------------
       const css =
         '<style>'
-        // margini abbastanza stretti ma puliti
         + '@page{size:A4;margin:8mm 8mm 12mm 8mm;}'
         + '*{-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
         + 'html,body{margin:0;padding:0;height:100%;}'
         + 'body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:#0f172a;font-size:12px;}'
 
-        // ogni pagina è un blocco separato
-        + '.page{page-break-after:always;padding-top:4mm;}'
+        // pagina a altezza fissa con header in alto e footer in basso
+        + '.page{page-break-after:always;padding-top:4mm;height:277mm;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;}'
         + '.page:last-child{page-break-after:auto;}'
 
-        // intestazione azienda
-        + '.header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px;}'
+        + '.header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px;}'
         + '.logo-box{display:flex;align-items:center;gap:8px;}'
-        + '.logo{width:40px;height:40px;object-fit:contain;margin-right:4px;}'
+        + '.logo{width:60px;height:60px;object-fit:contain;margin-right:4px;}'
         + '.doc-title{font-size:18px;font-weight:700;letter-spacing:.3px;}'
 
         + '.muted{color:#64748b;}'
         + '.small{font-size:11px;}'
         + '.box{border:1px solid #cbd5e1;border-radius:8px;padding:6px 8px;}'
-        + '.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0;}'
+        + '.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0;}'
 
-        // blocco cliente/pagamento
         + '.top-info{margin-bottom:4px;}'
-        + '.content{margin-top:4px;}'
+        + '.ddt-block{margin-top:4px;}'
+        + '.content{margin-top:4px;flex:1 0 auto;}'
 
-        // tabella righe
         + 'table.righe{width:100%;border-collapse:collapse;margin-top:6px;page-break-inside:avoid;}'
         + 'table.righe th,table.righe td{border:1px solid #e5e7eb;padding:5px;vertical-align:top;}'
         + 'table.righe th{background:#f8fafc;}'
+        + '.code{font-family:monospace;font-size:11px;}'
         + '.ctr{text-align:center;}'
         + '.num{text-align:right;white-space:nowrap;}'
+        + '.riga-ddt{margin-top:2px;}'
 
-        // footer con riepilogo IVA + totali
-        + '.footer{margin-top:8px;display:grid;grid-template-columns:1.4fr 1fr;gap:8px;align-items:flex-start;page-break-inside:avoid;}'
+        + '.footer{margin-top:6px;display:grid;grid-template-columns:1.4fr 1fr;gap:8px;align-items:flex-start;page-break-inside:avoid;}'
         + '.iva-box table{width:100%;border-collapse:collapse;margin-top:4px;}'
         + '.iva-box th,.iva-box td{border:1px solid #e5e7eb;padding:4px 6px;vertical-align:top;}'
         + '.iva-box th{background:#f8fafc;}'
 
-        // numerazione: NON fixed, niente sovrapposizioni
-        + '.pagebox{margin-top:4px;font-size:11px;text-align:right;}'
+        + '.pagebox{margin-top:6px;font-size:11px;text-align:right;}'
 
         + '</style>';
 
@@ -13813,7 +13850,6 @@ window.printDDT = function(state){
     }
   };
 })(window);
-
 
 // ============= STAMPA FATTURA (A4) — globale =============
 
