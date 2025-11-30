@@ -10568,9 +10568,13 @@ const counters0 = lsGet('counters', {}) || {};
       sdi            : form.sdi,
       regimeFiscale  : form.regimeFiscale,
 
-      // Rif. bancari
+      // Rif. bancari (fattura e stampa di cortesia)
       iban          : form.iban,
       banca         : form.banca,
+      intestatario  : form.intestatario || form.bankHolder || '',
+      bankName      : form.bankName || '',
+      bankHolder    : form.bankHolder || form.intestatario || '',
+      bic           : form.bic || '',
 
       // Opzioni documenti
       descrizioneDefaultDDT : form.descrizioneDefaultDDT,
@@ -11663,29 +11667,40 @@ function delRec(id){
       codiceUnivoco: (cli && cli.codiceUnivoco) || '',
       pec: (cli && cli.pec) || '',
       note: (ddt.note || ''), // niente "Rif. DDT..." nelle note
-      righe: (ddt.righe||[]).map(r => ({
-        // ➜ nuovo: portiamo il codice articolo nella riga fattura
-        codice: String(
-          r.codice
-          || r.articoloCodice
-          || r.codiceArticolo
-          || r.codArticolo
-          || ''
-        ).trim(),
+      righe: (
+        Array.isArray(ddt.righe) && ddt.righe.length
+          ? ddt.righe
+          : (ddt.articoli || [])
+      ).map(r => {
+        const codiceRiga = String(
+          r.codice ||
+          r.articoloCodice ||
+          r.codiceArticolo ||
+          r.codArticolo ||
+          ''
+        ).trim();
 
-        // descrizione rimane com'era: se manca, fa fallback sul codice
-        descrizione: r.descrizione || r.codice || '',
-        qta: r.qta || '',
-        UM: r.UM || r.um || 'PZ',
-        // prendo il prezzo dal DDT se presente
-        prezzo: (r.prezzo ?? ''),
-        sconto: '',
-        iva: (cli && cli.aliquotaIva !== undefined && cli.aliquotaIva !== null && cli.aliquotaIva !== ''
-              ? Number(cli.aliquotaIva)
-              : defaultIva),
-        ddtId: ddt.id || '',
-        ddtData: ddt.data || ''
-      })),
+        const qtaRiga    = r.qta || r.quantita || '';
+        const umRiga     = r.UM || r.um || 'PZ';
+        const prezzoRiga = (r.prezzo ?? '');
+        const ivaRiga    =
+          (cli && cli.aliquotaIva !== undefined && cli.aliquotaIva !== null && cli.aliquotaIva !== '')
+            ? Number(cli.aliquotaIva)
+            : defaultIva;
+
+        return {
+          codice: codiceRiga,
+          descrizione: r.descrizione || codiceRiga,
+          qta: qtaRiga,
+          UM: umRiga,
+          // prendo il prezzo dal DDT se presente
+          prezzo: prezzoRiga,
+          sconto: '',
+          iva: ivaRiga,
+          ddtId: ddt.id || '',
+          ddtData: ddt.data || ''
+        };
+      }),
       plafond: isPlafond,
       naturaIva: (cli && cli.naturaIva) || (isPlafond ? 'N3.5 Plafond' : '')
     };
@@ -12772,9 +12787,10 @@ window.printDDT = function(state){
     return { imponibile, imposta, totale: imponibile+imposta };
   }
 
-  function FattureView(){
+function FattureView(){
     const app      = React.useMemo(()=> lsGet('appSettings',{})||{}, []);
     const clienti  = React.useMemo(()=> lsGet('clientiRows',[])||[], []);
+    const articoliA = React.useMemo(()=> lsGet('magArticoli',[])||[], []);
     const [rows, setRows] = React.useState(()=> lsGet('fattureRows', []) || []);
 
     // hydrate da server, se disponibile
@@ -13340,6 +13356,14 @@ window.printDDT = function(state){
 
           // RIGHE
           e('div',{className:'card',style:{marginTop:8,overflowX:'auto'}},
+
+            // suggerimenti da magazzino articoli (codice → descrizione)
+            e('datalist',{id:'fattMagArtList'},
+              (Array.isArray(articoliA)?articoliA:[]).map((a,i)=>
+                e('option',{key:i, value:a.codice||''}, a.descrizione||'')
+              )
+            ),
+
             e('table',{className:'table'},
               e('thead',null,
                 e('tr',null,
@@ -13364,11 +13388,27 @@ window.printDDT = function(state){
                   // Codice articolo
                   e('td',null,
                     e('input',{
+                      list:'fattMagArtList',
                       value: r.codice || '',
-                      onChange: ev => updRiga(i, { codice: ev.target.value })
+                      onChange: ev => {
+                        const v = ev.target.value;
+                        const a = (articoliA||[]).find(x =>
+                          String(x.codice||'').trim() === String(v||'').trim()
+                        );
+                        updRiga(i, {
+                          codice: v,
+                          // se trovo l'articolo, auto-propago un minimo di info
+                          ...(a ? {
+                            descrizione: r.descrizione || a.descrizione || '',
+                            UM: r.UM || a.um || 'PZ',
+                            prezzo: (r.prezzo != null && r.prezzo !== '')
+                              ? r.prezzo
+                              : (a.prezzo || a.prezzoListino || '')
+                          } : {})
+                        });
+                      }
                     })
                   ),
-
                   // Descrizione
                   e('td',null,
                     e('input',{
@@ -13571,10 +13611,12 @@ window.printDDT = function(state){
       const capSoc   = esc(app.capitaleSociale || '');
       const sdi      = esc(app.codiceSDI || app.sdi || '');
 
-      const bancaInt   = esc(app.bancaIntestatario || '');
-      const bancaIstit = esc(app.bancaIstituto || '');
-      const bancaIban  = esc(app.bancaIban || '');
-      const bancaBic   = esc(app.bancaBicSwift || app.bicswift || '');
+      // Dati bancari per stampa fattura di cortesia:
+      // preferisci i campi dedicati, con fallback ai vecchi nomi
+      const bancaIstit = esc(app.bankName || app.banca || '');
+      const bancaInt   = esc(app.bankHolder || app.intestatario || '');
+      const bancaIban  = esc(app.iban || app.bancaIban || '');
+      const bancaBic   = esc(app.bic || app.bancaBicSwift || app.bicswift || '');
 
       const cliRag   = esc(fa.cliente || cli?.ragione || cli?.ragioneSociale || cli?.denominazione || cli?.nome || '');
       const cliPiva  = esc(cli?.piva || cli?.pIva || '');
@@ -13867,7 +13909,7 @@ window.printDDT = function(state){
 
         + '.header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px;}'
         + '.logo-box{display:flex;align-items:center;gap:8px;}'
-        + '.logo{width:200px;height:200px;object-fit:contain;margin-right:4px;}'
+        + '.logo{width:260px;height:260px;object-fit:contain;margin-right:4px;}'
         + '.doc-title{font-size:18px;font-weight:700;letter-spacing:.3px;}'
 
         + '.muted{color:#64748b;}'
