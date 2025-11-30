@@ -8244,19 +8244,53 @@ window.duplicaCommessa = duplicaCommessa;
 
 function delCommessa(c){
   if (!c || !c.id) return;
+  const id = String(c.id);
 
-  const oreRows = (function(){ try{ return JSON.parse(localStorage.getItem('oreRows')||'[]'); }catch{return[]} })();
-  const magMov  = (function(){ try{ return JSON.parse(localStorage.getItem('magMovimenti')||'[]'); }catch{return[]} })();
-  const ddtRows = (function(){ try{ return JSON.parse(localStorage.getItem('ddtRows')||'[]'); }catch{return[]} })();
+  // helper locale per leggere da LS in modo robusto
+  function getLocal(key, def){
+    if (typeof window.lsGet === 'function') return window.lsGet(key, def);
+    try{
+      const v = localStorage.getItem(key);
+      return v ? JSON.parse(v) : def;
+    }catch{
+      return def;
+    }
+  }
 
-  const nOre = oreRows.filter(o => o.commessaId === c.id).length;
-  const nMov = magMov.filter(m => String(m.commessaId||'') === c.id || (Array.isArray(m.righe) && m.righe.some(r => String(r.commessaId||'')===c.id))).length;
-  const nDDT = ddtRows.filter(d => String(d.commessaId||'') === c.id || (Array.isArray(d.righe) && d.righe.some(r => String(r.commessaId||'')===c.id))).length;
+  const oreRows = getLocal('oreRows', []);
+  const magMov  = getLocal('magMovimenti', []);
+  const ddtRows = getLocal('ddtRows', []);
+
+  // conteggi "soft" giusto per informarti (non cancelliamo nulla di collegato)
+  const nOre = (Array.isArray(oreRows) ? oreRows : [])
+    .filter(o => String(o.commessaId || '') === id).length;
+
+  const nMov = (Array.isArray(magMov) ? magMov : [])
+    .filter(m => {
+      if (!m) return false;
+      const jobId = id;
+      if (String(m.commessaId || m.jobId || '') === jobId) return true;
+      if (Array.isArray(m.righe)) {
+        return m.righe.some(r => String(r.commessaId || r.commessaRowId || r.jobId || '') === jobId);
+      }
+      return false;
+    }).length;
+
+  const nDDT = (Array.isArray(ddtRows) ? ddtRows : [])
+    .filter(d => {
+      if (!d) return false;
+      const jobId = id;
+      if (String(d.commessaId || d.jobId || '') === jobId) return true;
+      if (Array.isArray(d.righe)) {
+        return d.righe.some(r => String(r.commessaId || r.commessaRowId || r.jobId || '') === jobId);
+      }
+      return false;
+    }).length;
 
   const msg = [
-    `Eliminare la commessa "${c.id}"?`,
+    `Eliminare la commessa "${id}"?`,
     '',
-    `Collegamenti:`,
+    'Collegamenti:',
     `• Timbrature: ${nOre}`,
     `• Movimenti magazzino: ${nMov}`,
     `• DDT: ${nDDT}`,
@@ -8267,26 +8301,60 @@ function delCommessa(c){
   if (!confirm(msg)) return;
 
   try{
-    const all = lsGet('commesseRows', []);
-    const next = all.filter(x => x.id !== c.id);
-    writeCommesse(next); // 👈 persiste davvero
+    // 1) Elimino dalla copia locale
+    const all  = getLocal('commesseRows', []);
+    const next = (Array.isArray(all) ? all : []).filter(x => String(x.id) !== id);
+    writeCommesse(next); // aggiorna stato + LS (via lsSet)
 
-    // Guardia write-through: se per qualsiasi motivo non risultasse scritto, forza LS
+    // 2) Guardia extra: se per qualche motivo lsSet non ha scritto
     try{
-      const cur = JSON.parse(localStorage.getItem('commesseRows')||'[]');
+      const cur = JSON.parse(localStorage.getItem('commesseRows') || '[]');
       if (!Array.isArray(cur) || cur.length !== next.length) {
         localStorage.setItem('commesseRows', JSON.stringify(next));
         window.__anima_dirty = true;
       }
     }catch{}
 
+    // 3) Elimino anche dal cloud (tabella "commesse") così il prossimo sync non la rimette
+    try{
+      if (typeof window.getSB === 'function') {
+        const sb = window.getSB();
+        if (sb && sb.url && sb.key) {
+          const baseUrl = String(sb.url).replace(/\/+$/,'');
+          const url = `${baseUrl}/rest/v1/commesse?id=eq.${encodeURIComponent(id)}`;
+          fetch(url, {
+            method: 'DELETE',
+            headers: {
+              apikey: sb.key,
+              Authorization: 'Bearer ' + sb.key
+            }
+          })
+          .then(function(res){
+            if (!res.ok) {
+              return res.text().then(function(t){
+                console.warn('[delCommessa] delete cloud failed', res.status, t);
+              });
+            }
+          })
+          .catch(function(err){
+            console.warn('[delCommessa] delete cloud error', err);
+          });
+        }
+      }
+    }catch(e){
+      console.warn('[delCommessa] delete cloud exception', e);
+    }
+
+    // 4) Aggiorno anche lo snapshot anima_sync (come prima)
     try{
       if (typeof window.syncExportToCloudOnly === 'function') {
         window.syncExportToCloudOnly(['commesseRows']);
       }
-    }catch(e){ console.warn('Sync cloud commesse fallito:', e); }
+    }catch(e){
+      console.warn('Sync cloud commesse fallito:', e);
+    }
 
-    alert(`Commessa ${c.id} eliminata ✅`);
+    alert('Commessa ' + id + ' eliminata ✅');
   }catch(e){
     console.error(e);
     alert('Errore durante eliminazione commessa.');
@@ -8294,10 +8362,10 @@ function delCommessa(c){
 }
 window.delCommessa = delCommessa;
 
-
 // (opzionale) esponi globali per altre viste
 window.duplicaCommessa = window.duplicaCommessa || duplicaCommessa;
 window.delCommessa     = window.delCommessa     || delCommessa;
+
 
   // --- DDT: singola & multiple ---
   function timbrUrl(id){ return `#/timbratura?job=${encodeURIComponent(id||'')}`; }
