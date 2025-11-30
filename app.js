@@ -2280,53 +2280,42 @@ window.sbInsert = window.sbInsert || async function(table, row){
 /* === PATCH BLAUWER v1: parser ordini acquisto === */
 (function registerBlauwerRuntime(){
   try{
-    // se addOrderParser non è pronto, esco
     if (typeof window.addOrderParser !== 'function') return;
 
-    // se esiste già un parser con id blauwer-v1, non lo duplico
-    const arr = Array.isArray(window.__orderParsers) ? window.__orderParsers : [];
-    const already = arr.some(p => p && String(p.id || '').toLowerCase() === 'blauwer-v1');
-    if (already) return;
+    // 1) Pulisce eventuali vecchie versioni del parser
+    if (Array.isArray(window.__orderParsers)) {
+      window.__orderParsers = window.__orderParsers.filter(function(p){
+        return !p || String(p.id || '').toLowerCase() !== 'blauwer-v1';
+      });
+    } else {
+      window.__orderParsers = [];
+    }
 
     function toNum(s){
       if (s == null) return 0;
-      const t = String(s).replace(/\./g,'').replace(',', '.');
-      const n = Number(t);
-      return Number.isFinite(n) ? n : 0;
+      var t = String(s).replace(/\./g,'').replace(',', '.');
+      var n = Number(t);
+      return isFinite(n) ? n : 0;
     }
 
     window.addOrderParser({
       id  : 'blauwer-v1',
       name: 'BLAUWER Ord. acq. Standard',
       test: function(txt, name){
-        const t = String(txt || '');
+        var t = String(txt || '');
+        // match su testo piatto (niente \n)
         return /BLAUWER\s*S\.?P\.?A\.?/i.test(t) && /Ord\.\s*acq\.\s*Standard/i.test(t);
       },
       extract: function(txt, name){
-        const raw   = String(txt || '');
-        const lines = raw.split(/\r?\n/).map(function(l){ return l.trim(); }).filter(Boolean);
+        var raw  = String(txt || '');
+        // testo già "schiacciato" da extractPdfText; per sicurezza normalizzo
+        var flat = raw.replace(/\s+/g,' ').trim();
 
-        const righe = [];
-        var inBody = false;
-
-        for (var i=0; i<lines.length; i++){
-          var norm = lines[i].replace(/\s+/g,' ').trim();
-
-          // header tabella
-          if (!inBody) {
-            if (/Pos\./i.test(norm) && /Codice/i.test(norm) && /Descrizione/i.test(norm) && /\bUM\b/i.test(norm)) {
-              inBody = true;
-            }
-            continue;
-          }
-
-          if (!norm) continue;
-          if (/^TOTALE\s+ORDINE/i.test(norm)) break;
-
-          // es: "10 58038050 01 COPERCHIO SERBATOIO ... PZ 3 120,00 360,00 27/11/25"
-          var m = norm.match(/^(\d+)\s+([A-Z0-9][A-Z0-9._\-]{2,})\s+[A-Z0-9]{1,3}\s+(.+?)\s+(PZ|NR|KG|L1|L2|L3|M|MQ|ML)\s+([0-9]+(?:[.,][0-9]+)?)(?:\s+[0-9.,]+){1,3}\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})$/i);
-          if (!m) continue;
-
+        var righe = [];
+        // Pos  Codice(>5 cifre)  Rev  Descrizione  UM  Qta  Prezzo  Totale  Data
+        var re = /(\d{1,3})\s+([0-9]{5,})\s+[0-9]{1,3}\s+(.+?)\s+(PZ|NR|KG|L1|L2|L3|M|MQ|ML)\s+([0-9]+(?:[.,][0-9]+)?)(?:\s+[0-9.,]+){1,3}\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/gi;
+        var m;
+        while ((m = re.exec(flat))) {
           var codice = m[2];
           var descr  = m[3];
           var um     = m[4].toUpperCase();
@@ -2343,35 +2332,37 @@ window.sbInsert = window.sbInsert || async function(table, row){
         }
 
         // descrizione commessa
-        var descr = '';
+        var descrizione = '';
         var mHead =
-          raw.match(/Ord\.\s*acq\.\s*Standard[\s\S]*?Numero\s+([A-Z0-9\-\/]+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i) ||
-          raw.match(/Numero\s+([A-Z0-9\-\/]+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i);
+          flat.match(/Ord\.\s*acq\.\s*Standard.*?Numero\s+([A-Z0-9\-\/]+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i) ||
+          flat.match(/Numero\s+([A-Z0-9\-\/]+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i);
 
         if (mHead) {
           var num = (mHead[1] || '').trim();
           var d   = (mHead[2] || '').trim();
-          descr = 'Ordine ' + num + ' del ' + d;
+          descrizione = 'Ordine ' + num + ' del ' + d;
         } else if (righe.length === 1) {
-          descr = righe[0].descrizione;
+          descrizione = righe[0].descrizione;
         } else if (righe.length > 1) {
-          descr = 'Ordine Blauwer (' + righe.length + ' righe)';
+          descrizione = 'Ordine Blauwer (' + righe.length + ' righe)';
         } else {
-          descr = 'Commessa da ordine PDF';
+          descrizione = 'Commessa da ordine PDF';
         }
 
         // scadenza = massima data trovata (tipicamente le consegne)
         var scad = '';
         try{
-          var dates = raw.match(/\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/g) || [];
+          var dates = flat.match(/\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/g) || [];
           var times = dates.map(function(d){
             var parts = d.split(/[./-]/);
             if (parts.length !== 3) return NaN;
             var gg = parts[0], mm = parts[1], aa = parts[2];
             if (aa.length === 2) aa = '20' + aa;
-            var iso = aa + '-' + mm.padStart(2,'0') + '-' + gg.padStart(2,'0');
+            if (gg.length === 1) gg = '0' + gg;
+            if (mm.length === 1) mm = '0' + mm;
+            var iso = aa + '-' + mm + '-' + gg;
             return new Date(iso).getTime();
-          }).filter(function(n){ return Number.isFinite(n); });
+          }).filter(function(n){ return !isNaN(n); });
           if (times.length) {
             var max = Math.max.apply(null, times);
             scad = new Date(max).toISOString().slice(0,10);
@@ -2382,7 +2373,7 @@ window.sbInsert = window.sbInsert || async function(table, row){
 
         return {
           cliente    : 'BLAUWER S.P.A.',
-          descrizione: descr,
+          descrizione: descrizione,
           righe      : righe,
           qtaPezzi   : righe.reduce(function(s,r){ return s + (Number(r.qta)||0); }, 0) || 1,
           scadenza   : scad
