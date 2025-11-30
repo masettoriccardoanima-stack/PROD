@@ -13809,12 +13809,12 @@ window.printDDT = function(state){
         + 'body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:#0f172a;font-size:12px;}'
 
         // pagina a altezza fissa con header in alto e footer in basso
-        + '.page{page-break-after:always;padding-top:4mm;box-sizing:border-box;}'
+        + '.page{page-break-after:always;padding-top:4mm;min-height:277mm;box-sizing:border-box;display:flex;flex-direction:column;}'
         + '.page:last-child{page-break-after:auto;}'
 
         + '.header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px;}'
         + '.logo-box{display:flex;align-items:center;gap:8px;}'
-        + '.logo{width:60px;height:60px;object-fit:contain;margin-right:4px;}'
+        + '.logo{width:100px;height:100px;object-fit:contain;margin-right:4px;}'
         + '.doc-title{font-size:18px;font-weight:700;letter-spacing:.3px;}'
 
         + '.muted{color:#64748b;}'
@@ -13824,7 +13824,7 @@ window.printDDT = function(state){
 
         + '.top-info{margin-bottom:4px;}'
         + '.ddt-block{margin-top:4px;}'
-        + '.content{margin-top:4px;}'
+        + '.content{margin-top:4px;flex:1 0 auto;}'
 
         + 'table.righe{width:100%;border-collapse:collapse;margin-top:6px;page-break-inside:avoid;}'
         + 'table.righe th,table.righe td{border:1px solid #e5e7eb;padding:5px;vertical-align:top;}'
@@ -13834,7 +13834,7 @@ window.printDDT = function(state){
         + '.num{text-align:right;white-space:nowrap;}'
         + '.riga-ddt{margin-top:2px;}'
 
-        + '.footer{margin-top:6px;display:grid;grid-template-columns:1.4fr 1fr;gap:8px;align-items:flex-start;page-break-inside:avoid;}'
+        + '.footer{margin-top:auto;padding-top:6px;display:grid;grid-template-columns:1.4fr 1fr;gap:8px;align-items:flex-start;page-break-inside:avoid;}'
         + '.iva-box table{width:100%;border-collapse:collapse;margin-top:4px;}'
         + '.iva-box th,.iva-box td{border:1px solid #e5e7eb;padding:4px 6px;vertical-align:top;}'
         + '.iva-box th{background:#f8fafc;}'
