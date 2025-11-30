@@ -203,7 +203,13 @@ body { margin:0; font-family:system-ui, Arial, sans-serif; background:#f5f6f8; }
 .nav .nav-link:hover{background:#111827;color:#fff}
 .nav .nav-link.active{background:#1f2937;color:#fff}
 
-label{display:block;margin-bottom:4px;color:#94a3b8}
+label{
+  display:block;
+  margin-bottom:4px;
+  font-size:13px;
+  font-weight:600;
+  color:#6b7280; /* testo un po' più scuro e preciso */
+}
 input,select,textarea{width:100%;min-width:0}
 .actions{gap:8px}
 .table .btn { padding: 4px 10px; font-size: 12px; }
