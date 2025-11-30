@@ -3119,9 +3119,13 @@ window.ensureXLSX = window.ensureXLSX || (function () {
     return snap;
   }
 
-  function mergeAppSettings(localApp, remoteApp){
+function mergeAppSettings(localApp, remoteApp){
+  localApp  = localApp  || {};
+  remoteApp = remoteApp || {};
+
   // il remoto sovrascrive SOLO i campi che fornisce
   const out = { ...localApp, ...remoteApp };
+
   // proteggi array locali se il remoto NON li fornisce
   if (!Array.isArray(remoteApp?.operators) && Array.isArray(localApp?.operators)) {
     out.operators = localApp.operators;
@@ -3129,9 +3133,27 @@ window.ensureXLSX = window.ensureXLSX || (function () {
   if (!Array.isArray(remoteApp?.fasiStandard) && Array.isArray(localApp?.fasiStandard)) {
     out.fasiStandard = localApp.fasiStandard;
   }
+
+  // NON sovrascrivere stringhe non vuote con vuoto/null dal remoto
+  Object.keys(out).forEach(k => {
+    if (Object.prototype.hasOwnProperty.call(remoteApp, k)) {
+      const rv = remoteApp[k];
+      const lv = localApp[k];
+
+      if (
+        typeof lv === 'string' &&
+        lv.trim() &&                     // locale non vuoto
+        (rv === '' || rv === null || rv === undefined) // remoto vuoto
+      ){
+        out[k] = lv; // tieni il valore "buono" locale
+      }
+    }
+  });
+
   return out;
 }
-    function applySnapshot(snap){
+
+  function applySnapshot(snap){
     if (!snap || typeof snap!=='object') return;
 
     // allinea alias magazzino prima del merge
