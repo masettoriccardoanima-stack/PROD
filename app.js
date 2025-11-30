@@ -7432,8 +7432,20 @@ window.previewDescrAndRef = window.previewDescrAndRef || function previewDescrAn
 function CommesseView({ query = '' }) {
   const e = React.createElement;
 
+  // RBAC sola lettura (accountant / viewer / mobile)
+  const readOnly = (typeof window.isReadOnlyUser === 'function'
+    ? !!window.isReadOnlyUser()
+    : !!(window.__USER && window.__USER.role === 'accountant'));
+
+  const roBtnProps = () =>
+    (window.roProps ? window.roProps() : (readOnly ? {
+      disabled: true,
+      title: 'Sola lettura'
+    } : {}));
+
   // — Renderer sicuro per valori di cella (evita React error #31)
   const V = (v) => {
+
     if (v == null) return '';
     if (typeof v === 'object') {
       // oggetti noti: mostra un campo utile (id/numero/data) o serializza
@@ -8473,33 +8485,52 @@ window.delCommessa     = window.delCommessa     || delCommessa;
     // elenco + azioni
     e('div', {className:'card'},
       e('div', {className:'actions', style:{justifyContent:'space-between', flexWrap:'wrap'}},
-        e('div', {className:'row', style:{gap:8}},
+        e('div', {className:'row', style:{gap:8, alignItems:'center'}},
           e('input', {placeholder:'Cerca commesse…', value:q, onChange:ev=>setQ(ev.target.value)}),
-          e('button', {className:'btn', onClick:startNew}, '➕ Nuova commessa'),
+
+            // ➕ Nuova commessa (bloccata per accountant/viewer/mobile)
+          e('button', {
+            className:'btn',
+            onClick:startNew,
+            ...roBtnProps()
+          }, '➕ Nuova commessa'),
 
           // input nascosto (unico) + 2 bottoni come da tua preferenza
           orderPdfInput,
 
           // A) Vecchio flusso (se esiste): riusa dialog legacy o il file picker
-          e('button', { className:'btn btn-outline',
+          e('button', {
+            className:'btn btn-outline',
             onClick: ()=> {
-              if (typeof window.openImportPDFDialog === 'function') window.openImportPDFDialog();
-              else { const el=document.getElementById('order-pdf-input'); if (el) el.click(); }
-            }
+              if (typeof window.openImportPDFDialog === 'function') {
+                window.openImportPDFDialog();
+              } else {
+                const el=document.getElementById('order-pdf-input');
+                if (el) el.click();
+              }
+            },
+            ...roBtnProps()
           }, '📄 Importa PDF'),
 
           // B) Nuovo flusso: file picker diretto → commessa unica multi-articolo
-          e('button', { className:'btn',
+          e('button', {
+            className:'btn',
             onClick: ()=> {
-              if (typeof window.hasRole === 'function' && !window.hasRole('admin')) { alert('Solo admin'); return; }
-              const el=document.getElementById('order-pdf-input'); if (el) el.click();
-            }
+              // questa guardia resta com'è: solo admin possono usare il nuovo flusso
+              if (typeof window.hasRole === 'function' && !window.hasRole('admin')) {
+                alert('Solo admin'); 
+                return;
+              }
+              const el=document.getElementById('order-pdf-input');
+              if (el) el.click();
+            },
+            ...roBtnProps()
           }, '📄 Importa Ordine (PDF)')
         ),
-        e('div', {className:'row', style:{gap:8, alignItems:'center'}},
-            e('span', {className:'muted'}, `${filtered.length} record — selezionate: ${selectedList.length}`),
-            e('button', {className:'btn', onClick: creaDDTdaSelezionate }, '📦 Crea DDT con selezionate')
-          )
+        e('div', {className:'actions'},
+          e('span', null, `Selezionate: ${selectedList.length}`),
+          e('button', { className:'btn', onClick: creaDDTdaSelezionate, ...roBtnProps() }, '📦 Crea DDT con selezionate')
+        )
       ),
 
       filtered.length===0
@@ -8655,13 +8686,33 @@ window.delCommessa     = window.delCommessa     || delCommessa;
                     );
                   })(),
                   e('td', null,
-                    e('button', { className:'btn btn-outline', onClick:()=> {if (window.stampaCommessaV2) {window.stampaCommessaV2(c);} else if (window.printCommessa) {window.printCommessa(c);}}}, 'Stampa'),' ',
+                    e('button', { className:'btn btn-outline', onClick:()=>window.printCommessa && window.printCommessa(c)}, 'Stampa'), ' ',
                     e('button', { className:'btn btn-outline', onClick:()=>window.openEtichetteColliDialog && window.openEtichetteColliDialog(c) }, 'Etichette'), ' ',
                     e('a', { className:'btn btn-outline', href: timbrUrl(c.id) }, 'QR/Timbr.'), ' ',
-                    e('button', { className:'btn btn-outline', onClick:()=>duplicaCommessa(c) }, '⧉ Duplica'), ' ',
-                    e('button', { className:'btn btn-outline', onClick:()=>creaDDTdaCommessa(c) }, '📦 DDT'), ' ',
-                    e('button', { className:'btn btn-outline', onClick:()=>segnaCompleta(c) }, '✅ Completa'), ' ',
-                    e('button', { className:'btn btn-outline', onClick:()=>delCommessa(c) }, '🗑️ Elimina')
+
+                    e('button', {
+                      className:'btn btn-outline',
+                      onClick:()=>duplicaCommessa(c),
+                      ...roBtnProps()
+                    }, '⧉ Duplica'), ' ',
+
+                    e('button', {
+                      className:'btn btn-outline',
+                      onClick:()=>creaDDTdaCommessa(c),
+                      ...roBtnProps()
+                    }, '📦 DDT'), ' ',
+
+                    e('button', {
+                      className:'btn btn-outline',
+                      onClick:()=>segnaCompleta(c),
+                      ...roBtnProps()
+                    }, '✅ Completa'), ' ',
+
+                    e('button', {
+                      className:'btn btn-outline',
+                      onClick:()=>delCommessa(c),
+                      ...roBtnProps()
+                    }, '🗑️ Elimina')
                   )
                 ))
             )
@@ -8974,7 +9025,11 @@ e('div', {className:'subcard', style:{gridColumn:'1 / -1'}},
             e('button', {className:'btn btn-outline', onClick:()=> {if (window.stampaCommessaV2) {window.stampaCommessaV2(form);} else if (window.printCommessa) {window.printCommessa(form);}}}, 'Stampa'),' ',
             e('button', {className:'btn btn-outline', onClick:()=>window.openEtichetteColliDialog && window.openEtichetteColliDialog(form)}, 'Stampa etichette'),' ',
             e('button', {className:'btn btn-outline', onClick:cancelForm}, 'Annulla'),
-            e('button', {className:'btn', onClick:save}, editingId ? 'Aggiorna' : 'Crea')
+            e('button', {
+              className:'btn',
+              onClick:save,
+              ...roBtnProps()
+            }, editingId ? 'Aggiorna' : 'Crea')
           )
         )
       )
@@ -11833,7 +11888,7 @@ const filteredDDT = React.useMemo(()=>{
       // Azioni
       e('div', { className:'actions', style:{ justifyContent:'flex-end', marginTop:10 } },
         e('button', { className:'btn btn-outline', onClick: ()=> setBulkFaOpen(false) }, 'Annulla'),
-        e('button', { className:'btn', onClick: confirmBulkFa }, 'Conferma')
+        e('button', { className:'btn', onClick: confirmBulkFa,...(window.roProps ? window.roProps() : {})}, 'Conferma')
       )
     )
   ) : null;
@@ -11844,8 +11899,8 @@ const filteredDDT = React.useMemo(()=>{
     // toolbar
     e('div', { className:'actions', style:{marginBottom:8} },
       e('input', { className:'input', placeholder:'Cerca…', value:qDDT, onChange:ev=>setQDDT(ev.target.value) }),
-      e('button', { className:'btn', onClick:openNew, ...window.roProps() }, '➕ Nuovo DDT'),
-      e('button', { className:'btn btn-outline', onClick: openBulkFa }, '🧾 Genera fattura…')
+        e('button', { className:'btn', onClick:openNew, ...window.roProps() }, '➕ Nuovo DDT'),
+        e('button', { className:'btn btn-outline', onClick: openBulkFa, ...window.roProps() }, '🧾 Genera fattura…')
     ),
 
     // lista
@@ -12133,15 +12188,19 @@ showForm && e('form', { className:'card', onSubmit:save, style:{marginTop:8,padd
       e('button', {
         type:'button',
         className:'btn btn-outline',
-        onClick:()=>{ try{ window.openRicezioneOF && window.openRicezioneOF(form); }
-          catch(e){ alert('Ricezione non disponibile: '+(e?.message||e)); } }
+        onClick:()=>{ try{
+          window.openRicezioneOF && window.openRicezioneOF(form);
+        } catch(e){ alert('Ricezione non disponibile: '+(e?.message||e)); } },
+        ...(window.roProps ? window.roProps() : {})
       }, 'Ricevi…'),
 
       e('button', {
         type:'button',
         className:'btn btn-outline',
-        onClick:()=>{ try{ window.receiveAllOF && window.receiveAllOF(form); }
-          catch(e){ alert('Ricezione non disponibile'); } }
+        onClick:()=>{ try{
+         window.receiveAllOF && window.receiveAllOF(form);
+        } catch(e){ alert('Ricezione non disponibile'); } },
+        ...(window.roProps ? window.roProps() : {})
       }, 'Ricevi tutto'),
 
       e('button', {
@@ -18582,6 +18641,17 @@ function MagazzinoView(props){
   const initialTab = (props && props.initialTab) ? props.initialTab : 'articoli';
   const e = React.createElement;
 
+  // RBAC sola lettura (accountant / viewer / mobile)
+  const readOnly = (typeof window.isReadOnlyUser === 'function'
+    ? !!window.isReadOnlyUser()
+    : !!(window.__USER && window.__USER.role === 'accountant'));
+
+  const roBtnProps = () =>
+    (window.roProps ? window.roProps() : (readOnly ? {
+      disabled: true,
+      title: 'Sola lettura'
+    } : {}));
+
   // Helper LOCALi per Magazzino:
   // usano SEMPRE localStorage diretto (in BETA viene comunque intercettato
   // dalla patch che mette il prefisso BETA:...).
@@ -18922,15 +18992,47 @@ function MagazzinoView(props){
   });
 
   const articoliUI = e('div', null,
-    e('div', {className:'actions', style:{justifyContent:'space-between', gap:8}},
-      e('input', {placeholder:'Cerca…', value:q, onChange:ev=>setQ(ev.target.value)}),
-      e('div', null,
-        e('button', {className:'btn btn-outline', onClick:onImportArtClick}, '⬆️ Importa (.xlsx/.csv)'),
-        e('input', {type:'file', accept:'.xlsx,.xls,.csv', ref:fileArtRef, style:{display:'none'}, onChange:handleArtImportFile}),
-        e('button', {className:'btn', style:{marginLeft:8}, onClick:openNewArt}, '➕ Nuovo articolo'),
-        e('button', {className:'btn btn-outline',style:{ marginLeft:8 },disabled: selected.size===0,onClick: deleteSelected}, `Elimina selezionati (${selected.size})`)
-      )
-    ),
+  e('div', {className:'actions', style:{justifyContent:'space-between', gap:8}},
+    e('input', {
+      placeholder:'Cerca…',
+      value:q,
+      onChange:ev=>setQ(ev.target.value)
+    }),
+    e('div', null,
+      // Import articoli (.xlsx/.xls/.csv) – SOLO se non read-only
+      e('button', {
+        className:'btn btn-outline',
+        onClick:onImportArtClick,
+        ...roBtnProps()
+      }, '⬆️ Importa (.xlsx/.csv)'),
+
+      // input file nascosto
+      e('input', {
+        type:'file',
+        accept:'.xlsx,.xls,.csv',
+        ref:fileArtRef,
+        style:{display:'none'},
+        onChange:handleArtImportFile
+      }),
+
+      // Nuovo articolo – SOLO se non read-only
+      e('button', {
+        className:'btn',
+        style:{marginLeft:8},
+        onClick:openNewArt,
+        ...roBtnProps()
+      }, '➕ Nuovo articolo'),
+
+      // Elimina selezionati – SOLO se non read-only
+      e('button', {
+        className:'btn btn-outline',
+        style:{ marginLeft:8 },
+        disabled: selected.size===0,
+        onClick: deleteSelected,
+        ...roBtnProps()
+      }, `Elimina selezionati (${selected.size})`)
+    )
+  ),
 
     // form edit/nuovo
     !editArt ? null : e('div', {className:'card', style:{marginTop:8}},
@@ -18959,7 +19061,12 @@ function MagazzinoView(props){
       ),
       e('div', {className:'actions', style:{justifyContent:'flex-end', gap:8}},
         e('button', {className:'btn btn-outline', type:'button', onClick:cancelEditArt}, 'Annulla'),
-        e('button', {className:'btn', type:'button', onClick:saveArt}, 'Salva')
+        e('button', {
+          className:'btn',
+          type:'button',
+          onClick:saveArt,
+          ...roBtnProps()
+        }, 'Salva')
       )
     ),
 
@@ -19003,7 +19110,12 @@ function MagazzinoView(props){
           // azioni
           e('td', {style:{textAlign:'right'}},
             e('button', {className:'btn btn-outline', onClick:()=>setSchedaArt(a)}, '🔎'),
-            e('button', {className:'btn btn-outline', style:{marginLeft:6}, onClick:()=>openEditArt(a)}, '✏️'),
+            e('button', {
+              className:'btn btn-outline',
+              style:{marginLeft:6},
+              onClick:()=>openEditArt(a),
+              ...roBtnProps()
+            }, '✏️'),
             e('button', {className:'btn btn-outline', style:{marginLeft:6}, onClick:()=>delArt(a)}, '🗑️')
           )
         )))
@@ -19030,7 +19142,12 @@ function MagazzinoView(props){
         )
       ),
       e('div', {className:'actions', style:{justifyContent:'flex-end'}},
-        e('button', {className:'btn', onClick:addMov, type:'button'}, 'Aggiungi')
+        e('button', {
+          className:'btn',
+          onClick:addMov,
+          type:'button',
+          ...roBtnProps()
+        }, 'Aggiungi')
       )
     ),
 
@@ -19050,7 +19167,11 @@ function MagazzinoView(props){
           e('td', {style:{textAlign:'right'}}, m.qta||''),
           e('td', null, m.note||''),
           e('td', {style:{textAlign:'right'}},
-            e('button', {className:'btn btn-outline', onClick:()=>delMov(ix)}, '🗑️')
+            e('button', {
+              className:'btn btn-outline',
+              onClick:()=>delMov(ix),
+              ...roBtnProps()
+            }, '🗑️')
           )
         ))
       )
@@ -20325,6 +20446,17 @@ window.getHashParam = window.getHashParam || function(name){
 var TimbraturaMobileView = function(){
   const e = React.createElement;
 
+  // RBAC sola lettura (accountant / viewer / mobile)
+  const readOnly = (typeof window.isReadOnlyUser === 'function'
+    ? !!window.isReadOnlyUser()
+    : !!(window.__USER && window.__USER.role === 'accountant'));
+
+  const roBtnProps = () =>
+    (window.roProps ? window.roProps() : (readOnly ? {
+      disabled: true,
+      title: 'Sola lettura'
+    } : {}));
+
   // ---- Helpers LocalStorage sicuri (riusa globali se esistono) ----
   const lsGet = (window.lsGet) || ((k,d)=>{ try{ return JSON.parse(localStorage.getItem(k)) ?? d; }catch{ return d; }});
   const lsSet = (window.lsSet) || ((k,v)=>{ try{ localStorage.setItem(k, JSON.stringify(v)); window.__anima_dirty = true; }catch{} });
@@ -20985,8 +21117,16 @@ var TimbraturaMobileView = function(){
         e('span', {className:'badge',tyle:{marginLeft:6, padding:'4px 8px', borderRadius:8, background:isOnline?'#16a34a':'#dc2626', color:'#fff', fontWeight:700}}, isOnline ? '● ONLINE' : '● OFFLINE'),
         commessa && e('button', {className:'btn btn-outline',onClick:()=> commessa && ((window.openEtichetteColliDialog && window.openEtichetteColliDialog(commessa)) ||(window.triggerEtichetteFor && window.triggerEtichetteFor(commessa, {})))}, 'Stampa etichette'),
         e('div', {className:'row', style:{gap:6, marginLeft:'auto'}},
-          e('button', {className:'btn btn-outline', onClick:()=> window.syncImportFromCloud && window.syncImportFromCloud()}, '⬇️ Importa'),
-          e('button', {className:'btn btn-outline', onClick:()=> window.syncExportToCloud && window.syncExportToCloud()}, '⬆️ Esporta')
+          e('button', {
+            className:'btn btn-outline',
+            onClick:()=> window.syncImportFromCloud && window.syncImportFromCloud(),
+            ...roBtnProps()
+          }, '⬇️ Importa'),
+          e('button', {
+            className:'btn btn-outline',
+            onClick:()=> window.syncExportToCloud && window.syncExportToCloud(),
+            ...roBtnProps()
+          }, '⬆️ Esporta')
         )
       ),
 
@@ -21097,8 +21237,18 @@ var TimbraturaMobileView = function(){
           active ? fmtHMS(Date.now() - new Date(active.startISO).getTime()) : '00:00:00'
         ),
         !active
-          ? e('button', {className:'btn btn-lg', style:{width:'100%'}, onClick:safeStart}, '▶️ Inizio')
-          : e('button', {className:'btn btn-lg', style:{width:'100%'}, onClick:safeStop},  '⏹️ Fine')
+          ? e('button', {
+              className:'btn btn-lg',
+              style:{width:'100%'},
+              onClick:safeStart,
+              ...roBtnProps()
+            }, '▶️ Inizio')
+          : e('button', {
+              className:'btn btn-lg',
+              style:{width:'100%'},
+              onClick:safeStop,
+              ...roBtnProps()
+            }, '⏹️ Fine')
       ),
 
       // Modale quantità
@@ -21117,7 +21267,11 @@ var TimbraturaMobileView = function(){
           }),
           e('div', {className:'actions', style:{justifyContent:'flex-end', gap:8}},
             e('button', {className:'btn btn-outline', onClick:cancelStop}, 'Annulla'),
-            e('button', {className:'btn', onClick:confirmStop}, 'Conferma')
+            e('button', {
+              className:'btn',
+              onClick:confirmStop,
+              ...roBtnProps()
+            }, 'Conferma')
           )
         )
       ),
