@@ -13577,12 +13577,20 @@ window.printDDT = function(state){
         const iva = Number(r.iva || 0);
         const base = qty * pr * (1 - (sc / 100));
 
-        imponibile += base;
-        imposta    += base * iva / 100;
-        ivaMap[iva] = (ivaMap[iva] || 0) + base;
+  imponibile += base;
+  imposta    += base * iva / 100;
+  ivaMap[iva] = (ivaMap[iva] || 0) + base;
 
-        const cod = esc(r.codice || '');
-        const desc = esc(r.descrizione || '').replace(/\n/g, '<br>');
+  // ➜ qui prendiamo il codice articolo dal magazzino / DDT / commessa
+  const cod = esc(
+    r.codice
+    || r.articoloCodice
+    || r.codiceArticolo
+    || r.codArticolo
+    || ''
+  );
+
+  const desc = esc(r.descrizione || '').replace(/\n/g, '<br>');
 
         const ddtIdRow   = esc(r.ddtId || '');
         const ddtDataRow = esc(r.ddtData || '');
@@ -13783,7 +13791,6 @@ window.printDDT = function(state){
           '<div class="page">'
             + headerHTML
             + '<div class="content">'
-              + (pageIndex === 0 ? (topInfoHTML + ddtBlockHTML) : '')
               + tableHeadHTML
               + rowsHTML.join('')
               + tableFootHTML
@@ -13806,7 +13813,7 @@ window.printDDT = function(state){
 
         + '.header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px;}'
         + '.logo-box{display:flex;align-items:center;gap:8px;}'
-        + '.logo{width:90px;height:90px;object-fit:contain;margin-right:4px;}'
+        + '.logo{width:120height:120px;object-fit:contain;margin-right:4px;}'
         + '.doc-title{font-size:18px;font-weight:700;letter-spacing:.3px;}'
 
         + '.muted{color:#64748b;}'
