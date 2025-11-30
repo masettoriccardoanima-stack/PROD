@@ -8377,6 +8377,14 @@ window.delCommessa     = window.delCommessa     || delCommessa;
           // lascio righe vuote: la commessa nascerà senza righeArticolo
           righe = [];
         }
+        
+                console.log('[Import PDF ordine] parsed', {
+          fileName,
+          cliente: parsed.cliente || '',
+          descrizione: parsed.descrizione || '',
+          scadenza: parsed.scadenza || '',
+          righeCount: righe.length
+        });
 
         // === Cliente (come prima) ===
         const clienti = (window.lsGet && window.lsGet('clientiRows', [])) || [];
@@ -8450,7 +8458,7 @@ window.delCommessa     = window.delCommessa     || delCommessa;
           updatedAt : new Date().toISOString()
         };
 
-                // 3) Salva la nuova commessa
+        // 3) Salva la nuova commessa
         const allCommesse = (window.lsGet && window.lsGet('commesseRows', [])) || [];
         allCommesse.unshift(comm);
         if (window.lsSet) window.lsSet('commesseRows', allCommesse);
@@ -8468,10 +8476,17 @@ window.delCommessa     = window.delCommessa     || delCommessa;
           console.warn('[Commesse] cloud sync error (import PDF)', e);
         }
 
-        alert(`Commessa creata: ${comm.id} — ${comm.cliente || ''}`);
+        // feedback più chiaro per capire cosa è successo
+        const msgRighe = righe.length
+          ? `${righe.length} righe importate`
+          : 'Nessuna riga importata (commessa vuota da completare a mano)';
+
+        alert(`Commessa creata: ${comm.id} — ${comm.cliente || ''}\n${msgRighe}`);
+
         ev.target.value = '';
         location.hash = '#/commesse';
       }catch(e){
+
         console.error('Import PDF ordine fallito', e);
         alert('Errore durante la lettura del PDF.');
         try { ev.target.value = ''; } catch {}
@@ -8495,38 +8510,38 @@ window.delCommessa     = window.delCommessa     || delCommessa;
             ...roBtnProps()
           }, '➕ Nuova commessa'),
 
-          // input nascosto (unico) + 2 bottoni come da tua preferenza
+          // input nascosto per import ordine PDF
           orderPdfInput,
 
-          // A) Vecchio flusso (se esiste): riusa dialog legacy o il file picker
-          e('button', {
-            className:'btn btn-outline',
-            onClick: ()=> {
-              if (typeof window.openImportPDFDialog === 'function') {
-                window.openImportPDFDialog();
-              } else {
-                const el=document.getElementById('order-pdf-input');
-                if (el) el.click();
-              }
-            },
-            ...roBtnProps()
-          }, '📄 Importa PDF'),
+          // @DEPRECATED: vecchio flusso modale import PDF (tenuto solo come fallback tecnico)
+          // e('button', {
+          //   className:'btn btn-outline',
+          //   onClick: ()=> {
+          //     if (typeof window.openImportPDFDialog === 'function') {
+          //       window.openImportPDFDialog();
+          //     } else {
+          //       const el = document.getElementById('order-pdf-input');
+          //       if (el) el.click();
+          //     }
+          //   },
+          //   ...roBtnProps()
+          // }, '📄 Importa PDF'),
 
-          // B) Nuovo flusso: file picker diretto → commessa unica multi-articolo
+          // Flusso ufficiale: file picker diretto → commessa unica multi-articolo
           e('button', {
             className:'btn',
             onClick: ()=> {
-              // questa guardia resta com'è: solo admin possono usare il nuovo flusso
+              // solo admin possono usare il nuovo flusso
               if (typeof window.hasRole === 'function' && !window.hasRole('admin')) {
-                alert('Solo admin'); 
+                alert('Solo admin');
                 return;
               }
-              const el=document.getElementById('order-pdf-input');
+              const el = document.getElementById('order-pdf-input');
               if (el) el.click();
             },
             ...roBtnProps()
           }, '📄 Importa Ordine (PDF)')
-        ),
+
         e('div', {className:'actions'},
           e('span', null, `Selezionate: ${selectedList.length}`),
           e('button', { className:'btn', onClick: creaDDTdaSelezionate, ...roBtnProps() }, '📦 Crea DDT con selezionate')
