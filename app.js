@@ -13899,16 +13899,16 @@ function FattureView(){
       const css =
         '<style>'
         // margini di pagina un po' più stretti sopra/sotto
-        + '@page{size:A4;margin:6mm 8mm 10mm 8mm;}'
+        + '@page{size:A4;margin:4mm 8mm 8mm 8mm;}'
         + '*{-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
         + 'html,body{margin:0;padding:0;height:100%;}'
         + 'body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:#0f172a;font-size:12px;}'
 
         // pagina a altezza fissa con header in alto e footer in basso
-        + '.page{page-break-after:always;padding-top:2mm;min-height:277mm;box-sizing:border-box;display:flex;flex-direction:column;}'
+        + '.page{page-break-after:always;padding-top:0mm;min-height:277mm;box-sizing:border-box;display:flex;flex-direction:column;}'
         + '.page:last-child{page-break-after:auto;}'
 
-        + '.header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:3px;}'
+        + '.header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:1px;}'
         + '.logo-box{display:flex;align-items:center;gap:8px;}'
         + '.logo{width:260px;height:260px;object-fit:contain;margin-right:4px;}'
         + '.doc-title{font-size:18px;font-weight:700;letter-spacing:.3px;}'
@@ -13917,11 +13917,11 @@ function FattureView(){
         + '.small{font-size:11px;}'
         + '.box{border:1px solid #cbd5e1;border-radius:8px;padding:6px 8px;}'
         // meno spazio verticale tra intestazione e i due box
-        + '.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:2px 0;}'
+        + '.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0;}'
 
-        + '.top-info{margin-bottom:2px;}'
+        + '.top-info{margin-bottom:1px;}'
         + '.ddt-block{margin-top:2px;}'
-        + '.content{margin-top:2px;flex:1 0 auto;}'
+        + '.content{margin-top:1px;flex:1 0 auto;}'
 
         + 'table.righe{width:100%;border-collapse:collapse;margin-top:6px;page-break-inside:avoid;}'
         + 'table.righe th,table.righe td{border:1px solid #e5e7eb;padding:5px;vertical-align:top;}'
