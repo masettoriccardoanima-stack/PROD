@@ -2282,7 +2282,7 @@ window.sbInsert = window.sbInsert || async function(table, row){
   try{
     if (typeof window.addOrderParser !== 'function') return;
 
-    // 1) Pulisce eventuali vecchie versioni del parser
+    // rimuovo eventuali versioni precedenti del parser
     if (Array.isArray(window.__orderParsers)) {
       window.__orderParsers = window.__orderParsers.filter(function(p){
         return !p || String(p.id || '').toLowerCase() !== 'blauwer-v1';
@@ -2303,16 +2303,15 @@ window.sbInsert = window.sbInsert || async function(table, row){
       name: 'BLAUWER Ord. acq. Standard',
       test: function(txt, name){
         var t = String(txt || '');
-        // match su testo piatto (niente \n)
+        // testo già “schiacciato”, niente newline
         return /BLAUWER\s*S\.?P\.?A\.?/i.test(t) && /Ord\.\s*acq\.\s*Standard/i.test(t);
       },
       extract: function(txt, name){
         var raw  = String(txt || '');
-        // testo già "schiacciato" da extractPdfText; per sicurezza normalizzo
         var flat = raw.replace(/\s+/g,' ').trim();
 
         var righe = [];
-        // Pos  Codice(>5 cifre)  Rev  Descrizione  UM  Qta  Prezzo  Totale  Data
+        // Pos  Codice(>=5 cifre)  Rev  Descrizione  UM  Qta  Prezzi  Data consegna
         var re = /(\d{1,3})\s+([0-9]{5,})\s+[0-9]{1,3}\s+(.+?)\s+(PZ|NR|KG|L1|L2|L3|M|MQ|ML)\s+([0-9]+(?:[.,][0-9]+)?)(?:\s+[0-9.,]+){1,3}\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/gi;
         var m;
         while ((m = re.exec(flat))) {
@@ -2331,32 +2330,46 @@ window.sbInsert = window.sbInsert || async function(table, row){
           });
         }
 
-        // descrizione commessa
-        var descrizione = '';
+        // numero + data ordine per il riferimento cliente
+        var num = '';
+        var docDateStr = '';
+        var docDateISO = '';
         var mHead =
           flat.match(/Ord\.\s*acq\.\s*Standard.*?Numero\s+([A-Z0-9\-\/]+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i) ||
           flat.match(/Numero\s+([A-Z0-9\-\/]+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i);
 
         if (mHead) {
-          var num = (mHead[1] || '').trim();
-          var d   = (mHead[2] || '').trim();
-          descrizione = 'Ordine ' + num + ' del ' + d;
+          num        = (mHead[1] || '').trim();
+          docDateStr = (mHead[2] || '').trim();
+
+          var parts = docDateStr.split(/[./-]/);
+          if (parts.length === 3) {
+            var gg = parts[0], mm = parts[1], aa = parts[2];
+            if (aa.length === 2) aa = '20' + aa;
+            if (gg.length === 1) gg = '0' + gg;
+            if (mm.length === 1) mm = '0' + mm;
+            docDateISO = aa + '-' + mm + '-' + gg;
+          }
+        }
+
+        // descrizione commessa → generica (non con "Ordine 4500...")
+        var descrizione;
+        if (righe.length > 1) {
+          descrizione = 'Commessa da ordine cliente (Blauwer, ' + righe.length + ' righe)';
         } else if (righe.length === 1) {
           descrizione = righe[0].descrizione;
-        } else if (righe.length > 1) {
-          descrizione = 'Ordine Blauwer (' + righe.length + ' righe)';
         } else {
           descrizione = 'Commessa da ordine PDF';
         }
 
-        // scadenza = massima data trovata (tipicamente le consegne)
+        // scadenza = massima data consegna nel documento
         var scad = '';
         try{
           var dates = flat.match(/\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/g) || [];
           var times = dates.map(function(d){
-            var parts = d.split(/[./-]/);
-            if (parts.length !== 3) return NaN;
-            var gg = parts[0], mm = parts[1], aa = parts[2];
+            var p = d.split(/[./-]/);
+            if (p.length !== 3) return NaN;
+            var gg = p[0], mm = p[1], aa = p[2];
             if (aa.length === 2) aa = '20' + aa;
             if (gg.length === 1) gg = '0' + gg;
             if (mm.length === 1) mm = '0' + mm;
@@ -2369,14 +2382,25 @@ window.sbInsert = window.sbInsert || async function(table, row){
           }
         }catch(e){}
 
-        console.log('[blauwer-v1] parsed righe:', righe.length);
+        // oggetto rifCliente usato nel form (tipo / numero / data)
+        var rifObj = null;
+        if (num || docDateISO) {
+          rifObj = {
+            tipo  : 'ordine',
+            numero: num || '',
+            data  : docDateISO || ''
+          };
+        }
+
+        console.log('[blauwer-v1] parsed righe:', righe.length, 'rifCliente:', rifObj);
 
         return {
           cliente    : 'BLAUWER S.P.A.',
-          descrizione: descrizione,
+          descrizione: descrizione,           // 👈 sopra: testo generico
           righe      : righe,
           qtaPezzi   : righe.reduce(function(s,r){ return s + (Number(r.qta)||0); }, 0) || 1,
-          scadenza   : scad
+          scadenza   : scad,
+          rifCliente : rifObj                 // 👈 qui il riferimento cliente strutturato
         };
       }
     });
@@ -8690,10 +8714,10 @@ window.delCommessa     = window.delCommessa     || delCommessa;
           ? righe.reduce((s,r)=> s + (Number(r.qta || r.quantita || 0) || 0), 0)
           : (Number(parsed.qtaPezzi || 1) || 1);
 
-        // articoloCodice sintetico per la lista: Multi(N) o primo codice
-        const articoloCodiceFinal = righe.length > 1
+        // articoloCodice sintetico per la lista: sempre Multi(N) se ho almeno una riga
+        const articoloCodiceFinal = righe.length
           ? `Multi (${righe.length})`
-          : (righe[0]?.codice || parsed.articoloCodice || '');
+          : (parsed.articoloCodice || '');
 
         // Scadenza → provo a portarla in YYYY-MM-DD
         const scad = (function(){
