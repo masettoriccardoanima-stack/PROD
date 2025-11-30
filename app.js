@@ -12895,7 +12895,15 @@ window.printDDT = function(state){
       const ivaDef = (form.plafond ? 0 : (Number(app.defaultIva)||22));
       setForm(p=>({
         ...p,
-        righe:[...(p.righe||[]), { descrizione:'', qta:'', UM:'PZ', prezzo:'', iva: ivaDef, sconto:'' }]
+        righe:[...(p.righe||[]), {
+          codice: '',
+          descrizione: '',
+          qta: '',
+          UM: 'PZ',
+          prezzo: '',
+          iva: ivaDef,
+          sconto: ''
+        }]
       }));
     }
     function updRiga(i,patch){
@@ -13326,6 +13334,7 @@ window.printDDT = function(state){
               e('thead',null,
                 e('tr',null,
                   e('th',{style:{width:28}},'#'),
+                  e('th',{style:{width:120}},'Codice'),
                   e('th',null,'Descrizione'),
                   e('th',{style:{width:80}},'Q.tà'),
                   e('th',{style:{width:60}},'UM'),
@@ -13339,21 +13348,52 @@ window.printDDT = function(state){
               ),
               e('tbody',null,
                 (form.righe||[]).map((r,i)=> e('tr',{key:i},
+                  // # riga
                   e('td',{style:{textAlign:'center'}}, String(i+1)),
+
+                  // Codice articolo
                   e('td',null,
-                    e('input',{value:r.descrizione||'', onChange:ev=>updRiga(i,{descrizione:ev.target.value})})
-                  ),
-                  e('td',{style:{textAlign:'center'}},
-                    e('input',{type:'number', step:'any', value:r.qta||'', onChange:ev=>updRiga(i,{qta:ev.target.value})})
-                  ),
-                  e('td',{style:{textAlign:'center'}},
-                    e('input',{value:r.UM||'PZ', onChange:ev=>updRiga(i,{UM:ev.target.value})})
-                  ),
-                  e('td',{style:{textAlign:'right'}},
-                    e('input',{type:'number', step:'any', value:r.prezzo||'', onChange:ev=>updRiga(i,{prezzo:ev.target.value})})
+                    e('input',{
+                      value: r.codice || '',
+                      onChange: ev => updRiga(i, { codice: ev.target.value })
+                    })
                   ),
 
-                  // IVA (selettore rapido)
+                  // Descrizione
+                  e('td',null,
+                    e('input',{
+                      value:r.descrizione||'',
+                      onChange:ev=>updRiga(i,{descrizione:ev.target.value})
+                    })
+                  ),
+
+                  // Q.tà
+                  e('td',{style:{textAlign:'center'}},
+                    e('input',{
+                      type:'number', step:'any',
+                      value:r.qta||'',
+                      onChange:ev=>updRiga(i,{qta:ev.target.value})
+                    })
+                  ),
+
+                  // UM
+                  e('td',{style:{textAlign:'center'}},
+                    e('input',{
+                      value:r.UM||'PZ',
+                      onChange:ev=>updRiga(i,{UM:ev.target.value})
+                    })
+                  ),
+
+                  // Prezzo
+                  e('td',{style:{textAlign:'right'}},
+                    e('input',{
+                      type:'number', step:'any',
+                      value:r.prezzo||'',
+                      onChange:ev=>updRiga(i,{prezzo:ev.target.value})
+                    })
+                  ),
+
+                  // IVA (select)
                   e('td',{style:{textAlign:'center'}},
                     e('select',{
                       value: (r.iva === 0 || r.iva === '0') ? 22 : (r.iva ?? 22),
@@ -13401,14 +13441,16 @@ window.printDDT = function(state){
                     )
                   ),
 
+                  // Sconto
                   e('td',{style:{textAlign:'center'}},
                     e('input',{
                       type:'number', step:'any',
-                      value: (r.sconto ?? r.scontoPerc ?? ''),
+                      value:(r.sconto ?? r.scontoPerc ?? ''),
                       onChange:ev=>updRiga(i,{sconto:ev.target.value})
                     })
                   ),
 
+                  // Importo calcolato
                   e('td',{style:{textAlign:'right'}},
                     (function(){
                       const qty=+r.qta||0, pr=+r.prezzo||0, sc=(+r.sconto||+r.scontoPerc||0);
@@ -13416,6 +13458,7 @@ window.printDDT = function(state){
                     })()
                   ),
 
+                  // Azioni riga
                   e('td',{style:{textAlign:'center', whiteSpace:'nowrap'}},
                     e('button',{
                       type:'button',
@@ -13814,7 +13857,7 @@ window.printDDT = function(state){
 
         + '.header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px;}'
         + '.logo-box{display:flex;align-items:center;gap:8px;}'
-        + '.logo{width:100px;height:100px;object-fit:contain;margin-right:4px;}'
+        + '.logo{width:140px;height:140px;object-fit:contain;margin-right:4px;}'
         + '.doc-title{font-size:18px;font-weight:700;letter-spacing:.3px;}'
 
         + '.muted{color:#64748b;}'
