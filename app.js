@@ -8714,10 +8714,8 @@ window.delCommessa     = window.delCommessa     || delCommessa;
           ? righe.reduce((s,r)=> s + (Number(r.qta || r.quantita || 0) || 0), 0)
           : (Number(parsed.qtaPezzi || 1) || 1);
 
-        // articoloCodice sintetico per la lista: sempre Multi(N) se ho almeno una riga
-        const articoloCodiceFinal = righe.length
-          ? `Multi (${righe.length})`
-          : (parsed.articoloCodice || '');
+        // articoloCodice: per le commesse importate da PDF lo lasciamo vuoto
+        const articoloCodiceFinal = '';
 
         // Scadenza → provo a portarla in YYYY-MM-DD
         const scad = (function(){
@@ -8727,15 +8725,30 @@ window.delCommessa     = window.delCommessa     || delCommessa;
           return isNaN(d.getTime()) ? '' : d.toISOString().slice(0,10);
         })();
 
+        // riferimento cliente strutturato {tipo, numero, data}
+        const rifClienteObj = (function(){
+          const src = parsed && parsed.rifCliente;
+          if (src && typeof src === 'object') {
+            return {
+              tipo  : src.tipo  || 'ordine',
+              numero: src.numero || '',
+              data  : src.data   || ''
+            };
+          }
+          return null;
+        })();
+
         const comm = {
           id: idNuovo,
           clienteId,
           cliente: clienteRag || (parsed.cliente || ''),
-          descrizione: (parsed.descrizione || parsed.articoloDescr || '').trim(),
+          // descrizione: la lasciamo vuota, la compili tu a mano
+          descrizione: '',
           articoloCodice: articoloCodiceFinal,
           qtaPezzi: Math.max(1, qtaTot || 1),
           scadenza: scad,
-          rifCliente: parsed.rifCliente || null,
+          rifCliente: rifClienteObj,
+
 
           // multi-articolo → righeArticolo
           righeArticolo: righe.map(r => ({
