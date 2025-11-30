@@ -926,6 +926,14 @@ aside.sidebar + aside.card, aside.sidebar ~ aside.card { display: none !importan
   min-width:0 !important;   /* sovrascrive il min-width:860px delle tabelle normali */
 }
 
+/* ===== CANONICO FINALE: FORM LABELS (vince su tutto) ===== */
+.form label{
+  display:block !important;
+  margin-bottom:4px !important;
+  font-weight:600 !important;
+  font-size:13px !important;
+  color:#6b7280 !important;
+}
 
 
 
