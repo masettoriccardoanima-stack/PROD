@@ -11664,11 +11664,21 @@ function delRec(id){
       pec: (cli && cli.pec) || '',
       note: (ddt.note || ''), // niente "Rif. DDT..." nelle note
       righe: (ddt.righe||[]).map(r => ({
+        // ➜ nuovo: portiamo il codice articolo nella riga fattura
+        codice: String(
+          r.codice
+          || r.articoloCodice
+          || r.codiceArticolo
+          || r.codArticolo
+          || ''
+        ).trim(),
+
+        // descrizione rimane com'era: se manca, fa fallback sul codice
         descrizione: r.descrizione || r.codice || '',
         qta: r.qta || '',
-        UM: r.UM || 'PZ',
+        UM: r.UM || r.um || 'PZ',
         // prendo il prezzo dal DDT se presente
-                prezzo: (r.prezzo ?? ''),
+        prezzo: (r.prezzo ?? ''),
         sconto: '',
         iva: (cli && cli.aliquotaIva !== undefined && cli.aliquotaIva !== null && cli.aliquotaIva !== ''
               ? Number(cli.aliquotaIva)
@@ -13857,7 +13867,7 @@ window.printDDT = function(state){
 
         + '.header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px;}'
         + '.logo-box{display:flex;align-items:center;gap:8px;}'
-        + '.logo{width:140px;height:140px;object-fit:contain;margin-right:4px;}'
+        + '.logo{width:200px;height:200px;object-fit:contain;margin-right:4px;}'
         + '.doc-title{font-size:18px;font-weight:700;letter-spacing:.3px;}'
 
         + '.muted{color:#64748b;}'
