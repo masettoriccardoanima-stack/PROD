@@ -123,6 +123,39 @@ body { margin:0; font-family:system-ui, Arial, sans-serif; background:#f5f6f8; }
   }
 }
 
+/* Layout generico delle pagine (container per tutte le view principali) */
+.page{
+  display:flex;
+  flex-direction:column;
+  gap:8px;         /* spazio minimo tra toolbar, card, tabelle, ecc. */
+  min-height:0;    /* evita overflow strani dentro .content flex */
+}
+
+/* Toolbar standard: prima riga con filtri + azioni */
+.toolbar{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+  margin-bottom:4px;
+}
+
+/* niente margini random sugli elementi dentro la toolbar */
+.toolbar > *{
+  margin:0;
+}
+
+/* input/select in toolbar un filo più larghi */
+.toolbar input,
+.toolbar select{
+  min-width:160px;
+}
+
+/* i bottoni in toolbar non si spezzano su due righe di testo */
+.toolbar .btn{
+  white-space:nowrap;
+}
+
 .form { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 
 .grid{display:grid;gap:12px}
