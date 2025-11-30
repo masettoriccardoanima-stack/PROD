@@ -526,6 +526,15 @@ input, select, textarea{ padding: 8px 10px; }
   margin-bottom:10px;
 }
 
+/* Etichette specifiche per Preventivi (più precise) */
+label.pv-label{
+  display:block;
+  margin-bottom:4px;
+  font-size:13px;
+  font-weight:600;
+  color:#111827;
+}
+
 /* ====== SESSION BAR (box utente/logout) ====== */
 .sessionbar{
   position: fixed;

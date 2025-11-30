@@ -15424,6 +15424,7 @@ function PreventiviView({ query = '' }){
   const today = ()=> new Date().toISOString().slice(0,10);
   const clone = o => JSON.parse(JSON.stringify(o||{}));
   const num = v => Number(v||0);
+  const pvLabelProps = { className: 'pv-label' };
   
     // IVA di default aziendale (fallback 22%). Deve stare qui per essere visibile ovunque.
   const appSettings = lsGet ? (lsGet('appSettings', {}) || {}) : {};
@@ -15688,40 +15689,40 @@ function PreventiviView({ query = '' }){
         e('form', {onSubmit:onSave},
           e('div', {className:'form', style:{gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))'}},
             e('div', null,
-              e('label', null,'ID'),
+              e('label', pvLabelProps,'ID'),
               e('input', {value: pv.id||'', readOnly:true})
             ),
             e('div', null,
-              e('label', null,'Data'),
+              e('label', pvLabelProps,'Data'),
               e('input', {type:'date', value: pv.data||today(), onChange:ev=>setDraft(p=>({...p,data:ev.target.value}))})
             ),
             e('div', null,
-              e('label', null,'Cliente'),
+              e('label', pvLabelProps,'Cliente'),
               e('select', {value: pv.clienteId||'', onChange:ev=>pickCliente(ev.target.value)},
                 e('option', {value:''}, '— seleziona —'),
                 (clienti||[]).map(c=> e('option', {key:c.id, value:c.id}, c.ragione))
               )
             ),
             e('div', null,
-              e('label', null,'Rif. Cliente'),
+              e('label', pvLabelProps,'Rif. Cliente'),
               e('input', {value: pv.rifCliente||'', onChange:ev=>setDraft(p=>({...p,rifCliente:ev.target.value}))})
             ),
             e('div', null,
-              e('label', null,'Consegna prevista'),
+              e('label', pvLabelProps,'Consegna prevista'),
               e('input', {type:'date', value: pv.consegnaPrevista||today(), onChange:ev=>setDraft(p=>({...p,consegnaPrevista:ev.target.value}))})
             ),
             e('div', null,
-              e('label', null,'Stato'),
+              e('label', pvLabelProps,'Stato'),
               e('select', {value: pv.stato||'Bozza', onChange:ev=>setDraft(p=>({...p,stato:ev.target.value}))},
                 ['Bozza','Inviato','Accettato','Rifiutato','Trasformato'].map(s=> e('option',{key:s,value:s},s))
               )
             ),
             e('div', {style:{gridColumn:'1/-1'}},
-              e('label', null,'Oggetto / Descrizione'),
+              e('label', pvLabelProps,'Oggetto / Descrizione'),
               e('input', {value: pv.oggetto||'', onChange:ev=>setDraft(p=>({...p,oggetto:ev.target.value}))})
             ),
             e('div', {style:{gridColumn:'1/-1'}},
-              e('label', null,'Note'),
+              e('label', pvLabelProps,'Note'),
               e('textarea', {rows:3, value: pv.note||'', onChange:ev=>setDraft(p=>({...p,note:ev.target.value}))})
             )
           ),
