@@ -529,10 +529,12 @@ input, select, textarea{ padding: 8px 10px; }
 /* Etichette specifiche per Preventivi (più precise) */
 label.pv-label{
   display:block;
-  margin-bottom:4px;
-  font-size:13px;
+  margin-bottom:2px;
+  font-size:11px;
   font-weight:600;
-  color:#111827;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  color:#6b7280;
 }
 
 /* ====== SESSION BAR (box utente/logout) ====== */
@@ -942,12 +944,6 @@ aside.sidebar + aside.card, aside.sidebar ~ aside.card { display: none !importan
   font-weight:600 !important;
   font-size:13px !important;
   color:#6b7280 !important;
-}
-
-/* DEBUG PROVVISORIO — da togliere dopo il test */
-label{
-  color: red !important;
-  background: yellow !important;
 }
 
 
