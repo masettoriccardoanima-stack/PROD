@@ -8971,18 +8971,21 @@ window.delCommessa     = window.delCommessa     || delCommessa;
                         }
                       }
 
-                      // Fallback: helper globale se esiste, altrimenti descrizione commessa
-                      if (window.previewDescrAndRef) {
-                        try { return window.previewDescrAndRef(c).descr || ''; } catch {}
-                      }
-                      return c.descrizione || '';
-                    })()),
+                    // Descrizione: uso solo il campo commessa,
+                    // niente testo automatico dalle righe PDF
+                    return c.descrizione || '';
+                  })()),
 
-                    // Rif. cliente
+                    // Rif. cliente: mostra solo il riferimento ordine/cliente,
+                    // senza fallback "Multi (n)"
                     e('td', null, (() => {
-                      if (window.previewDescrAndRef) {
-                        try { return window.previewDescrAndRef(c).rifCol || ''; } catch {}
-                      }
+                      try {
+                        // se esiste l'helper centralizzato, lo uso
+                        if (window.orderRefFor) {
+                          const s = window.orderRefFor(c);
+                          if (s) return s;
+                        }
+                      } catch {}
 
                       const ref =
                         c.rifCliente ||
@@ -8998,7 +9001,9 @@ window.delCommessa     = window.delCommessa     || delCommessa;
                       if (typeof ref === 'object') {
                         const tipo = (ref.tipo || '').toUpperCase();
                         const num  = ref.numero || '';
-                        const dt   = ref.data ? new Date(ref.data).toLocaleDateString('it-IT') : '';
+                        const dt   = ref.data
+                          ? new Date(ref.data).toLocaleDateString('it-IT')
+                          : '';
                         return [tipo, num, dt].filter(Boolean).join(' ');
                       }
                       return String(ref);
