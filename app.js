@@ -13791,6 +13791,7 @@ window.printDDT = function(state){
           '<div class="page">'
             + headerHTML
             + '<div class="content">'
+              + topInfoHTML          // 👈 Cliente + Dati pagamento su OGNI pagina
               + tableHeadHTML
               + rowsHTML.join('')
               + tableFootHTML
@@ -13808,12 +13809,12 @@ window.printDDT = function(state){
         + 'body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:#0f172a;font-size:12px;}'
 
         // pagina a altezza fissa con header in alto e footer in basso
-        + '.page{page-break-after:always;padding-top:4mm;height:277mm;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;}'
+        + '.page{page-break-after:always;padding-top:4mm;box-sizing:border-box;}'
         + '.page:last-child{page-break-after:auto;}'
 
         + '.header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px;}'
         + '.logo-box{display:flex;align-items:center;gap:8px;}'
-        + '.logo{width:20height:20px;object-fit:contain;margin-right:4px;}'
+        + '.logo{width:60px;height:60px;object-fit:contain;margin-right:4px;}'
         + '.doc-title{font-size:18px;font-weight:700;letter-spacing:.3px;}'
 
         + '.muted{color:#64748b;}'
@@ -13823,7 +13824,7 @@ window.printDDT = function(state){
 
         + '.top-info{margin-bottom:4px;}'
         + '.ddt-block{margin-top:4px;}'
-        + '.content{margin-top:4px;flex:1 0 auto;}'
+        + '.content{margin-top:4px;}'
 
         + 'table.righe{width:100%;border-collapse:collapse;margin-top:6px;page-break-inside:avoid;}'
         + 'table.righe th,table.righe td{border:1px solid #e5e7eb;padding:5px;vertical-align:top;}'
