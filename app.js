@@ -8466,13 +8466,13 @@ window.delCommessa     = window.delCommessa     || delCommessa;
         window.__anima_dirty = true;
 
         // sync opzionale verso Supabase (nuova commessa da PDF)
-        try{
-          if (window.sbUpsertCommesse){
-            window.sbUpsertCommesse([comm]).catch(err=>{
+        try {
+          if (window.sbUpsertCommesse) {
+            window.sbUpsertCommesse([comm]).catch(err => {
               console.warn('[Commesse] sbUpsertCommesse import PDF', err);
             });
           }
-        }catch(e){
+        } catch (e) {
           console.warn('[Commesse] cloud sync error (import PDF)', e);
         }
 
@@ -8481,12 +8481,11 @@ window.delCommessa     = window.delCommessa     || delCommessa;
           ? `${righe.length} righe importate`
           : 'Nessuna riga importata (commessa vuota da completare a mano)';
 
-        alert(`Commessa creata: ${comm.id} — ${comm.cliente || ''}\n${msgRighe}`);
+        alert(`Commessa creata: ${comm.id} - ${comm.cliente || ''}\n${msgRighe}`);
 
         ev.target.value = '';
         location.hash = '#/commesse';
       }catch(e){
-
         console.error('Import PDF ordine fallito', e);
         alert('Errore durante la lettura del PDF.');
         try { ev.target.value = ''; } catch {}
@@ -8494,16 +8493,22 @@ window.delCommessa     = window.delCommessa     || delCommessa;
     }
   });
 
+
   // --- UI ---
   return e('div', {className:'grid', style:{gap:16}},
 
     // elenco + azioni
     e('div', {className:'card'},
       e('div', {className:'actions', style:{justifyContent:'space-between', flexWrap:'wrap'}},
-        e('div', {className:'row', style:{gap:8, alignItems:'center'}},
-          e('input', {placeholder:'Cerca commesse…', value:q, onChange:ev=>setQ(ev.target.value)}),
 
-            // ➕ Nuova commessa (bloccata per accountant/viewer/mobile)
+        e('div', {className:'row', style:{gap:8, alignItems:'center'}},
+          e('input', {
+            placeholder:'Cerca commesse…',
+            value:q,
+            onChange:ev => setQ(ev.target.value)
+          }),
+
+          // ➕ Nuova commessa (bloccata per accountant/viewer/mobile)
           e('button', {
             className:'btn',
             onClick:startNew,
@@ -8541,10 +8546,15 @@ window.delCommessa     = window.delCommessa     || delCommessa;
             },
             ...roBtnProps()
           }, '📄 Importa Ordine (PDF)')
+        ),
 
         e('div', {className:'actions'},
           e('span', null, `Selezionate: ${selectedList.length}`),
-          e('button', { className:'btn', onClick: creaDDTdaSelezionate, ...roBtnProps() }, '📦 Crea DDT con selezionate')
+          e('button', {
+            className:'btn',
+            onClick:creaDDTdaSelezionate,
+            ...roBtnProps()
+          }, '📦 Crea DDT con selezionate')
         )
       ),
 
