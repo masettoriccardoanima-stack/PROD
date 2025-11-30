@@ -13648,7 +13648,7 @@ function FattureView(){
         )
       );
       // quando ci sono molte info, stiamo ancora più stretti: 9 righe/pagina
-      const MAX_ROWS_PER_PAGE = hasExtraInfo ? 9 : 16;
+      const MAX_ROWS_PER_PAGE = hasExtraInfo ? 8 : 15;
 
       // elenco DDT a livello documento (deduplicati)
       const ddtRefs = [];
@@ -21403,7 +21403,24 @@ if (typeof window !== 'undefined') { window.TimbraturaMobileView = TimbraturaMob
     const codiceDest = (fa.codiceUnivoco || cli.codiceUnivoco || '').trim() || '0000000';
     const pecDest    = (fa.pec || cli.pec || '').trim();
 
-    const righe = Array.isArray(fa.righe) ? fa.righe : [];
+    const righeRaw = Array.isArray(fa.righe) ? fa.righe : [];
+    const naturaDoc = (fa.naturaIva || '').trim();
+
+    // Normalizza righe per riepilogo IVA:
+    // - se l'aliquota è 0, usa r.natura oppure la naturaIva della fattura
+    // - non tocchiamo mai fa.righe originali (lavoriamo su una copia)
+    const righe = righeRaw.map(r => {
+      const iva = Number(r.iva || 0);
+      const natLinea = (r.natura || '').trim();
+      const nat = (iva === 0)
+        ? (natLinea || naturaDoc)
+        : '';
+
+      return nat
+        ? { ...r, natura: nat }
+        : { ...r };
+    });
+
     const riepiloghi = riepilogoPerAliquota(righe);
 
     const condPag = (Array.isArray(fa.scadenze) && fa.scadenze.length<=1) ? 'TP01' : 'TP02';
@@ -21559,11 +21576,33 @@ window.canExportFatturaPA = function(fa){
     // Righe
     const righe = Array.isArray(fa.righe)? fa.righe : [];
     if (!righe.length) reasons.push('Righe: nessuna riga presente');
+
+    let hasZeroIva = false;
+    let missingNatura = false;
+
     righe.forEach((r,idx)=>{
-      const okDesc = (r.descrizione||'').trim().length>0;
-      const okQta = Number(r.qta||0) > 0;
-      if (!okDesc || !okQta) reasons.push(`Riga ${idx+1}: descrizione o quantità non valide`);
+      const okDesc = (r.descrizione||'').trim().length>0 || (r.codice||'').trim().length>0;
+      const okQta  = Number(r.qta||0) > 0;
+      if (!okDesc || !okQta) {
+        reasons.push(`Riga ${idx+1}: descrizione/codice o quantità non valide`);
+      }
+
+      const iva = Number(r.iva || 0);
+      if (iva === 0) {
+        hasZeroIva = true;
+        const nat = (r.natura || fa.naturaIva || '').trim();
+        if (!nat) missingNatura = true;
+      }
     });
+
+    if (hasZeroIva && missingNatura) {
+      reasons.push('Righe: Natura IVA mancante per almeno una riga con aliquota 0');
+    }
+
+    const rif = (fa.rifNormativo || '').trim();
+    if (hasZeroIva && !rif) {
+      reasons.push('Righe: Riferimento normativo mancante per aliquota 0');
+    }
 
   }catch(e){
     reasons.push('Errore verifica preliminare');
