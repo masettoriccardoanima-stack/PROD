@@ -944,6 +944,11 @@ aside.sidebar + aside.card, aside.sidebar ~ aside.card { display: none !importan
   color:#6b7280 !important;
 }
 
+/* DEBUG PROVVISORIO — da togliere dopo il test */
+label{
+  color: red !important;
+  background: yellow !important;
+}
 
 
 
