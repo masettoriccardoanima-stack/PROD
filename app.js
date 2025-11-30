@@ -13647,7 +13647,8 @@ function FattureView(){
           String(r.descrizione || '').length > 80
         )
       );
-      const MAX_ROWS_PER_PAGE = hasExtraInfo ? 10 : 16;
+      // quando ci sono molte info, stiamo ancora più stretti: 9 righe/pagina
+      const MAX_ROWS_PER_PAGE = hasExtraInfo ? 9 : 16;
 
       // elenco DDT a livello documento (deduplicati)
       const ddtRefs = [];
