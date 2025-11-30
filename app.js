@@ -2277,6 +2277,123 @@ window.sbInsert = window.sbInsert || async function(table, row){
   }
 })();
 
+/* === PATCH BLAUWER v1: parser ordini acquisto === */
+(function registerBlauwerRuntime(){
+  try{
+    // se addOrderParser non è pronto, esco
+    if (typeof window.addOrderParser !== 'function') return;
+
+    // se esiste già un parser con id blauwer-v1, non lo duplico
+    const arr = Array.isArray(window.__orderParsers) ? window.__orderParsers : [];
+    const already = arr.some(p => p && String(p.id || '').toLowerCase() === 'blauwer-v1');
+    if (already) return;
+
+    function toNum(s){
+      if (s == null) return 0;
+      const t = String(s).replace(/\./g,'').replace(',', '.');
+      const n = Number(t);
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    window.addOrderParser({
+      id  : 'blauwer-v1',
+      name: 'BLAUWER Ord. acq. Standard',
+      test: function(txt, name){
+        const t = String(txt || '');
+        return /BLAUWER\s*S\.?P\.?A\.?/i.test(t) && /Ord\.\s*acq\.\s*Standard/i.test(t);
+      },
+      extract: function(txt, name){
+        const raw   = String(txt || '');
+        const lines = raw.split(/\r?\n/).map(function(l){ return l.trim(); }).filter(Boolean);
+
+        const righe = [];
+        var inBody = false;
+
+        for (var i=0; i<lines.length; i++){
+          var norm = lines[i].replace(/\s+/g,' ').trim();
+
+          // header tabella
+          if (!inBody) {
+            if (/Pos\./i.test(norm) && /Codice/i.test(norm) && /Descrizione/i.test(norm) && /\bUM\b/i.test(norm)) {
+              inBody = true;
+            }
+            continue;
+          }
+
+          if (!norm) continue;
+          if (/^TOTALE\s+ORDINE/i.test(norm)) break;
+
+          // es: "10 58038050 01 COPERCHIO SERBATOIO ... PZ 3 120,00 360,00 27/11/25"
+          var m = norm.match(/^(\d+)\s+([A-Z0-9][A-Z0-9._\-]{2,})\s+[A-Z0-9]{1,3}\s+(.+?)\s+(PZ|NR|KG|L1|L2|L3|M|MQ|ML)\s+([0-9]+(?:[.,][0-9]+)?)(?:\s+[0-9.,]+){1,3}\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})$/i);
+          if (!m) continue;
+
+          var codice = m[2];
+          var descr  = m[3];
+          var um     = m[4].toUpperCase();
+          var qta    = toNum(m[5]);
+
+          if (!codice || !descr || !qta) continue;
+
+          righe.push({
+            codice     : codice,
+            descrizione: descr.trim(),
+            um         : um,
+            qta        : qta
+          });
+        }
+
+        // descrizione commessa
+        var descr = '';
+        var mHead =
+          raw.match(/Ord\.\s*acq\.\s*Standard[\s\S]*?Numero\s+([A-Z0-9\-\/]+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i) ||
+          raw.match(/Numero\s+([A-Z0-9\-\/]+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i);
+
+        if (mHead) {
+          var num = (mHead[1] || '').trim();
+          var d   = (mHead[2] || '').trim();
+          descr = 'Ordine ' + num + ' del ' + d;
+        } else if (righe.length === 1) {
+          descr = righe[0].descrizione;
+        } else if (righe.length > 1) {
+          descr = 'Ordine Blauwer (' + righe.length + ' righe)';
+        } else {
+          descr = 'Commessa da ordine PDF';
+        }
+
+        // scadenza = massima data trovata (tipicamente le consegne)
+        var scad = '';
+        try{
+          var dates = raw.match(/\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/g) || [];
+          var times = dates.map(function(d){
+            var parts = d.split(/[./-]/);
+            if (parts.length !== 3) return NaN;
+            var gg = parts[0], mm = parts[1], aa = parts[2];
+            if (aa.length === 2) aa = '20' + aa;
+            var iso = aa + '-' + mm.padStart(2,'0') + '-' + gg.padStart(2,'0');
+            return new Date(iso).getTime();
+          }).filter(function(n){ return Number.isFinite(n); });
+          if (times.length) {
+            var max = Math.max.apply(null, times);
+            scad = new Date(max).toISOString().slice(0,10);
+          }
+        }catch(e){}
+
+        console.log('[blauwer-v1] parsed righe:', righe.length);
+
+        return {
+          cliente    : 'BLAUWER S.P.A.',
+          descrizione: descr,
+          righe      : righe,
+          qtaPezzi   : righe.reduce(function(s,r){ return s + (Number(r.qta)||0); }, 0) || 1,
+          scadenza   : scad
+        };
+      }
+    });
+  }catch(e){
+    console.warn('[order-parser] blauwer-v1 runtime patch fail', e);
+  }
+})();
+
 // ==== AUTH + API HELPERS (incolla in cima a app.js) ====
 (function (global) {
   const API = ''; // stesso origin: '' va benissimo (http://server:8080)
