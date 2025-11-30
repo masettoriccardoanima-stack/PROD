@@ -19709,6 +19709,118 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
     });
   })();
 
+    // ================== PARSER BLAUWER v1 (Ord. acq. Standard) ====================
+  (function registerBlauwer(){
+    try{
+      if (Array.isArray(window.__orderParsers) &&
+          window.__orderParsers.some(p => p && p.id === 'blauwer-v1')) return;
+      if (typeof window.addOrderParser !== 'function') return;
+
+      function toNum(s){
+        if (s == null) return 0;
+        const t = String(s).replace(/\./g,'').replace(',', '.');
+        const n = Number(t);
+        return Number.isFinite(n) ? n : 0;
+      }
+
+      window.addOrderParser({
+        id  : 'blauwer-v1',
+        name: 'Blauwer Ord. acq. Standard',
+        test: (txt, name='') => {
+          const t = String(txt || '');
+          return /BLAUWER\s*S\.?P\.?A\.?/i.test(t) && /Ord\.\s*acq\.\s*Standard/i.test(t);
+        },
+        extract: (txt, name='') => {
+          const raw   = String(txt || '');
+          const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+          const righe = [];
+          let inBody = false;
+
+          for (const line of lines) {
+            const norm = line.replace(/\s+/g,' ').trim();
+
+            // rileva la riga header "Pos. Codice Rev. Descrizione UM Q.tà ..."
+            if (!inBody) {
+              if (/Pos\./i.test(norm) &&
+                  /Codice/i.test(norm) &&
+                  /Descrizione/i.test(norm) &&
+                  /\bUM\b/i.test(norm)) {
+                inBody = true;
+              }
+              continue;
+            }
+
+            if (!norm) continue;
+            if (/^TOTALE\s+ORDINE/i.test(norm)) break;
+
+            // es: "10 58038050 01 COPERCHIO SERBATOIO ... PZ 3 120,00 360,00 27/11/25"
+            const m = norm.match(
+              /^(\d+)\s+([A-Z0-9][A-Z0-9._\-]{2,})\s+[A-Z0-9]{1,3}\s+(.+?)\s+(PZ|NR|KG|L1|L2|L3|M|MQ|ML)\s+([0-9]+(?:[.,][0-9]+)?)(?:\s+[0-9.,]+){1,3}\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})$/i
+            );
+            if (!m) continue;
+
+            const codice = m[2];
+            const descr  = m[3];
+            const um     = m[4].toUpperCase();
+            const qta    = toNum(m[5]);
+
+            if (!codice || !descr || !qta) continue;
+
+            righe.push({
+              codice,
+              descrizione: descr.trim(),
+              um,
+              qta
+            });
+          }
+
+          // descrizione commessa
+          let descr = '';
+          const mHead =
+            raw.match(/Ord\.\s*acq\.\s*Standard[\s\S]*?Numero\s+([A-Z0-9\-\/]+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i) ||
+            raw.match(/Numero\s+([A-Z0-9\-\/]+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i);
+
+          if (mHead) {
+            const num = (mHead[1] || '').trim();
+            const d   = (mHead[2] || '').trim();
+            descr = `Ordine ${num} del ${d}`;
+          } else if (righe.length === 1) {
+            descr = righe[0].descrizione;
+          } else if (righe.length > 1) {
+            descr = `Ordine Blauwer (${righe.length} righe)`;
+          } else {
+            descr = 'Commessa da ordine PDF';
+          }
+
+          // scadenza = massima data trovata (tipicamente la "Consegna")
+          let scad = '';
+          try{
+            const dates = raw.match(/\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/g) || [];
+            const times = dates
+              .map(d => (window.parseITDate ? window.parseITDate(d) : d))
+              .filter(Boolean)
+              .map(d => new Date(d).getTime());
+            if (times.length) {
+              const max = Math.max.apply(null, times);
+              scad = new Date(max).toISOString().slice(0,10);
+            }
+          }catch{}
+
+          return {
+            cliente    : 'BLAUWER S.P.A.',
+            descrizione: descr,
+            righe,
+            qtaPezzi   : righe.reduce((s,r)=> s + (Number(r.qta)||0), 0) || 1,
+            scadenza   : scad
+          };
+        }
+      });
+    }catch(e){
+      console.warn('[order-parser] registerBlauwer fail', e);
+    }
+  })();
+
   // ================== PIPELINE UNICA DI IMPORT ============================
   window.importOrderFromPDFText = function(txt, name=''){
     const raw = String(txt || '');
