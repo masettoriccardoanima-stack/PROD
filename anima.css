@@ -387,12 +387,14 @@ input, select, textarea{ padding: 8px 10px; }
 
 /* ====== FORM SPACING (etichette/campi non attaccati) ====== */
 .form label{
-  display: block;
-  margin-bottom: 4px;
-  font-weight: 600;
+  display:block;
+  margin-bottom:4px;
+  font-weight:600;
+  font-size:13px;
+  color:#6b7280;   /* grigio tenue, etichetta meno “pesante” */
 }
 .form input, .form select, .form textarea{
-  margin-bottom: 10px;
+  margin-bottom:10px;
 }
 
 /* Sidebar a colonna + box utente in basso */
