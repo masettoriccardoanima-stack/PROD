@@ -94,6 +94,35 @@ body { margin:0; font-family:system-ui, Arial, sans-serif; background:#f5f6f8; }
 
 /* anti-sormonto input in tabelle e form */
 .table input, .table select, .table textarea { width: 100%; max-width: 100%; box-sizing: border-box; }
+/* Layout Timbratura su schermi stretti */
+@media (max-width: 640px){
+  .timbratura{
+    padding:8px 4px;
+    overflow-x:hidden;          /* ulteriore paracadute contro lo scroll orizzontale */
+  }
+
+  .timbratura .card{
+    max-width:100%;             /* niente card più larga dello schermo */
+  }
+
+  /* Le righe con tanti elementi (Indietro, ONLINE/OFFLINE, Stampa etichette, Importa/Esporta, ecc.)
+     possono andare su 2 righe invece di allargare la pagina */
+  .timbratura .row{
+    flex-wrap:wrap;
+  }
+
+  /* Anche i gruppi di bottoni di conferma / azioni possono andare a capo */
+  .timbratura .actions{
+    flex-wrap:wrap;
+  }
+
+  /* Pulsanti un filo più compatti e leggibili su 360–400px */
+  .timbratura .btn{
+    font-size:14px;
+    padding:6px 10px;
+  }
+}
+
 .form { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 
 .grid{display:grid;gap:12px}

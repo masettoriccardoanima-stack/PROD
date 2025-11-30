@@ -20975,7 +20975,7 @@ var TimbraturaMobileView = function(){
     children
   );
 
-  return e('div', {style:{padding:8}},
+  return e('div', {className:'timbratura', style:{padding:8}},
     card([
       e('h3',{style:{fontSize:18, fontWeight:700, marginBottom:4}}, 'Timbratura'),
       e('div',{className:'muted', style:{marginBottom:8}}, header),
