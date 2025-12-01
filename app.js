@@ -8938,6 +8938,16 @@ window.delCommessa     = window.delCommessa     || delCommessa;
           return null;
         })();
 
+        // sorgente ordine: info minima sul PDF da cui nasce la commessa
+        const sorgente = (parsed && parsed.sorgente)
+          ? parsed.sorgente
+          : {
+              kind : 'pdf',
+              name : fileName || '',
+              // lunghezza testo grezzo come proxy byte (non perfetta ma sufficiente)
+              bytes: (typeof raw === 'string' ? raw.length : 0)
+            };
+
         const comm = {
           id: idNuovo,
           clienteId,
@@ -8965,7 +8975,8 @@ window.delCommessa     = window.delCommessa     || delCommessa;
           istruzioni: (parsed.istruzioni || '').trim(),
           consegnata: false,
           createdAt : new Date().toISOString(),
-          updatedAt : new Date().toISOString()
+          updatedAt : new Date().toISOString(),
+          sorgente  : sorgente
         };
 
         // 3) Salva la nuova commessa
@@ -9099,8 +9110,19 @@ window.delCommessa     = window.delCommessa     || delCommessa;
                   e('td', {style:{width:36, textAlign:'center'}},
                     e('input', { type:'checkbox', checked: !!sel[c.id], onChange: ()=>toggleRow(c.id) })
                   ),
-                  e('td', null, e('a', { href:'#', onClick:(ev)=>{ ev.preventDefault(); startEdit(c); } }, c.id)),
-                                    e('td', null,
+                  e('td', null,
+                    e('a', {
+                      href:'#',
+                      onClick:(ev)=>{ ev.preventDefault(); startEdit(c); }
+                    }, c.id),
+                    (c.sorgente && c.sorgente.kind === 'pdf')
+                      ? e('span', {
+                          style:{ marginLeft:4, fontSize:'11px' },
+                          title: c.sorgente.name || 'Commessa importata da ordine PDF'
+                        }, '📄')
+                      : null
+                  ),
+                  e('td', null,
                     e('div', { style:{ fontWeight:600 } }, c.cliente || ''),
                     (() => {
                       const raw = (c.priorita || c.priority || '').toString().trim().toUpperCase();
@@ -12979,7 +13001,7 @@ window.renderDDTHTML = function(ddt){
   const pesoNetto = esc(ddt?.pesoNetto || '');
   const pesoLordo = esc(ddt?.pesoLordo || '');
 
-  let css = window.__PRINT_CSS({ top:16, right:12, bottom:22, left:12 });
+   let css = window.__PRINT_CSS({ top:10, right:12, bottom:14, left:12 });
 css += `
   <style>
     /* RIMOSSE dal tuo blocco originale:
@@ -13055,7 +13077,7 @@ css += `
 
     .content{
       flex:1;
-      margin:8mm 0 8mm 0;
+      margin:4mm 0 4mm 0;
     }
 
     /* pagebox: lasciamo quello del tema; se vuoi tenerlo qui, ok ma NON toccare ::after */
