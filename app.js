@@ -5344,8 +5344,8 @@ window.generateEtichetteHTML = function(c, n){
 
   const pages = [];
   for (let i=1; i<=n; i++){
-    const base  = (app?.publicBaseUrl || window.__inferPublicBase__() || '').trim();
-    const qrData = base ? `${base}/#/timbratura?job=${encodeURIComponent(id)}` : id;
+    // QR solo testo: nessun link al gestionale, solo identificativo commessa
+    const qrData = `COMMESSA ${id}`;
     const qrURL  = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(qrData)}`;
 
     const qCollo = qtyPerCollo[i-1];
