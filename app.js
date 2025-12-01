@@ -4620,6 +4620,40 @@ window.stampaCommessaV2 = function (r) {
 
     const PRIO = String(r.priorita || r.priority || '').toUpperCase();
     const DUE = r.dataConsegna || r.scadenza || r.data_scadenza || '';
+
+    // riferimento ordine cliente: preferiamo l'oggetto rifCliente {tipo, numero, data}
+    const RIF_ORD = (function(){
+      const src = r.rifCliente;
+      try{
+        if (src && typeof src === 'object') {
+          const tipoRaw = String(src.tipo || 'Ordine').trim();
+          const tipo    = tipoRaw ? (tipoRaw.charAt(0).toUpperCase() + tipoRaw.slice(1)) : 'Ordine';
+          const num     = String(src.numero || '').trim();
+          let dataLabel = '';
+          if (src.data) {
+            const s = String(src.data).trim();
+            // se è ISO uso fmtIT, altrimenti lascio la stringa così
+            if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+              dataLabel = fmtIT(s);
+            } else {
+              dataLabel = s;
+            }
+          }
+          let base = num ? `${tipo} ${num}` : tipo;
+          if (dataLabel) base += ` del ${dataLabel}`;
+          return base;
+        }
+      }catch{}
+      // fallback legacy: vecchi campi stringa
+      return (
+        r.rifOrdineCliente ||
+        r.ordineCliente ||
+        r.rifOrdine ||
+        r.ordineClienteNumero ||
+        ''
+      );
+    })();
+
     const PEZZI = Number(r.qtaPezzi || r.pezziTotali || 0) || 0;
 
     // --- fasi globali (legacy, usate per istruzioni di fallback) ---
@@ -5046,14 +5080,9 @@ window.stampaCommessaV2 = function (r) {
             </tr>
             <tr>
               <th>Rif. ordine cliente</th>
-              <td>${esc(
-                r.rifOrdineCliente ||
-                r.ordineCliente ||
-                r.rifOrdine ||
-                r.ordineClienteNumero ||
-                ''
-              )}</td>
+              <td>${esc(RIF_ORD || '')}</td>
             </tr>
+
             <tr>
               <th>Priorità</th>
               <td>${PRIO || '-'}</td>
@@ -5235,6 +5264,73 @@ window.generateEtichetteHTML = function(c, n){
   const stampato = new Date().toLocaleDateString('it-IT');
   const totPezzi = Math.max(0, Number(c?.qtaPezzi||0));
 
+  // helper per escape HTML su etichette
+  const esc = (window.esc)
+    ? window.esc
+    : function(s){
+        return String(s == null ? '' : s).replace(/[<>&]/g, ch => (
+          ch === '<' ? '&lt;' : ch === '>' ? '&gt;' : '&amp;'
+        ));
+      };
+
+  // helper formattazione data ISO → gg/mm/aaaa
+  const fmtITDateStr = function(iso){
+    const s = String(iso || '').trim();
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
+  };
+
+  // stringa "Ordine cliente 123 del 26/11/2025" per etichette
+  const ordineClienteStr = (function(){
+    const r = c || {};
+    const src = r.rifCliente;
+    try{
+      if (src && typeof src === 'object') {
+        const tipoRaw = String(src.tipo || 'Ordine').trim();
+        const tipo    = tipoRaw ? (tipoRaw.charAt(0).toUpperCase() + tipoRaw.slice(1)) : 'Ordine';
+        const num     = String(src.numero || '').trim();
+        const dataLab = src.data ? fmtITDateStr(src.data) : '';
+        let base = num ? `${tipo} ${num}` : tipo;
+        if (dataLab) base += ` del ${dataLab}`;
+        return base;
+      }
+    }catch(e){}
+    // fallback legacy: vecchi campi stringa
+    return (
+      r.rifOrdineCliente ||
+      r.ordineCliente ||
+      r.rifOrdine ||
+      r.ordineClienteNumero ||
+      ''
+    );
+  })();
+
+  // lista articoli con quantità (riepilogo da stampare in etichetta)
+  const righeArticolo = Array.isArray(c?.righeArticolo)
+    ? c.righeArticolo
+    : (Array.isArray(c?.righe) ? c.righe : []);
+
+  const righeEtichetteHTML = (function(){
+    if (!Array.isArray(righeArticolo) || !righeArticolo.length) return '';
+    const rows = righeArticolo.map(r => {
+      if (!r) return '';
+      const cod  = String(r.codice || r.articoloCodice || '').trim();
+      const desc = String(r.descrizione || r.articoloDescr || '').trim();
+      const qNum = Number(r.qta || r.quantita || r.qtaPezzi || 0) || 0;
+
+      const parts = [];
+      if (cod)  parts.push(esc(cod));
+      if (desc) parts.push(esc(desc));
+      if (qNum) parts.push(`x ${qNum}`);
+
+      const txt = parts.join(' — ');
+      return txt ? `<div>${txt}</div>` : '';
+    }).filter(Boolean);
+
+    if (!rows.length) return '';
+    return `<div class="righe-articoli">${rows.join('')}</div>`;
+  })();
+
   // Distribuzione automatica per collo (se conosciamo la q.tà totale)
   const qtyPerCollo = [];
   if (totPezzi > 0 && Number.isFinite(totPezzi)) {
@@ -5263,9 +5359,11 @@ window.generateEtichetteHTML = function(c, n){
           <div class="articolo">${articolo || '&nbsp;'}</div>
 
           <div class="info">
-            <div><b>Commessa:</b> ${id}</div>
+            <div><b>Commessa:</b> ${esc(id)}</div>
+            ${ordineClienteStr ? `<div><b>Ordine cliente:</b> ${esc(ordineClienteStr)}</div>` : ''}
             <div><b>Consegna prevista:</b> ${consegna}</div>
             <div><b>Stampato il:</b> ${stampato}</div>
+            ${righeEtichetteHTML}
             <div class="qtys">
               <span><b>Q.tà totale commessa:</b> ${totPezzi ? String(totPezzi) : '—'}</span>
               <span>${qCollo!=null ? `<b>Q.tà collo:</b> ${qCollo}` : ''}</span>
@@ -5295,6 +5393,7 @@ window.generateEtichetteHTML = function(c, n){
   .cliente { font-size: 32pt; font-weight: 800; line-height: 1.1; word-break: break-word; }
   .articolo { font-size: 36pt; font-weight: 900; line-height: 1.05; word-break: break-word; }
   .info { font-size: 16pt; line-height: 1.3; display:grid; gap:4px; }
+  .righe-articoli { margin-top:4px; font-size: 14pt; }
   .qtys { display:flex; gap:16px; margin-top:4px; }
   .qr { width: 70mm; height: 70mm; }
 </style>
