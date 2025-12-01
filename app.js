@@ -15556,7 +15556,60 @@ const ORD_KEY = window.__OF_KEY || (window.__OF_KEY = 'ordiniFornitoriRows');
   }
 
   function startEdit(r){ setDraft(clone(r)); setShowForm(true); }
-  function removeRow(id){ if(confirm('Eliminare ordine?')) setRows(rows.filter(x=>x.id!==id)); }
+  // P3 – eliminazione ordine fornitore robusta (LS + cloud/KV)
+  async function removeRow(id){
+    if (!confirm('Eliminare ordine?')) return;
+
+    // 1) Leggi elenco completo dal localStorage (chiave ORD_KEY)
+    let all = [];
+    try {
+      // uso lsGet se disponibile, altrimenti fallback su localStorage
+      if (typeof lsGet === 'function') {
+        all = lsGet(ORD_KEY, []) || [];
+      } else {
+        all = JSON.parse(localStorage.getItem(ORD_KEY) || '[]') || [];
+      }
+    } catch {
+      all = [];
+    }
+
+    const next = (Array.isArray(all) ? all : []).filter(
+      x => String(x?.id || '') !== String(id)
+    );
+
+    // 2) Scrivi subito in localStorage (write-through)
+    try {
+      if (typeof lsSet === 'function') {
+        lsSet(ORD_KEY, next);
+      } else {
+        localStorage.setItem(ORD_KEY, JSON.stringify(next));
+      }
+    } catch {}
+
+    // 3) Aggiorna la UI (stato React)
+    setRows(next);
+
+    // 4) Sync cloud / KV (best effort, non blocca se offline)
+    try {
+      // snapshot selettivo Supabase
+      if (typeof window.syncExportToCloudOnly === 'function') {
+        window.syncExportToCloudOnly(['ordiniFornitoriRows']);
+      }
+
+      // KV “compat”
+      if (typeof window.persistKV === 'function') {
+        window.persistKV('ordiniFornitoriRows', next);
+      }
+      if (window.api?.kv?.set) {
+        await window.api.kv.set('ordiniFornitoriRows', next);
+      }
+    } catch (e) {
+      console.warn('[OF] sync eliminazione fallita', e);
+    }
+
+    try { alert('Ordine eliminato ✅'); } catch {}
+  }
+
       // Duplica un ordine fornitore esistente
   async function duplicaOrdine(ofOrig){
     if (!ofOrig || !ofOrig.id) return;
