@@ -1343,6 +1343,96 @@ window.isReadOnlyUser = function(){
   }catch{}
 })();
 
+/* ===== Auto-creazione articoli da righe commessa (import PDF) ===== */
+window.ensureMagazzinoArticoliFromRighe = window.ensureMagazzinoArticoliFromRighe || function(righe){
+  try{
+    if (!Array.isArray(righe) || !righe.length) return;
+
+    const cleanCod = v => String(v || '').trim();
+
+    // Candidati da righe: solo se hanno un codice
+    const candidates = [];
+    righe.forEach(r => {
+      if (!r) return;
+      const cod = cleanCod(r.codice || r.articoloCodice);
+      if (!cod) return;
+      const descr = String(r.descrizione || r.articoloDescr || '').trim();
+      const um    = String(r.um || r.UM || 'PZ').toUpperCase();
+      candidates.push({ codice: cod, descrizione: descr, um });
+    });
+
+    if (!candidates.length) return;
+
+    // Carica articoli esistenti: prima magArticoli_v2, poi fallback LS
+    let existing = [];
+    try{
+      const rawV2 = localStorage.getItem('magArticoli_v2');
+      if (rawV2 && rawV2 !== 'null' && rawV2 !== '[]') {
+        existing = JSON.parse(rawV2) || [];
+      } else if (typeof window.lsGet === 'function') {
+        existing = window.lsGet('magArticoli', []) || [];
+      }
+    }catch(e){
+      console.warn('[Magazzino] ensureMagazzinoArticoliFromRighe load error', e);
+    }
+
+    const byCod = new Map();
+    (Array.isArray(existing) ? existing : []).forEach(a => {
+      if (!a) return;
+      const cod = cleanCod(a.codice);
+      if (!cod) return;
+      if (!byCod.has(cod)) byCod.set(cod, a);
+    });
+
+    let changed = false;
+    candidates.forEach(a => {
+      const cod = a.codice;
+      if (!cod) return;
+      if (!byCod.has(cod)) {
+        byCod.set(cod, {
+          codice     : cod,
+          descrizione: a.descrizione,
+          um         : a.um || 'PZ',
+          prezzo     : 0,
+          costo      : 0,
+          tipo       : 'CONTO LAVORO'
+        });
+        changed = true;
+      }
+    });
+
+    if (!changed) return;
+
+    const out = Array.from(byCod.values())
+      .filter(a => a && cleanCod(a.codice))
+      .sort((A,B) => cleanCod(A.codice).localeCompare(cleanCod(B.codice)));
+
+    // Aggiorna chiave robusta v2
+    try{
+      localStorage.setItem('magArticoli_v2', JSON.stringify(out));
+    }catch(e){
+      console.warn('[Magazzino] ensureMagazzinoArticoliFromRighe write magArticoli_v2 error', e);
+    }
+
+    // Mantieni compatibilità su chiavi storiche
+    try{
+      if (typeof window.saveKey === 'function') {
+        window.saveKey('magArticoli', out);
+      } else if (typeof window.lsSet === 'function') {
+        window.lsSet('magArticoli', out);
+        window.lsSet('magazzinoArticoli', out);
+      } else {
+        localStorage.setItem('magArticoli', JSON.stringify(out));
+        localStorage.setItem('magazzinoArticoli', JSON.stringify(out));
+      }
+    }catch(e){
+      console.warn('[Magazzino] ensureMagazzinoArticoliFromRighe write compat error', e);
+    }
+  }catch(err){
+    console.warn('[Magazzino] ensureMagazzinoArticoliFromRighe error', err);
+  }
+};
+
 /* ===== Compat kit: helper & fallback senza cambiare UI =================== */
 (function compatKit(){
   const g=window;
@@ -8763,6 +8853,15 @@ window.delCommessa     = window.delCommessa     || delCommessa;
           righe = [];
         }
         
+                // Auto-creazione articoli in magazzino (solo se ci sono righe con codice)
+        try{
+          if (Array.isArray(righe) && righe.length && window.ensureMagazzinoArticoliFromRighe) {
+            window.ensureMagazzinoArticoliFromRighe(righe);
+          }
+        }catch(e){
+          console.warn('[Import PDF ordine] auto-create articoli error', e);
+        }
+
                 console.log('[Import PDF ordine] parsed', {
           fileName,
           cliente: parsed.cliente || '',
