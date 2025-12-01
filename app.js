@@ -21651,7 +21651,18 @@ var TimbraturaMobileView = function(){
   },[]);
 
   const app        = React.useMemo(()=> lsGet('appSettings', {}) || {}, [refresh]);
-  const operators  = React.useMemo(()=> (Array.isArray(app.operators) ? app.operators : []).map(x=>String(x).trim()).filter(Boolean), [app, refresh]);
+  const operators  = React.useMemo(() => {
+    const arr = Array.isArray(app.operators) ? app.operators : [];
+    return arr
+      .map(o => {
+        if (typeof o === 'string') return o.trim();
+        if (o && typeof o === 'object') {
+          return String(o.name || o.label || '').trim();
+        }
+        return '';
+      })
+      .filter(Boolean);
+  }, [app, refresh]);
   const commesse   = React.useMemo(()=> lsGet('commesseRows', []), [refresh]);
   const oreRows    = React.useMemo(()=> lsGet('oreRows', []), [refresh]);
 
