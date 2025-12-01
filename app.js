@@ -20086,9 +20086,10 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
         let m;
         while ((m = rowRe.exec(flat))) {
           let descrRaw = m[1] || '';
-          const qtaStr = m[2];
-          const umRaw  = m[3] || 'PZ';
-          const codice = m[5] || '';
+          const num1Str = m[2];          // 5,00000  (prezzo nel tuo caso)
+          const umRaw   = m[3] || 'PZ';  // "qt"
+          const num2Str = m[4];          // 402,00   (quantità reale)
+          const codice  = m[5] || '';
           const dataStr = m[6] || '';
 
           let descr = descrRaw.replace(/\s+/g,' ').trim();
@@ -20096,8 +20097,17 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
           const mF = descr.match(/(Fornitura.+)$/i);
           if (mF) descr = mF[1];
 
-          const qta     = toNum(qtaStr);
-          const um      = umRaw.replace(/\./g,'').toUpperCase() || 'PZ';
+          const n1 = toNum(num1Str);
+          const n2 = toNum(num2Str);
+
+          // Per VIMEK: la quantità è il numero grande (402), il 5 è il prezzo.
+          // Prendiamo n2 come priorità; se per qualche motivo è 0, usiamo il maggiore dei due.
+          let qta = n2 || 0;
+          if (!qta && (n1 || n2)) {
+            qta = n1 > n2 ? n1 : n2;
+          }
+
+          const um      = 'PZ';  // nel gestionale vogliamo sempre PZ
           const dataIso = parseData(dataStr);
 
           if (!codice || !qta) continue;
