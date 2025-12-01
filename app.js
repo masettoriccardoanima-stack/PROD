@@ -20126,7 +20126,6 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
     });
   })();
 
-    // ================== PARSER G3 Ordine Conto Lavoro ===============================
   (function registerG3OrdineCL(){
     try{
       if (!Array.isArray(window.__orderParsers)) window.__orderParsers = [];
@@ -20171,26 +20170,26 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
       name: 'G3 Ordine Conto Lavoro',
       test: (txt, name='') => {
         const t = String(txt || '');
-        // Il PDF reale non contiene "G3 srl" nel testo,
-        // quindi ci basiamo solo sulla dicitura "ORDINE CONTO LAVORO".
-        return /ORDINE\s+CONTO\s+LAVORO/i.test(t);
+        // ci basta riconoscere che è un "ORDINE CONTO LAVORO" per ANIMA
+        return /ORDINE\s+CONTO\s+LAVORO/i.test(t) && /ANIMA\s+srl/i.test(t);
       },
       extract: (txt, name='') => {
-        const raw   = String(txt || '');
-        const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        // testo appiattito come nel gestionale
+        const flat = String(txt || '').replace(/\s+/g,' ').trim();
 
-        const righe     = [];
-        const consegne  = [];
+        const righe    = [];
+        const consegne = [];
 
-        // Righe tipo:
-        // 305BA028 ACCUMULO 20 - E-200 A304 PZ 60 55,00 3.300,00 01-10-25
-        for (const line of lines) {
-          const m = line.match(
-            /^([A-Z0-9][A-Z0-9._\-]{4,})\s+(.+?)\s+(PZ|NR|KG|LT|MT|ML|PZ\.)\s+([0-9]+(?:[.,][0-9]+)?)\s+([0-9.]{1,3}(?:\.[0-9]{3})*(?:,[0-9]+)?)\s+([0-9.]{1,3}(?:\.[0-9]{3})*(?:,[0-9]+)?)\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})$/
-          );
-          if (!m) continue;
+        // es: 305BA028 ACCUMULO 20 - E-200 A304 PZ 60 55,00 3.300,00 01-10-25
+        const rowRe = /([A-Z0-9][A-Z0-9._\-]{4,})\s+(.+?)\s+(PZ|NR|KG|LT|MT|ML|PZ\.)\s+([0-9]+(?:[.,][0-9]+)?)\s+([0-9.]{1,3}(?:\.[0-9]{3})*(?:,[0-9]+)?)\s+([0-9.]{1,3}(?:\.[0-9]{3})*(?:,[0-9]+)?)\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/g;
 
+        let m;
+        while ((m = rowRe.exec(flat))) {
           const [, codice, descr, umRaw, qtaStr, , , dataStr] = m;
+
+          // scarta falsi positivi tipo "ORDINE CONTO LAVORO ..."
+          if (!/[0-9]/.test(codice)) continue;
+
           const um      = umRaw.replace(/\./g,'').toUpperCase();
           const qta     = toNum(qtaStr);
           const dataIso = parseData(dataStr);
@@ -20207,27 +20206,24 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
           if (dataIso) consegne.push(dataIso);
         }
 
-        // Nessuna riga trovata → lascia spazio ai fallback
+        // Se proprio non troviamo righe, lasciamo campo a parser/fallback successivi
         if (!righe.length) {
           return { cliente:'', descrizione:'', righe:[] };
         }
 
-        // Header con numero doc e data (es. "... 1 di 1 000108 31.07.25")
+        // Numero + data ordine: blocco "... 1 di 1 000108 31.07.25"
         let rifNumero  = '';
         let rifDataIso = '';
-        const headerLine = lines.find(l => /\b1\s+di\s+1\b/i.test(l));
-        if (headerLine) {
-          const toks = headerLine.split(/\s+/).filter(Boolean);
-          if (toks.length >= 2) {
-            // In questo layout gli ultimi due token sono: [numeroOrdine, dataOrdine]
-            rifNumero  = toks[toks.length - 2] || '';
-            rifDataIso = parseData(toks[toks.length - 1] || '');
-          }
+        const headMatch = flat.match(/1\s+di\s+1\s+([0-9]{3,})\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/);
+        if (headMatch) {
+          rifNumero  = headMatch[1] || '';
+          rifDataIso = parseData(headMatch[2] || '');
         }
 
+        // Scadenza = data appront. merce più lontana tra le righe
         let scadenza = '';
         if (consegne.length) {
-          scadenza = consegne.slice().sort().slice(-1)[0]; // data massima
+          scadenza = consegne.slice().sort().slice(-1)[0];
         }
 
         return {
