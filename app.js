@@ -13786,9 +13786,46 @@ function FattureView(){
       setEditingId(id);
       setShowForm(true);
     }
-    function del(id){
-      if(!confirm('Eliminare fattura?')) return;
-      setRows(prev=>prev.filter(r=>r.id!==id));
+    // P2 – eliminazione fattura robusta (LS + cloud + KV)
+    async function del(id){
+      if (!confirm('Eliminare fattura?')) return;
+
+      // 1) Leggi lo stato attuale da localStorage
+      let all = [];
+      try {
+        all = JSON.parse(localStorage.getItem('fattureRows') || '[]') || [];
+      } catch {
+        all = [];
+      }
+
+      const next = (Array.isArray(all) ? all : []).filter(
+        r => String(r.id) !== String(id)
+      );
+
+      // 2) Scrivi subito in localStorage (write-through)
+      try {
+        localStorage.setItem('fattureRows', JSON.stringify(next));
+      } catch {}
+
+      // 3) Aggiorna la UI (stato React)
+      setRows(next);
+
+      // 4) Sync cloud / KV (best effort, non deve bloccare se offline)
+      try {
+        if (window.syncExportToCloudOnly) {
+          window.syncExportToCloudOnly(['fattureRows']);
+        }
+        if (window.persistKV) {
+          await window.persistKV('fattureRows', next);
+        }
+        if (window.api?.kv?.set) {
+          await window.api.kv.set('fattureRows', next);
+        }
+      } catch (e) {
+        console.warn('[Fatture] sync eliminazione fallita', e);
+      }
+
+      try { alert('Fattura eliminata ✅'); } catch {}
     }
 
     function onChange(ev){
