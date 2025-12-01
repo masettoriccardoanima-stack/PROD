@@ -20126,6 +20126,121 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
     });
   })();
 
+    // ================== PARSER G3 Ordine Conto Lavoro ===============================
+  (function registerG3OrdineCL(){
+    try{
+      if (!Array.isArray(window.__orderParsers)) window.__orderParsers = [];
+    }catch(e){
+      return;
+    }
+
+    if (window.__orderParsers.some(p => p && p.id === 'g3-ordine-cl-v1')) return;
+
+    const toNum = s => {
+      if (s == null) return 0;
+      const t = String(s).replace(/\./g,'').replace(',', '.');
+      const n = Number(t);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    const parseData = s => {
+      const str = String(s || '').trim();
+      if (!str) return '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+
+      if (typeof window.parseITDate === 'function') {
+        const iso = window.parseITDate(str);
+        if (iso) return iso;
+      }
+
+      const m = str.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
+      if (!m) return '';
+      let [_, dd, mm, yy] = m;
+      dd = dd.padStart(2,'0');
+      mm = mm.padStart(2,'0');
+      if (yy.length === 2) {
+        const yNum = Number(yy);
+        yy = String(2000 + (Number.isFinite(yNum) ? yNum : 0));
+      }
+      yy = yy.padStart(4,'0');
+      return `${yy}-${mm}-${dd}`;
+    };
+
+    window.addOrderParser({
+      id  : 'g3-ordine-cl-v1',
+      name: 'G3 Ordine Conto Lavoro',
+      test: (txt, name='') => {
+        const t = String(txt || '');
+        return /ORDINE\s+CONTO\s+LAVORO/i.test(t) && /G3\s*srl/i.test(t);
+      },
+      extract: (txt, name='') => {
+        const raw   = String(txt || '');
+        const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+        const righe     = [];
+        const consegne  = [];
+
+        // Righe tipo:
+        // 305BA028 ACCUMULO 20 - E-200 A304 PZ 60 55,00 3.300,00 01-10-25
+        for (const line of lines) {
+          const m = line.match(
+            /^([A-Z0-9][A-Z0-9._\-]{4,})\s+(.+?)\s+(PZ|NR|KG|LT|MT|ML|PZ\.)\s+([0-9]+(?:[.,][0-9]+)?)\s+([0-9.]{1,3}(?:\.[0-9]{3})*(?:,[0-9]+)?)\s+([0-9.]{1,3}(?:\.[0-9]{3})*(?:,[0-9]+)?)\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})$/
+          );
+          if (!m) continue;
+
+          const [, codice, descr, umRaw, qtaStr, , , dataStr] = m;
+          const um      = umRaw.replace(/\./g,'').toUpperCase();
+          const qta     = toNum(qtaStr);
+          const dataIso = parseData(dataStr);
+
+          if (!codice || !qta) continue;
+
+          righe.push({
+            codice,
+            descrizione: descr.trim(),
+            um,
+            qta
+          });
+
+          if (dataIso) consegne.push(dataIso);
+        }
+
+        // Nessuna riga trovata → lascia spazio ai fallback
+        if (!righe.length) {
+          return { cliente:'', descrizione:'', righe:[] };
+        }
+
+        // Header con numero doc e data (es. "000108 31.07.25 1 di 1")
+        let rifNumero  = '';
+        let rifDataIso = '';
+        const headerLine = lines.find(l => /\b1\s+di\s+1\b/i.test(l));
+        if (headerLine) {
+          const toks = headerLine.split(/\s+/).filter(Boolean);
+          if (toks.length >= 3) {
+            rifNumero  = toks[toks.length - 3] || '';
+            rifDataIso = parseData(toks[toks.length - 2] || '');
+          }
+        }
+
+        let scadenza = '';
+        if (consegne.length) {
+          scadenza = consegne.slice().sort().slice(-1)[0]; // data massima
+        }
+
+        return {
+          cliente     : 'G3 srl',
+          descrizione : 'Ordine conto lavoro G3',
+          righe,
+          qtaPezzi    : righe.reduce((s,r)=> s + (r.qta || 0), 0) || 1,
+          scadenza,
+          rifCliente  : rifNumero
+            ? { tipo:'ordine', numero: rifNumero, data: rifDataIso || scadenza || '' }
+            : null
+        };
+      }
+    });
+  })();
+
   // ================== PARSER STEEL SYSTEMS ===============================
   (function registerSteel(){
     if (window.__orderParsers.some(p => p && p.id === 'steel-systems')) return;
