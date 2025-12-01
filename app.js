@@ -20337,8 +20337,15 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
     });
   })();
 
+
   // ================== PARSER STEEL SYSTEMS ===============================
   (function registerSteel(){
+    try{
+      if (!Array.isArray(window.__orderParsers)) window.__orderParsers = [];
+    }catch(e){
+      return;
+    }
+
     if (window.__orderParsers.some(p => p && p.id === 'steel-systems')) return;
 
     function toNum(s){
@@ -20348,127 +20355,116 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
       return Number.isFinite(n) ? n : 0;
     }
 
+    function parseData(s){
+      const str = String(s || '').trim();
+      if (!str) return '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+
+      if (typeof window.parseITDate === 'function') {
+        const iso = window.parseITDate(str);
+        if (iso) return iso;
+      }
+
+      const m = str.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
+      if (!m) return '';
+      let [_, dd, mm, yy] = m;
+      dd = dd.padStart(2,'0');
+      mm = mm.padStart(2,'0');
+      if (yy.length === 2) {
+        const yNum = Number(yy);
+        yy = String(2000 + (Number.isFinite(yNum) ? yNum : 0));
+      }
+      yy = yy.padStart(4,'0');
+      return `${yy}-${mm}-${dd}`;
+    }
+
     window.addOrderParser({
       id  : 'steel-systems',
       name: 'Ordini STEEL SYSTEMS',
-      test: (txt, name) => {
+      test: (txt, name='') => {
         const t = String(txt || '');
-        return /STEEL SYSTEMS/i.test(t) && /Pos.*Codice.*Rev/i.test(t);
+        // Documento di STEEL con intestazione "Ord. acq. C/Lavoro" e tabella Pos./Codice
+        return /STEEL\s+SYSTEMS/i.test(t)
+            && /Ord\.\s*acq\.\s*C\/Lavoro/i.test(t)
+            && /Pos\.\s+Codice\s+Rev\.\s+Descrizione\s+UM\s+Q\.tà\s+Prezzo\s+Unitario/i.test(t);
       },
-      extract: (txt, name) => {
-        const raw   = String(txt || '');
-        const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      extract: (txt, name='') => {
+        // Testo appiattito come in extractPdfText
+        const flat = String(txt || '').replace(/\s+/g,' ').trim();
 
-        const righe = [];
-        let inBody = false;
+        const righe    = [];
+        const consegne = [];
 
-        for (const line of lines) {
-          if (!inBody) {
-            if (/Pos.*Codice.*Rev/i.test(line)) inBody = true;
-            continue;
-          }
+        // Righe tipo:
+        // 10 50821823 00 TRAMOGGIA ... M1 PZ 2 430,00 860,00 18/12/25
+        // 20 50901760 00 CONO DIFFUSORE ... M1 PZ 2 1,00 2,00 01/12/25
+        const rowRe = /\b(\d{1,3})\s+([0-9]{6,})\s+([0-9]{2})\s+(.+?)\s+(PZ|NR|KG|LT|MT|ML)\s+([0-9]+(?:,[0-9]+)?)\s+([0-9.]+,[0-9]+|\d+)\s+([0-9.]+,[0-9]+|\d+)\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/g;
 
-          const norm = line.replace(/\s+/g,' ').trim();
-          if (/^TOTALE\s+ORDINE/i.test(norm)) break;
-          if (/^Vi\s+chiediamo/i.test(norm)) break;
-          if (/^ATTENZIONE/i.test(norm)) continue;
-          if (!/\d/.test(norm)) continue;
+        let m;
+        while ((m = rowRe.exec(flat))) {
+          const pos      = m[1];           // 10, 20, 30...
+          const codice   = m[2];           // 50821823 ...
+          const rev      = m[3];           // 00
+          let descr      = m[4] || '';     // descrizione lunga
+          const umRaw    = m[5] || 'PZ';   // UM
+          const qtaStr   = m[6];           // Q.tà
+          const unitStr  = m[7];           // Prezzo unitario (non usato)
+          const totStr   = m[8];           // Totale (non usato)
+          const consegna = m[9];           // data consegna
 
-          const toks = norm.split(/\s+/);
-          if (toks.length < 8) continue;
+          if (!/^\d{1,3}$/.test(pos)) continue;
+          if (!codice) continue;
 
-          const pos    = toks[0];
-          const codice = toks[1];
-          if (!/^\d{2,}$/.test(pos))    continue;   // pos 10, 20, ...
-          if (!/^\d{6,}$/.test(codice)) continue;   // codice 58042006
+          descr = descr.replace(/\s+/g,' ').trim();
+          const um      = (umRaw || 'PZ').replace(/\./g,'').toUpperCase();
+          const qta     = toNum(qtaStr);
+          const dataIso = parseData(consegna);
 
-          const rev = toks[2]; // non usato
-
-          // ultimi 5 token: UM, Q.tà, PU, PT, consegna
-          const um        = toks[toks.length - 5];
-          const qtaStr    = toks[toks.length - 4] || '0';
-          const unitStr   = toks[toks.length - 3] || '0';
-          const totStr    = toks[toks.length - 2] || '0';
-          const consegnaS = toks[toks.length - 1] || '';
-
-          const descrTokens = toks.slice(3, -5);
-          const descr = descrTokens.join(' ');
-
-          const qta = toNum(qtaStr);
-
-          let dataConsegna = '';
-          const m = consegnaS.match(/^(\d{2})\/(\d{2})\/(\d{2,4})$/);
-          if (m) {
-            let [_, dd, mm, yy] = m;
-            if (yy.length === 2) {
-              const yNum = Number(yy);
-              yy = String(2000 + (Number.isFinite(yNum) ? yNum : 0)).padStart(4, '0');
-            }
-            dataConsegna = `${yy}-${mm}-${dd}`;
-          }
+          if (!qta) continue;
 
           righe.push({
             codice,
-            descrizione: descr,
+            descrizione: descr || 'Riga ordine STEEL',
             um,
-            qta,
-            dataConsegna
+            qta
           });
+
+          if (dataIso) consegne.push(dataIso);
         }
 
-        // se il parser non ha trovato nulla, lascia che il pipeline faccia fallback
-        if (!righe.length) return { cliente:'', descrizione:'', righe:[] };
+        // Se nessuna riga valida → lascia spazio ai fallback
+        if (!righe.length) {
+          return { cliente:'', descrizione:'', righe:[] };
+        }
 
-        // Numero & data ordine (es. "Numero 4700045925 Data 03.11.2025")
-        let ordineClienteNumero = '';
+        // Numero e data ordine (es. "Numero 4700046279 Data 28.11.2025")
+        let rifNumero  = '';
+        let rifDataIso = '';
+        const hdr = flat.match(/Numero\s+(\d+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/);
+        if (hdr) {
+          rifNumero  = (hdr[1] || '').trim();
+          rifDataIso = parseData(hdr[2] || '');
+        }
+
+        // Scadenza = data consegna massima tra le righe
         let scadenza = '';
-
-        for (const line of lines) {
-          const m = line.match(/Numero\s+(\d{6,})\s+Data\s+(\d{2}\.\d{2}\.\d{4})/i);
-          if (m) {
-            ordineClienteNumero = m[1];
-            const d = m[2];
-            const m2 = d.match(/(\d{2})\.(\d{2})\.(\d{4})/);
-            if (m2) {
-              const [_, dd, mm, yy] = m2;
-              scadenza = `${yy}-${mm}-${dd}`;
-            }
-            break;
-          }
+        if (consegne.length) {
+          scadenza = consegne.slice().sort().slice(-1)[0];
         }
 
-        // Cliente: STEEL SYSTEMS ...
-        let clienteRagione = '';
-        for (const line of lines) {
-          if (/STEEL SYSTEMS/i.test(line)) {
-            clienteRagione = line.trim();
-            break;
-          }
-        }
-
-        // scadenza = minima dataConsegna tra le righe, se più stretta
-        for (const r of righe) {
-          if (!r.dataConsegna) continue;
-          if (!scadenza || r.dataConsegna < scadenza) {
-            scadenza = r.dataConsegna;
-          }
-        }
-
-        const qtaTot = righe.reduce((s,r)=> s + (r.qta || 0), 0);
+        const cliente = 'STEEL SYSTEMS S.r.l.';
+        const descr   = (`Ordine c/lavoro STEEL ${rifNumero || ''}`).trim();
+        const qtaPezzi = righe.reduce((s,r)=> s + (r.qta || 0), 0) || 1;
 
         return {
-          cliente     : clienteRagione || '',
-          descrizione : ordineClienteNumero
-                        ? `Ordine ${ordineClienteNumero}`
-                        : 'Commessa da ordine STEEL SYSTEMS',
-          scadenza    : scadenza || '',
-          qtaPezzi    : qtaTot || 1,
-          righe       : righe.map(r => ({
-            codice     : r.codice,
-            descrizione: r.descrizione,
-            um         : (r.um || 'PZ').toUpperCase(),
-            qta        : r.qta || 0
-          }))
+          cliente,
+          descrizione: descr || 'Commessa da ordine STEEL SYSTEMS',
+          righe,
+          qtaPezzi,
+          scadenza,
+          rifCliente: rifNumero
+            ? { tipo:'ordine', numero: rifNumero, data: rifDataIso || scadenza || '' }
+            : null
         };
       }
     });
