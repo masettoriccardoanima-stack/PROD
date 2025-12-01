@@ -8083,75 +8083,96 @@ function onChangeRiga(idx, field, value){
     if (!c) return;
 
     setEditingId(c.id);
-
     const nowIso = new Date().toISOString();
 
-    // Normalizza il riferimento cliente in un oggetto {tipo, numero, data}
+    // 1) Normalizza riferimento cliente in oggetto {tipo, numero, data}
     const rifNorm = (function(){
-      // 1) Caso moderno: già oggetto strutturato
       const src = c.rifCliente;
+
+      // Caso moderno: già oggetto
       if (src && typeof src === 'object') {
-        return {
-          tipo  : src.tipo   || 'ordine',
-          numero: src.numero || src.num || '',
-          data  : src.data   || ''
-        };
+        const tipo = (src.tipo || 'ordine').toString().trim() || 'ordine';
+        const numero = (src.numero != null ? String(src.numero) : '').trim();
+        let dataISO = '';
+        if (src.data) {
+          const s = String(src.data).trim();
+          if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+            dataISO = s;
+          } else if (typeof window.parseITDate === 'function') {
+            dataISO = window.parseITDate(s) || '';
+          } else {
+            const d = new Date(s);
+            if (!isNaN(d.getTime())) dataISO = d.toISOString().slice(0,10);
+          }
+        }
+        return { tipo, numero, data: dataISO };
       }
 
+      // Fallback legacy da campi sparsi
       let tipo   = (c.rifClienteTipo || '').toString().trim() || 'ordine';
-      let numero = '';
-      let data   = '';
+      let numero = (c.nrOrdineCliente || c.ordineCliente || c.ordineId || c.ordine || '').toString().trim();
+      let dataISO = '';
 
-      // 2) Fallback numero da campi legacy
-      numero =
-        (c.nrOrdineCliente || c.ordineCliente || c.ordineId || c.ordine || '') ||
-        '';
-
-      // 3) Se rifCliente è una stringa "ORD 123 del 12/11/2025", prova a estrarre numero + data
-      if (!numero && typeof c.rifCliente === 'string') {
-        const txt = c.rifCliente;
-        // data in formato IT
-        const mData = txt.match(/(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/);
-        if (mData && typeof window.parseITDate === 'function') {
-          data = window.parseITDate(mData[1]) || '';
-        }
-
-        // numero "alfanumerico" vicino alla parola Ordine / Order / Nr / N.
-        const mNum = txt.match(/(?:ord(?:ine)?|order|nr\.?|n\.?)\s*[:\-]?\s*([A-Z0-9\-_/]+)/i);
-        if (mNum) {
-          numero = mNum[1];
+      if (c.rifClienteData) {
+        const s = String(c.rifClienteData);
+        if (typeof window.parseITDate === 'function') {
+          dataISO = window.parseITDate(s) || '';
+        } else {
+          const d = new Date(s);
+          if (!isNaN(d.getTime())) dataISO = d.toISOString().slice(0,10);
         }
       }
 
-      // 4) Fallback data da eventuali altri campi (se mai esistono)
-      if (!data && c.rifClienteData) {
-        if (typeof window.parseITDate === 'function') {
-          data = window.parseITDate(c.rifClienteData) || '';
-        } else {
-          data = c.rifClienteData;
+      // Se c.rifCliente è una stringa tipo "Ordine 123 del 12/11/2025"
+      if (typeof c.rifCliente === 'string') {
+        const txt = c.rifCliente;
+        if (!dataISO && typeof window.parseITDate === 'function') {
+          const mData = txt.match(/(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/);
+          if (mData) dataISO = window.parseITDate(mData[1]) || '';
+        }
+        if (!numero) {
+          const mNum = txt.match(/(?:ord(?:ine)?|order|nr\.?|n\.?)\s*[:\-]?\s*([A-Z0-9\-_/]+)/i);
+          if (mNum) numero = mNum[1].trim();
         }
       }
 
       return {
         tipo,
-        numero: String(numero || '').trim(),
-        data  : String(data   || '').trim()
+        numero,
+        data: dataISO
       };
     })();
+
+    // 2) Normalizza clienteId partendo dal nome cliente
+    let clienteId   = c.clienteId || '';
+    let clienteNome = c.cliente   || '';
+
+    if (!clienteId && clienteNome) {
+      const cli = (clienti || []).find(x =>
+        String(x.ragioneSociale || '').trim().toLowerCase() === String(clienteNome).trim().toLowerCase()
+      );
+      if (cli) {
+        clienteId   = cli.id;
+        clienteNome = cli.ragioneSociale || clienteNome;
+      }
+    }
 
     setForm({
       ...blank,
       ...c,
-      rifCliente: rifNorm,
-      updatedAt: nowIso
+      clienteId,
+      cliente    : clienteNome,
+      rifCliente : rifNorm,
+      updatedAt  : nowIso
     });
 
     setShowForm(true);
-    setTimeout(() => {
+    setTimeout(()=>{
       const el = document.getElementById('commessa-form');
-      if (el) el.scrollIntoView({ behavior:'smooth', block:'start' });
+      if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
     }, 0);
   }
+
   function cancelForm(){ setShowForm(false); setEditingId(null); setForm(blank); }
 
   function segnaCompleta(c){
@@ -19808,6 +19829,57 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
     // hardening: nessun id esterno
     try{ if (out && 'id' in out) delete out.id; }catch{}
 
+    // normalizza eventuale rifCliente (oggetto o stringa) mantenendolo in uscita
+    const rif = (function(){
+      if (!out) return null;
+
+      const src = out.rifCliente ?? out.rif_cliente ?? out.rif;
+      if (!src) return null;
+
+      // Caso 1: oggetto strutturato { tipo, numero, data? }
+      if (typeof src === 'object') {
+        const tipo = (src.tipo || 'ordine').toString().trim() || 'ordine';
+        const numero = (src.numero != null ? String(src.numero) : '').trim();
+
+        let dataISO = '';
+        const raw = src.data ?? src.dataDocumento ?? src.dataOrdine;
+        if (raw) {
+          const s = String(raw).trim();
+          if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+            dataISO = s;
+          } else if (typeof window.parseITDate === 'function') {
+            dataISO = window.parseITDate(s) || '';
+          } else {
+            const d = new Date(s);
+            if (!isNaN(d.getTime())) dataISO = d.toISOString().slice(0,10);
+          }
+        }
+
+        return { tipo, numero, data: dataISO };
+      }
+
+      // Caso 2: stringa tipo "Ordine 123 del 12/11/2025"
+      if (typeof src === 'string') {
+        const txtR = src;
+        let dataISO = '';
+        const mData = txtR.match(/(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/);
+        if (mData && typeof window.parseITDate === 'function') {
+          dataISO = window.parseITDate(mData[1]) || '';
+        }
+
+        const mNum = txtR.match(/(?:ord(?:ine)?|order|nr\.?|n\.?)\s*[:\-]?\s*([A-Z0-9\-_/]+)/i);
+        const numero = mNum ? mNum[1].trim() : '';
+
+        return {
+          tipo  : 'ordine',
+          numero,
+          data  : dataISO
+        };
+      }
+
+      return null;
+    })();
+
     return {
       cliente     : safe(out?.cliente, '').trim(),
       descrizione : safe(out?.descrizione, out?.oggetto || 'Commessa da ordine PDF').trim(),
@@ -19819,6 +19891,7 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
         qta        : Number(String(r?.qta||0).replace(',','.')) || 0,
       })),
       qtaPezzi    : Number(out?.qtaPezzi) || (qSum || 1),
+      rifCliente  : rif,
       sorgente    : { kind:'pdf', name: name||'', bytes: (txt||'').length }
     };
   };
