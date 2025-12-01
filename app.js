@@ -20027,41 +20027,128 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
   (function registerVimekV2(){
     if (window.__orderParsers.some(p => p && p.id === 'vimek-v2')) return;
 
+    try{
+      if (!Array.isArray(window.__orderParsers)) window.__orderParsers = [];
+    }catch(e){
+      return;
+    }
+
+    const toNum = s => {
+      if (s == null) return 0;
+      const t = String(s).replace(/\./g,'').replace(',', '.');
+      const n = Number(t);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    const parseData = s => {
+      const str = String(s || '').trim();
+      if (!str) return '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+
+      if (typeof window.parseITDate === 'function') {
+        const iso = window.parseITDate(str);
+        if (iso) return iso;
+      }
+
+      const m = str.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
+      if (!m) return '';
+      let [_, dd, mm, yy] = m;
+      dd = dd.padStart(2,'0');
+      mm = mm.padStart(2,'0');
+      if (yy.length === 2) {
+        const yNum = Number(yy);
+        yy = String(2000 + (Number.isFinite(yNum) ? yNum : 0));
+      }
+      yy = yy.padStart(4,'0');
+      return `${yy}-${mm}-${dd}`;
+    };
+
     window.addOrderParser({
       id  : 'vimek-v2',
-      name: 'Vimek (righe con Qta / Qtà / Q.T.)',
-      test: (txt, name)=> /VIMEK/i.test(txt) && /(ORDINE|COMMESSA|ORDER)\s*[:#]?\s*/i.test(txt),
-      extract: (txt, name)=> {
+      name: 'Vimek (Ordine Fornitore acquisto)',
+      test: (txt, name='') => {
+        const t = String(txt || '');
+        // Ordine VIMEK per ANIMA: "Ordine Fornitore acquisto" + VIMEK
+        return /VIMEK\s+BAKERY\s+AUTOMATION\s+SRL/i.test(t)
+            && /Ordine\s+Fornitore\s+acquisto/i.test(t);
+      },
+      extract: (txt, name='') => {
         const cliente = 'VIMEK BAKERY AUTOMATION SRL';
-        const righe = [];
+        const flat    = String(txt || '').replace(/\s+/g,' ').trim();
 
-        // ABC-123 – Descrizione ... Qta 4 PZ
-        const re = new RegExp(
-          String.raw`^\s*([A-Z0-9][A-Z0-9._\-]{1,})\s*[–\-]\s*(.+?)\s+(?:QTA|QTÀ|QUANTITA|QUANTITÀ|Q\.?T\.?|QT)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)\s*([A-Z]{1,3})?\s*$`,
-          'gmi'
-        );
+        const righe    = [];
+        const consegne = [];
+
+        // Riga tipo:
+        // "... Fornitura gruppo saldato: 5,00000 qt 402,00 074725_A451_103_A 05-12-25 ..."
+        const rowRe = /([A-Za-z0-9 ,.'°\/-]{6,120}):\s*([0-9]+(?:,[0-9]+)?)\s+(qt|pz|kg|nr|lt|mt|ml)\s+([0-9.]+,[0-9]+|\d+)\s+([A-Z0-9._\-]{5,})\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/gi;
+
         let m;
-        while ((m = re.exec(txt))) {
-          const codice = (m[1]||'').trim();
-          const descr  = (m[2]||'').replace(/\s+/g,' ').trim();
-          const qta    = Number(String(m[3]||'0').replace(',','.')) || 0;
-          const um     = (m[4]||'PZ').trim() || 'PZ';
-          if (codice && descr && qta>0) righe.push({ codice, descrizione: descr, um, qta });
+        while ((m = rowRe.exec(flat))) {
+          let descrRaw = m[1] || '';
+          const qtaStr = m[2];
+          const umRaw  = m[3] || 'PZ';
+          const codice = m[5] || '';
+          const dataStr = m[6] || '';
+
+          let descr = descrRaw.replace(/\s+/g,' ').trim();
+          // Se troviamo "Fornitura ..." tieni solo da lì in poi
+          const mF = descr.match(/(Fornitura.+)$/i);
+          if (mF) descr = mF[1];
+
+          const qta     = toNum(qtaStr);
+          const um      = umRaw.replace(/\./g,'').toUpperCase() || 'PZ';
+          const dataIso = parseData(dataStr);
+
+          if (!codice || !qta) continue;
+
+          righe.push({
+            codice,
+            descrizione: descr || 'Riga ordine VIMEK',
+            um,
+            qta
+          });
+
+          if (dataIso) consegne.push(dataIso);
         }
 
-        const descr = (txt.match(/Oggetto\s*[:\-]\s*(.+)/i)||[])[1]
-                   || (txt.match(/Object\s*[:\-]\s*(.+)/i)||[])[1]
-                   || 'Commessa da ordine PDF';
-        const consegna = (txt.match(/\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/)||[])[1]
-                      || (txt.match(/\b(20\d{2}[-/]\d{2}[-/]\d{2})\b/)||[])[1]
-                      || '';
+        // Se non abbiamo trovato righe, lasciamo spazio ad altri parser/fallback
+        if (!righe.length) {
+          return { cliente:'', descrizione:'', righe:[] };
+        }
+
+        // Numero + data ordine:
+        // "IT05463690288 001801 26-11-25 2007 1/1"
+        let rifNumero  = '';
+        let rifDataIso = '';
+        const headMatch = flat.match(/IT[0-9]{11}\s+\S+\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\s+(\d{3,})\s+1\/1/);
+        if (headMatch) {
+          rifDataIso = parseData(headMatch[1] || '');
+          rifNumero  = (headMatch[2] || '').trim();
+        }
+
+        // Scadenza: data consegna (CONSEGNA 05-12-25...) oppure max data righe
+        let scadenza = '';
+        const consMatch = flat.match(/CONSEGNA\s*([0-9]{1,2}[./-][0-9]{1,2}[./-][0-9]{2,4})/i);
+        if (consMatch) {
+          scadenza = parseData(consMatch[1] || '');
+        }
+        if (!scadenza && consegne.length) {
+          scadenza = consegne.slice().sort().slice(-1)[0];
+        }
+
+        const descr = `Ordine fornitore VIMEK ${rifNumero || ''}`.trim();
+        const qtaPezzi = righe.reduce((s,r)=> s + (r.qta || 0), 0) || 1;
 
         return {
           cliente,
-          descrizione: descr.trim(),
+          descrizione: descr || 'Commessa da ordine VIMEK',
           righe,
-          qtaPezzi: righe.reduce((s,r)=> s + (Number(r.qta)||0), 0) || 1,
-          scadenza: consegna
+          qtaPezzi,
+          scadenza,
+          rifCliente: rifNumero
+            ? { tipo:'ordine', numero: rifNumero, data: rifDataIso || scadenza || '' }
+            : null
         };
       }
     });
