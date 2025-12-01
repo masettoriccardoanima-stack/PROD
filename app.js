@@ -12428,11 +12428,46 @@ function openEdit(id){
   setEditingId(id);
   setShowForm(true);
 }
+  // 👇 NUOVO BLOCCO P1
+  async function delRec(id){
+    if (!confirm('Eliminare DDT?')) return;
 
-function delRec(id){
-  if (!confirm('Eliminare DDT?')) return;
-  setRowsDDT(prev => prev.filter(r => r.id !== id));
-}
+    // 1) Leggo dal localStorage e filtro fuori il DDT
+    let all = [];
+    try {
+      all = JSON.parse(localStorage.getItem('ddtRows') || '[]') || [];
+    } catch {
+      all = [];
+    }
+    const next = (Array.isArray(all) ? all : []).filter(r => String(r.id) !== String(id));
+
+    // 2) Scrivo subito in localStorage (atomico)
+    try {
+      localStorage.setItem('ddtRows', JSON.stringify(next));
+    } catch {}
+
+    // 3) Aggiorno la UI (stato React)
+    setRowsDDT(next);
+
+    // 4) Sync cloud + KV (best effort, non deve bloccare)
+    try {
+      if (window.syncExportToCloudOnly) {
+        window.syncExportToCloudOnly(['ddtRows']);
+      }
+      if (window.persistKV) {
+        await window.persistKV('ddtRows', next);
+      }
+      if (window.api?.kv?.set) {
+        await window.api.kv.set('ddtRows', next);
+      }
+    } catch (e) {
+      console.warn('[DDT] sync eliminazione fallita', e);
+    }
+
+    try {
+      alert('DDT eliminato ✅');
+    } catch {}
+  }
 
   // --- SALVA (DDT) --- SOSTITUISCI INTERAMENTE QUESTA FUNZIONE ---
   async function save(ev){
