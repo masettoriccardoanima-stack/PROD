@@ -1433,6 +1433,122 @@ window.ensureMagazzinoArticoliFromRighe = window.ensureMagazzinoArticoliFromRigh
   }
 };
 
+/* ===== Auto-sync magazzino da righe ordine (PDF → commessa) ===== */
+window.autoSyncMagazzinoDaRighe = window.autoSyncMagazzinoDaRighe || function(righe){
+  try{
+    if (!Array.isArray(righe) || !righe.length) return righe;
+
+    const cleanCod = v => String(v || '').trim();
+    const normUM   = v => String(v || 'PZ').trim().toUpperCase();
+
+    // 1) Carica articoli esistenti
+    let existing = [];
+    try{
+      const rawV2 = localStorage.getItem('magArticoli_v2');
+      if (rawV2 && rawV2 !== 'null' && rawV2 !== '[]') {
+        existing = JSON.parse(rawV2) || [];
+      } else if (typeof window.lsGet === 'function') {
+        existing = window.lsGet('magArticoli', []) || [];
+      }
+    }catch(e){
+      console.warn('[Magazzino] autoSyncMagazzinoDaRighe load error', e);
+    }
+
+    const byCod = new Map();
+    (Array.isArray(existing) ? existing : []).forEach(a => {
+      if (!a) return;
+      const cod = cleanCod(a.codice);
+      if (!cod) return;
+      if (!byCod.has(cod)) byCod.set(cod, a);
+    });
+
+    // 2) Aggiorna righe e prepara eventuali nuovi articoli
+    const updatedRighe = righe.map(r => {
+      if (!r) return r;
+
+      const cod = cleanCod(r.codice || r.articoloCodice);
+      if (!cod) return r;
+
+      let descr = String(r.descrizione || r.articoloDescr || '').trim();
+      let um    = normUM(r.um || r.UM);
+
+      // prezzo letto dal parser (se in futuro lo mettiamo nelle righe)
+      let prezzoOrdine = null;
+      if (r.prezzo != null && r.prezzo !== '') {
+        const t = String(r.prezzo).replace(/\./g,'').replace(',', '.');
+        const n = Number(t);
+        if (Number.isFinite(n)) prezzoOrdine = n;
+      }
+
+      const existingArt = byCod.get(cod);
+
+      if (existingArt) {
+        // Se l'articolo esiste, in commessa uso descrizione/UM dell'anagrafica
+        if (existingArt.descrizione) {
+          descr = String(existingArt.descrizione).trim();
+        }
+        if (existingArt.um) {
+          um = normUM(existingArt.um);
+        }
+
+        // Se la riga non ha prezzo ma l'articolo sì, copio in r.prezzo (per uso futuro)
+        if (prezzoOrdine == null && existingArt.prezzo != null) {
+          r.prezzo = existingArt.prezzo;
+        }
+      } else {
+        // Nuovo articolo da creare in anagrafica
+        const nuovo = {
+          codice     : cod,
+          descrizione: descr,
+          um         : um,
+          prezzo     : prezzoOrdine != null ? prezzoOrdine : 0,
+          costo      : 0,
+          tipo       : 'CONTO LAVORO',
+          nuovoDaOrdine: true
+        };
+        byCod.set(cod, nuovo);
+      }
+
+      // Ritorno una riga "normalizzata" per la commessa
+      return Object.assign({}, r, {
+        codice,
+        descrizione: descr,
+        um
+      });
+    });
+
+    // 3) Salva articoli aggiornati
+    const out = Array.from(byCod.values())
+      .filter(a => a && cleanCod(a.codice))
+      .sort((A,B) => cleanCod(A.codice).localeCompare(cleanCod(B.codice)));
+
+    try{
+      localStorage.setItem('magArticoli_v2', JSON.stringify(out));
+    }catch(e){
+      console.warn('[Magazzino] autoSyncMagazzinoDaRighe write magArticoli_v2 error', e);
+    }
+
+    try{
+      if (typeof window.saveKey === 'function') {
+        window.saveKey('magArticoli', out);
+      } else if (typeof window.lsSet === 'function') {
+        window.lsSet('magArticoli', out);
+        window.lsSet('magazzinoArticoli', out);
+      } else {
+        localStorage.setItem('magArticoli', JSON.stringify(out));
+        localStorage.setItem('magazzinoArticoli', JSON.stringify(out));
+      }
+    }catch(e){
+      console.warn('[Magazzino] autoSyncMagazzinoDaRighe write compat error', e);
+    }
+
+    return updatedRighe;
+  }catch(err){
+    console.warn('[Magazzino] autoSyncMagazzinoDaRighe error', err);
+    return righe;
+  }
+};
+
 /* ===== Compat kit: helper & fallback senza cambiare UI =================== */
 (function compatKit(){
   const g=window;
@@ -8842,6 +8958,11 @@ window.delCommessa     = window.delCommessa     || delCommessa;
             )
           : [];
 
+                  // 2b) Allinea righe con anagrafica articoli e crea articoli mancanti
+        if (Array.isArray(righe) && righe.length && window.autoSyncMagazzinoDaRighe) {
+          righe = window.autoSyncMagazzinoDaRighe(righe);
+        }
+
         // Se non ho righe valide, NON blocco più l'utente:
         // creo comunque una commessa "vuota" da completare a mano
         if (!righe.length) {
@@ -9257,7 +9378,7 @@ window.delCommessa     = window.delCommessa     || delCommessa;
                     );
                   })(),
                   e('td', null,
-                    e('button', { className:'btn btn-outline', onClick:()=>window.printCommessa && window.printCommessa(c)}, 'Stampa'), ' ',
+                    e('button', { className:'btn btn-outline', onClick: () => window.stampaCommessaV2 ? window.stampaCommessaV2(c): (window.printCommessa && window.printCommessa(c)) }, 'Stampa'), ' ',
                     e('button', { className:'btn btn-outline', onClick:()=>window.openEtichetteColliDialog && window.openEtichetteColliDialog(c) }, 'Etichette'), ' ',
                     e('a', { className:'btn btn-outline', href: timbrUrl(c.id) }, 'QR/Timbr.'), ' ',
 
@@ -10388,7 +10509,7 @@ const cardOreRiga = (sel && Array.isArray(aggRighe) && aggRighe.length>0)
 
     // Barra superiore azioni (solo con commessa selezionata)
     sel && e('div', { className:'row', style:{gap:6, alignItems:'center', flexWrap:'wrap'} },
-      e('button', { className:'btn btn-outline', onClick:()=> window.printCommessa && window.printCommessa(sel) }, 'Stampa'),
+      e('button', { className:'btn btn-outline', onClick: () => window.stampaCommessaV2 ? window.stampaCommessaV2(sel): (window.printCommessa && window.printCommessa(sel)) }, 'Stampa'),
       e('button', { className:'btn btn-outline', onClick:exportCSV }, 'Esporta CSV'),
       e('button', { className:'btn btn-outline', onClick:()=> window.creaDDTdaCommessa && window.creaDDTdaCommessa(sel) }, '📦 DDT'),
       e('div', { className:'dropdown', style:{position:'relative', display:'inline-block'} },
