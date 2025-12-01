@@ -8982,8 +8982,17 @@ window.delCommessa     = window.delCommessa     || delCommessa;
         // 3) Salva la nuova commessa
         const allCommesse = (window.lsGet && window.lsGet('commesseRows', [])) || [];
         allCommesse.unshift(comm);
-        if (window.lsSet) window.lsSet('commesseRows', allCommesse);
-        else localStorage.setItem('commesseRows', JSON.stringify(allCommesse));
+
+        // Se siamo dentro CommesseView, usa il writer unico per aggiornare anche lo stato React
+        if (typeof writeCommesse === 'function') {
+          writeCommesse(allCommesse);
+        } else if (window.lsSet) {
+          window.lsSet('commesseRows', allCommesse);
+        } else {
+          try {
+            localStorage.setItem('commesseRows', JSON.stringify(allCommesse));
+          } catch {}
+        }
         window.__anima_dirty = true;
 
         // sync opzionale verso Supabase (nuova commessa da PDF)
