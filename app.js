@@ -8238,12 +8238,25 @@ function onChangeRiga(idx, field, value){
     let clienteNome = c.cliente   || '';
 
     if (!clienteId && clienteNome) {
-      const cli = (clienti || []).find(x =>
-        String(x.ragioneSociale || '').trim().toLowerCase() === String(clienteNome).trim().toLowerCase()
-      );
-      if (cli) {
-        clienteId   = cli.id;
-        clienteNome = cli.ragioneSociale || clienteNome;
+      // normalizza togliendo spazi, punteggiatura, accenti
+      const norm = (s) => String(s || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '');
+
+      const target = norm(clienteNome);
+      if (target) {
+        const cli = (clienti || []).find(x => {
+          const r = norm(x.ragioneSociale || '');
+          if (!r) return false;
+          return r === target || r.includes(target) || target.includes(r);
+        });
+
+        if (cli) {
+          clienteId   = cli.id;
+          clienteNome = cli.ragioneSociale || clienteNome;
+        }
       }
     }
 
@@ -13030,10 +13043,10 @@ css += `
 
              /* Layout verticale: pagina intera, footer spinto in basso */
     .page{
-      /* altezza determinata dal contenuto per evitare che il footer
-         venga spinto su un foglio successivo */
+      /* Altezza minima ≈ area utile A4 (margini 16/22mm) per spingere il footer in basso */
       display:flex;
       flex-direction:column;
+      min-height:255mm;
       page-break-after: always;      /* OGNI .page va su un foglio */
     }
     .page:last-child{
