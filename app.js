@@ -8080,10 +8080,77 @@ function onChangeRiga(idx, field, value){
     setTimeout(()=>{ const el=document.getElementById('commessa-form'); if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); },0);
   }
   function startEdit(c){
+    if (!c) return;
+
     setEditingId(c.id);
-    setForm({ ...blank, ...c, rifCliente: c.rifCliente || {tipo:'ordine',numero:'',data:''}, updatedAt:new Date().toISOString() });
+
+    const nowIso = new Date().toISOString();
+
+    // Normalizza il riferimento cliente in un oggetto {tipo, numero, data}
+    const rifNorm = (function(){
+      // 1) Caso moderno: già oggetto strutturato
+      const src = c.rifCliente;
+      if (src && typeof src === 'object') {
+        return {
+          tipo  : src.tipo   || 'ordine',
+          numero: src.numero || src.num || '',
+          data  : src.data   || ''
+        };
+      }
+
+      let tipo   = (c.rifClienteTipo || '').toString().trim() || 'ordine';
+      let numero = '';
+      let data   = '';
+
+      // 2) Fallback numero da campi legacy
+      numero =
+        (c.nrOrdineCliente || c.ordineCliente || c.ordineId || c.ordine || '') ||
+        '';
+
+      // 3) Se rifCliente è una stringa "ORD 123 del 12/11/2025", prova a estrarre numero + data
+      if (!numero && typeof c.rifCliente === 'string') {
+        const txt = c.rifCliente;
+        // data in formato IT
+        const mData = txt.match(/(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/);
+        if (mData && typeof window.parseITDate === 'function') {
+          data = window.parseITDate(mData[1]) || '';
+        }
+
+        // numero "alfanumerico" vicino alla parola Ordine / Order / Nr / N.
+        const mNum = txt.match(/(?:ord(?:ine)?|order|nr\.?|n\.?)\s*[:\-]?\s*([A-Z0-9\-_/]+)/i);
+        if (mNum) {
+          numero = mNum[1];
+        }
+      }
+
+      // 4) Fallback data da eventuali altri campi (se mai esistono)
+      if (!data && c.rifClienteData) {
+        if (typeof window.parseITDate === 'function') {
+          data = window.parseITDate(c.rifClienteData) || '';
+        } else {
+          data = c.rifClienteData;
+        }
+      }
+
+      return {
+        tipo,
+        numero: String(numero || '').trim(),
+        data  : String(data   || '').trim()
+      };
+    })();
+
+    setForm({
+      ...blank,
+      ...c,
+      rifCliente: rifNorm,
+      updatedAt: nowIso
+    });
+
     setShowForm(true);
-    setTimeout(()=>{ const el=document.getElementById('commessa-form'); if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); },0);
+    setTimeout(() => {
+      const el = document.getElementById('commessa-form');
+      if (el) el.scrollIntoView({ behavior:'smooth', block:'start' });
+    }, 0);
   }
   function cancelForm(){ setShowForm(false); setEditingId(null); setForm(blank); }
 
