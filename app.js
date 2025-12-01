@@ -20171,7 +20171,9 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
       name: 'G3 Ordine Conto Lavoro',
       test: (txt, name='') => {
         const t = String(txt || '');
-        return /ORDINE\s+CONTO\s+LAVORO/i.test(t) && /G3\s*srl/i.test(t);
+        // Il PDF reale non contiene "G3 srl" nel testo,
+        // quindi ci basiamo solo sulla dicitura "ORDINE CONTO LAVORO".
+        return /ORDINE\s+CONTO\s+LAVORO/i.test(t);
       },
       extract: (txt, name='') => {
         const raw   = String(txt || '');
@@ -20210,15 +20212,16 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
           return { cliente:'', descrizione:'', righe:[] };
         }
 
-        // Header con numero doc e data (es. "000108 31.07.25 1 di 1")
+        // Header con numero doc e data (es. "... 1 di 1 000108 31.07.25")
         let rifNumero  = '';
         let rifDataIso = '';
         const headerLine = lines.find(l => /\b1\s+di\s+1\b/i.test(l));
         if (headerLine) {
           const toks = headerLine.split(/\s+/).filter(Boolean);
-          if (toks.length >= 3) {
-            rifNumero  = toks[toks.length - 3] || '';
-            rifDataIso = parseData(toks[toks.length - 2] || '');
+          if (toks.length >= 2) {
+            // In questo layout gli ultimi due token sono: [numeroOrdine, dataOrdine]
+            rifNumero  = toks[toks.length - 2] || '';
+            rifDataIso = parseData(toks[toks.length - 1] || '');
           }
         }
 
