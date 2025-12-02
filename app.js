@@ -11498,10 +11498,10 @@ const counters0 = lsGet('counters', {}) || {};
       codiceFiscale : form.codiceFiscale,
 
       // Dati azienda aggiuntivi (stampe intestazioni)
-      sedeLegale    : sedeLegaleNew    || appPrev.sedeLegale    || '',
-      sedeOperativa : sedeOperativaNew || appPrev.sedeOperativa || '',
-      email         : emailNew         || appPrev.email         || '',
-      telefono      : telefonoNew      || appPrev.telefono      || '',
+      sedeLegale    : form.sedeLegale    || appPrev.sedeLegale    || '',
+      sedeOperativa : form.sedeOperativa || appPrev.sedeOperativa || '',
+      email         : form.email         || appPrev.email         || '',
+      telefono      : form.telefono      || appPrev.telefono      || '',
       sitoWeb       : form.sitoWeb,
 
       // Dati fiscali aggiuntivi
@@ -11566,9 +11566,8 @@ const counters0 = lsGet('counters', {}) || {};
 
       // Altre opzioni
       magUpdateCMP       : magUpdateCMP,
-      costoOrarioAzienda : Number.isFinite(costoAziendaNew)
-        ? costoAziendaNew
-        : (Number(appPrev.costoOrarioAzienda) || 0),
+      costoOrarioAzienda : Number(form.costoOrarioAzienda) ||
+                           Number(appPrev.costoOrarioAzienda) || 0,
 
       // Logo
       logoDataUrl     : form.logoDataUrl || app0.logoDataUrl || '',
