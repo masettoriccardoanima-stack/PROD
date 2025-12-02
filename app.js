@@ -12657,7 +12657,7 @@ function openEdit(id){
 
   // ricerca + ordinamento
 const filteredDDT = (Array.isArray(rowsDDT) ? rowsDDT : [])
-      .filter(r => !r.deletedAt)   // se in futuro useremo deletedAt, spariscono anche dai listati
+      .filter(r => r && !r.deletedAt)
       .filter(r => {
         const hay =
           String(r.id || '') + ' ' +
@@ -12783,7 +12783,7 @@ const filteredDDT = (Array.isArray(rowsDDT) ? rowsDDT : [])
           )
         ),
         e('tbody', null,
-          listDDT.map(r => e('tr', { key:r.id },
+          filteredDDT.map(r => e('tr', { key:r.id },
             e('td', null, r.id),
             e('td', null, r.data || ''),
             e('td', null, r.cliente || r.clienteRagione || ''),
