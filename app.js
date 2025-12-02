@@ -18573,11 +18573,11 @@ function plannedMinsFromFase(f){
 
   if (n != null) return Math.max(0, Math.round(n));
 
-  // stringhe HH:MM (ordine per compatibilità)
+  // stringhe HH:MM (ordine per compatibilità + fasi per-riga)
   const hhmm =
+    f.orePrevHHMM ||        // 👈 per-riga: quello che compili nel form
     f.oreHHMM ||
     f.hhmm ||
-    f.orePrevHHMM ||
     f.orePrevistaHHMM ||
     f.orePrev ||
     f.durataHHMM ||
