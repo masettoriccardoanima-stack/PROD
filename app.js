@@ -3764,24 +3764,67 @@ function mergeAppSettings(localApp, remoteApp){
   try { await exportAll(); console.info('[cloud] Dati inviati'); }
   catch(e){ console.warn('[cloud] Errore export:', e); }
   };
-  // ========== IMPORT CLOUD (override): MERGE per id, niente cancellazioni ==========
-function mergeById(localArr, remoteArr){
-  const map = new Map((Array.isArray(localArr)?localArr:[]).map(x => [x.id, x]));
-  (Array.isArray(remoteArr)?remoteArr:[]).forEach(r => {
-    if (!r || r.id == null) return;
-    map.set(r.id, { ...(map.get(r.id)||{}), ...r }); // upsert + shallow-merge
-  });
-  return Array.from(map.values());
-}
-// (dentro lo stesso IIFE del sync, prima di window.syncImportFromCloud)
-window.mergeById = window.mergeById || function(localArr, remoteArr){
-  const map = new Map((Array.isArray(localArr)?localArr:[]).map(x => [x.id, x]));
-  (Array.isArray(remoteArr)?remoteArr:[]).forEach(r => {
-    if (!r || r.id == null) return;
-    map.set(r.id, { ...(map.get(r.id)||{}), ...r });
-  });
-  return Array.from(map.values());
-};
+
+  // ========== IMPORT CLOUD (override): MERGE per id, con priorità a record più recenti (anche deletedAt) ==========
+  function mergeById(localArr, remoteArr){
+    const ensureArr = (arr) => Array.isArray(arr) ? arr : [];
+
+    // timestamp logico "ultimo cambiamento" del record
+    const ts = (rec) => {
+      if (!rec || typeof rec !== 'object') return 0;
+      const cand = [];
+
+      if (rec.deletedAt) {
+        const t = Date.parse(rec.deletedAt);
+        if (!Number.isNaN(t)) cand.push(t);
+      }
+      if (rec.updatedAt) {
+        const t = Date.parse(rec.updatedAt);
+        if (!Number.isNaN(t)) cand.push(t);
+      }
+      if (rec.createdAt) {
+        const t = Date.parse(rec.createdAt);
+        if (!Number.isNaN(t)) cand.push(t);
+      }
+
+      return cand.length ? Math.max(...cand) : 0;
+    };
+
+    const map = new Map();
+
+    // 1) inserisco le versioni locali
+    ensureArr(localArr).forEach(r => {
+      if (!r || r.id == null) return;
+      map.set(r.id, r);
+    });
+
+    // 2) sovrascrivo/mergo con le versioni cloud
+    ensureArr(remoteArr).forEach(r => {
+      if (!r || r.id == null) return;
+      const cur = map.get(r.id);
+      if (!cur) {
+        map.set(r.id, r);
+        return;
+      }
+
+      const tCur = ts(cur);
+      const tNew = ts(r);
+
+      // il record con timestamp più recente "vince"
+      if (tNew >= tCur) {
+        // cloud più recente: parto dal locale e sovrascrivo con cloud
+        map.set(r.id, { ...cur, ...r });
+      } else {
+        // locale più recente: parto dal cloud e sovrascrivo con locale
+        map.set(r.id, { ...r, ...cur });
+      }
+    });
+
+    return Array.from(map.values());
+  }
+
+  // Alias globale (se qualcuno usa window.mergeById)
+  window.mergeById = window.mergeById || mergeById;
 
 window.syncImportFromCloud = async function(){
   const S = JSON.parse(localStorage.getItem('appSettings')||'{}')||{};
