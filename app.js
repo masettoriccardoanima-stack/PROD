@@ -8111,6 +8111,7 @@ function CommesseView({ query = '' }) {
       let sum = 0;
       (Array.isArray(ddtRows) ? ddtRows : []).forEach(ddt => {
         if (!ddt) return;
+        if (ddt.deletedAt) return; // DDT eliminato (soft-delete) → ignoralo
         if (ddt.annullato === true || String(ddt.stato||'') === 'Annullato') return;
 
         // fallback: id commessa letto dall'header DDT
@@ -8906,12 +8907,14 @@ window.delCommessa     = window.delCommessa     || delCommessa;
           row && (row.rowId || row.rowID || row.commessaRowId || row.commessaRowID || '')
         ).trim();
         const hasRowId = !!rowId;
+        if (!jobId) return 0;
+
         let sum = 0;
 
-  (Array.isArray(ddtRows) ? ddtRows : []).forEach(ddt => {
-    if (!ddt) return;
-    if (ddt.deletedAt) return; // 👈 DDT eliminato → ignoralo
-    if (ddt.annullato === true || String(ddt.stato || '') === 'Annullato') return;
+        (Array.isArray(ddtRows) ? ddtRows : []).forEach(ddt => {
+          if (!ddt) return;
+          if (ddt.deletedAt) return; // 🔴 DDT eliminato (soft-delete) → ignoralo
+          if (ddt.annullato === true || String(ddt.stato||'') === 'Annullato') return;
 
           const ddtJobId = String(
             ddt.commessaId ||
