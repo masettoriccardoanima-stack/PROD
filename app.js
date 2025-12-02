@@ -3855,22 +3855,25 @@ window.syncImportFromCloud = async function(){
     localStorage.setItem('commesseRows', JSON.stringify(mergeById(localC, cloudC)));
 
     ['oreRows','ddtRows','fattureRows','magMovimenti','clientiRows','fornitoriRows','ordiniFornitoriRows'].forEach(k=>{
-    if (Array.isArray(remote[k])) {
-    const loc = JSON.parse(localStorage.getItem(k)||'[]')||[];
-    localStorage.setItem(k, JSON.stringify(mergeById(loc, remote[k])));
-    }
+      if (Array.isArray(remote[k])) {
+        const loc = JSON.parse(localStorage.getItem(k)||'[]')||[];
+        localStorage.setItem(k, JSON.stringify(mergeById(loc, remote[k])));
+      }
     });
 
-
-    if (remote.appSettings && typeof remote.appSettings === 'object' && !Array.isArray(remote.appSettings)) {
-  const localApp  = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; }catch{return{}} })();
-  const remoteApp = remote.appSettings || {};
-  const lt = Date.parse(localApp.updatedAt || 0)  || 0;
-  const rt = Date.parse(remoteApp.updatedAt || 0) || 0;
-  const nextApp = (rt >= lt) ? mergeAppSettings(localApp, remoteApp)
-                           : mergeAppSettings(remoteApp, localApp);
-  localStorage.setItem('appSettings', JSON.stringify(nextApp));
-}
+    // ⚠️ Dal cloud NON tocchiamo più appSettings in automatico
+    // Se in futuro vorrai abilitare un merge guidato delle impostazioni,
+    // si potrà fare con una schermata dedicata / conferma manuale.
+    const SAFE_IMPORT_APPSETTINGS = false;
+    if (SAFE_IMPORT_APPSETTINGS && remote.appSettings && typeof remote.appSettings === 'object' && !Array.isArray(remote.appSettings)) {
+      const localApp  = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; }catch{return{}} })();
+      const remoteApp = remote.appSettings || {};
+      const lt = Date.parse(localApp.updatedAt || 0)  || 0;
+      const rt = Date.parse(remoteApp.updatedAt || 0) || 0;
+      const nextApp = (rt >= lt) ? mergeAppSettings(localApp, remoteApp)
+                                 : mergeAppSettings(remoteApp, localApp);
+      localStorage.setItem('appSettings', JSON.stringify(nextApp));
+    }
 
     console.info('Import cloud completato (merge, senza cancellazioni).');
 
@@ -12278,6 +12281,33 @@ React.useEffect(() => {
   const [form, setForm]           = React.useState(__prefilled ? { ...blank, ...__prefilled } : blank);
   const [editingId, setEditingId] = React.useState(null);
   const [showForm, setShowForm]   = React.useState(false);
+  const [selDDT, setSelDDT]       = React.useState({}); // selezione multipla in lista
+
+  function toggleSel(id){
+    setSelDDT(m => ({ ...m, [id]: !m[id] }));
+  }
+
+  function toggleSelAll(){
+    const allIds = (Array.isArray(filteredDDT) ? filteredDDT : []).map(r => r.id);
+    if (!allIds.length) return;
+
+    const allSelected = allIds.every(id => selDDT[id]);
+    if (allSelected){
+      // deseleziona solo quelli visibili ora
+      setSelDDT(m => {
+        const copy = { ...m };
+        allIds.forEach(id => { delete copy[id]; });
+        return copy;
+      });
+    } else {
+      // seleziona tutti quelli visibili ora
+      setSelDDT(m => {
+        const copy = { ...m };
+        allIds.forEach(id => { copy[id] = true; });
+        return copy;
+      });
+    }
+  }
 
   // ====== Bulk "Genera fattura…" da più DDT ======
   const [bulkFaOpen, setBulkFaOpen] = React.useState(false);
@@ -12501,9 +12531,8 @@ function openEdit(id){
   setShowForm(true);
 }
 
-  // 👇 P1: soft delete DDT (marca deletedAt + updatedAt)
   // 👇 Soft delete: marca deletedAt/updatedAt senza rimuovere il record
-  async function delRec(id){
+async function delRec(id){
     if (!confirm('Eliminare DDT?')) return;
 
     // Leggi tutti i DDT correnti
@@ -12551,6 +12580,67 @@ function openEdit(id){
     try {
       alert('DDT eliminato ✅');
     } catch {}
+  }
+
+  async function delRecMany(ids){
+    const toDel = Array.isArray(ids)
+      ? ids.map(String).filter(Boolean)
+      : [];
+    if (!toDel.length){
+      try { alert('Seleziona almeno un DDT'); } catch {}
+      return;
+    }
+
+    if (!confirm(`Eliminare ${toDel.length} DDT selezionati?`)) return;
+
+    // Leggi tutti i DDT correnti
+    let all = [];
+    try {
+      all = JSON.parse(localStorage.getItem('ddtRows') || '[]') || [];
+    } catch {
+      all = [];
+    }
+
+    const nowISO = new Date().toISOString();
+
+    // Marca come eliminati tutti quelli selezionati
+    const next = (Array.isArray(all) ? all : []).map(r => {
+      if (!r || !toDel.includes(String(r.id))) return r;
+      const clone = { ...r };
+      clone.deletedAt = nowISO;
+      clone.updatedAt = nowISO;
+      return clone;
+    });
+
+    // Salva subito in localStorage
+    try {
+      localStorage.setItem('ddtRows', JSON.stringify(next));
+    } catch {}
+
+    // Aggiorna lo stato React
+    setRowsDDT(next);
+
+    // Sync su cloud/KV (best effort)
+    try {
+      if (window.syncExportToCloudOnly) {
+        window.syncExportToCloudOnly(['ddtRows']);
+      }
+      if (window.persistKV) {
+        await window.persistKV('ddtRows', next);
+      }
+      if (window.api?.kv?.set) {
+        await window.api.kv.set('ddtRows', next);
+      }
+    } catch (e) {
+      console.warn('[DDT] sync eliminazione multipla fallita', e);
+    }
+
+    try {
+      alert(`Eliminati ${toDel.length} DDT ✅`);
+    } catch {}
+
+    // Pulisce la selezione dopo l'eliminazione
+    setSelDDT({});
   }
 
   // --- SALVA (DDT) ---
@@ -12807,9 +12897,30 @@ const filteredDDT = (Array.isArray(rowsDDT) ? rowsDDT : [])
 
     // toolbar
     e('div', { className:'actions', style:{marginBottom:8} },
-      e('input', { className:'input', placeholder:'Cerca…', value:qDDT, onChange:ev=>setQDDT(ev.target.value) }),
-        e('button', { className:'btn', onClick:openNew, ...window.roProps() }, '➕ Nuovo DDT'),
-        e('button', { className:'btn btn-outline', onClick: openBulkFa, ...window.roProps() }, '🧾 Genera fattura…')
+      e('input', {
+        className:'input',
+        placeholder:'Cerca…',
+        value:qDDT,
+        onChange:ev=>setQDDT(ev.target.value)
+      }),
+      e('button', {
+        className:'btn',
+        onClick:openNew,
+        ...window.roProps()
+      }, '➕ Nuovo DDT'),
+      e('button', {
+        className:'btn btn-outline',
+        onClick: openBulkFa,
+        ...window.roProps()
+      }, '🧾 Genera fattura…'),
+      e('button', {
+        className:'btn btn-outline',
+        onClick: () => {
+          const ids = Object.keys(selDDT).filter(id => selDDT[id]);
+          delRecMany(ids);
+        },
+        ...window.roProps()
+      }, '🗑 Elimina selezionati')
     ),
 
     // lista
@@ -12817,6 +12928,13 @@ const filteredDDT = (Array.isArray(rowsDDT) ? rowsDDT : [])
       e('table', { className:'table' },
         e('thead', null,
           e('tr', null,
+            e('th', {style:{width:32}},
+              e('input', {
+                type:'checkbox',
+                checked: filteredDDT.length > 0 && filteredDDT.every(r => selDDT[r.id]),
+                onChange: toggleSelAll
+              })
+            ),
             e('th', {style:{width:130}}, 'DDT'),
             e('th', null, 'Data'),
             e('th', null, 'Cliente'),
@@ -12826,6 +12944,13 @@ const filteredDDT = (Array.isArray(rowsDDT) ? rowsDDT : [])
         ),
         e('tbody', null,
           filteredDDT.map(r => e('tr', { key:r.id },
+            e('td', { className:'ctr' },
+              e('input', {
+                type:'checkbox',
+                checked: !!selDDT[r.id],
+                onChange: () => toggleSel(r.id)
+              })
+            ),
             e('td', null, r.id),
             e('td', null, r.data || ''),
             e('td', null, r.cliente || r.clienteRagione || ''),
