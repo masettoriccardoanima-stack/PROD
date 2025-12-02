@@ -1480,34 +1480,40 @@ window.autoSyncMagazzinoDaRighe = window.autoSyncMagazzinoDaRighe || function(ri
         if (Number.isFinite(n)) prezzoOrdine = n;
       }
 
-      const existingArt = byCod.get(cod);
+     const existingArt = byCod.get(cod);
 
-      if (existingArt) {
-        // Se l'articolo esiste, in commessa uso descrizione/UM dell'anagrafica
-        if (existingArt.descrizione) {
-          descr = String(existingArt.descrizione).trim();
-        }
-        if (existingArt.um) {
-          um = normUM(existingArt.um);
-        }
+     if (existingArt) {
+       // Se l'articolo esiste, in commessa uso descrizione/UM dell'anagrafica
+       if (existingArt.descrizione) {
+         descr = String(existingArt.descrizione).trim();
+       }
+       if (existingArt.um) {
+         um = normUM(existingArt.um);
+       }
 
-        // Se la riga non ha prezzo ma l'articolo sì, copio in r.prezzo (per uso futuro)
-        if (prezzoOrdine == null && existingArt.prezzo != null) {
-          r.prezzo = existingArt.prezzo;
-        }
-      } else {
-        // Nuovo articolo da creare in anagrafica
-        const nuovo = {
-          codice     : cod,
-          descrizione: descr,
-          um         : um,
-          prezzo     : prezzoOrdine != null ? prezzoOrdine : 0,
-          costo      : 0,
-          tipo       : 'CONTO LAVORO',
-          nuovoDaOrdine: true
-        };
-        byCod.set(cod, nuovo);
-      }
+       // Traccia sempre l’ultimo prezzo ordine letto (non tocca il prezzo listino)
+       if (prezzoOrdine != null) {
+         existingArt.lastPrezzoOrdine = prezzoOrdine;
+       }
+
+       // Se la riga non ha prezzo ma l'articolo sì, copio in r.prezzo (per uso futuro)
+       if (prezzoOrdine == null && existingArt.prezzo != null) {
+         r.prezzo = existingArt.prezzo;
+       }
+     } else {
+       // Nuovo articolo da creare in anagrafica
+       const nuovo = {
+         codice     : cod,
+         descrizione: descr,
+         um         : um,
+         prezzo     : prezzoOrdine != null ? prezzoOrdine : 0,
+         costo      : 0,
+         tipo       : 'CONTO LAVORO',
+         nuovoDaOrdine: true,
+         lastPrezzoOrdine: prezzoOrdine != null ? prezzoOrdine : undefined
+       };
+       byCod.set(cod, nuovo);
+     }
 
       // Ritorno una riga "normalizzata" per la commessa
       return Object.assign({}, r, {
@@ -19786,6 +19792,9 @@ function SchedaArticoloModal({ articolo, movimenti, onClose }) {
   const um     = String(articolo?.um||'PZ').toUpperCase();
   const prezzo = Number(articolo?.prezzo||0);
   const cmp    = (articolo && Number.isFinite(Number(articolo.cmp))) ? Number(articolo.cmp) : null;
+  const lastPrezzoOrdine = (articolo && articolo.lastPrezzoOrdine != null && articolo.lastPrezzoOrdine !== '')
+    ? Number(articolo.lastPrezzoOrdine)
+    : null;
 
   const movs = (Array.isArray(movimenti)?movimenti:[]).filter(m=>{
     const rl = Array.isArray(m?.righe) ? m.righe
@@ -19812,6 +19821,10 @@ function SchedaArticoloModal({ articolo, movimenti, onClose }) {
         e('div', null, `Descrizione: ${desc||'—'}`),
         e('div', null, `UM: ${um}`),
         e('div', null, `Prezzo: € ${fmt2(prezzo)}`),
+        (lastPrezzoOrdine != null
+          ? e('div', null, `Ultimo prezzo ordine: € ${fmt2(lastPrezzoOrdine)}`)
+          : null
+        ),
         e('div', null, `CMP: ${cmp!=null ? ('€ '+fmt2(cmp)) : '—'}`),
         e('div', null, `Giacenza: ${fmt2(giacenza)}`)
       ),
