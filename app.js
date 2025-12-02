@@ -8062,11 +8062,10 @@ function CommesseView({ query = '' }) {
       const jobId = String(c?.id || '');
       if (!jobId) return 0;
 
-    let sum = 0;
-    (Array.isArray(ddtRows) ? ddtRows : []).forEach(ddt => {
-      if (!ddt) return;
-      if (ddt.deletedAt) return; // 👈 DDT eliminato → ignoralo
-      if (ddt.annullato === true || String(ddt.stato||'') === 'Annullato') return;
+      let sum = 0;
+      (Array.isArray(ddtRows) ? ddtRows : []).forEach(ddt => {
+        if (!ddt) return;
+        if (ddt.annullato === true || String(ddt.stato||'') === 'Annullato') return;
 
         // fallback: id commessa letto dall'header DDT
         const ddtJobId =
