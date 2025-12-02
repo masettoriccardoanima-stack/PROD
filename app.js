@@ -12999,7 +12999,10 @@ const filteredDDT = (Array.isArray(rowsDDT) ? rowsDDT : [])
 
     // form (con sola-lettura)
 showForm && e('form', { className:'card', onSubmit:save, style:{marginTop:8,padding:12} },
-  e('h3', null, editingId ? `Modifica ${form.id}` : 'Nuovo DDT'),
+      e('h3', null, editingId
+        ? `Modifica ${form.id}`
+        : (form.id ? `Nuovo DDT ${form.id}` : 'Nuovo DDT')
+      ),
 
   // TUTTI I CAMPI BLOCCATI IN SOLA LETTURA
   e('fieldset', { disabled: readOnly },
@@ -14027,19 +14030,26 @@ function FattureView(){
         all = [];
       }
 
-      const next = (Array.isArray(all) ? all : []).filter(
-        r => String(r.id) !== String(id)
-      );
+      const nowISO = new Date().toISOString();
 
-      // 2) Scrivi subito in localStorage (write-through)
+      // 2) Soft delete: marca deletedAt/updatedAt senza rimuovere il record
+      const next = (Array.isArray(all) ? all : []).map(r => {
+        if (!r || String(r.id) !== String(id)) return r;
+        const clone = { ...r };
+        clone.deletedAt = nowISO;
+        clone.updatedAt = nowISO;
+        return clone;
+      });
+
+      // 3) Scrivi subito in localStorage (write-through)
       try {
         localStorage.setItem('fattureRows', JSON.stringify(next));
       } catch {}
 
-      // 3) Aggiorna la UI (stato React)
+      // 4) Aggiorna la UI (stato React)
       setRows(next);
 
-      // 4) Sync cloud / KV (best effort, non deve bloccare se offline)
+      // 5) Sync cloud / KV (best effort, non deve bloccare se offline)
       try {
         if (window.syncExportToCloudOnly) {
           window.syncExportToCloudOnly(['fattureRows']);
@@ -14207,7 +14217,14 @@ function FattureView(){
     const filtered = React.useMemo(()=>{
       const s = String(q||'').toLowerCase();
       return (rows||[])
-        .filter(fa => (String(fa.id)+' '+String(fa.cliente||'')+' '+String(fa.note||'')).toLowerCase().includes(s))
+        // nascondi fatture soft-delete
+        .filter(fa => !fa?.deletedAt)
+        // filtro testuale su id + cliente + note
+        .filter(fa =>
+          (String(fa.id)+' '+String(fa.cliente||'')+' '+String(fa.note||''))
+            .toLowerCase()
+            .includes(s)
+        )
         .sort((a,b)=>{
           const ma = String(a.id||'').match(/^(?:FATT|FA)-(\d{4})-(\d{3})$/);
           const mb = String(b.id||'').match(/^(?:FATT|FA)-(\d{4})-(\d{3})$/);
