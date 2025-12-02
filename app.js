@@ -11488,24 +11488,21 @@ const counters0 = lsGet('counters', {}) || {};
       ...appPrev,
       updatedAt: nowIso,
       // --- dati anagrafici base ---
-      ragioneSociale   : form.ragioneSociale,
-      indirizzo        : form.indirizzo,
-      cap              : form.cap,
-      citta            : form.citta,
-      provincia        : form.provincia,
-      nazione          : form.nazione,
-      piva             : form.piva,
-      codiceFiscale    : form.codiceFiscale,
+      ragioneSociale: form.ragioneSociale,
+      indirizzo     : form.indirizzo,
+      cap           : form.cap,
+      citta         : form.citta,
+      provincia     : form.provincia,
+      nazione       : form.nazione,
+      piva          : form.piva,
+      codiceFiscale : form.codiceFiscale,
 
-      // Dati azienda aggiuntivi (usati nelle intestazioni stampe)
-      sedeLegale       : form.sedeLegale,
-      sedeOperativa    : form.sedeOperativa,
-      email            : form.email,
-
-      // Contatti fatturazione / sito
-      emailFatture     : form.emailFatture,
-      telefono         : form.telefono,
-      sitoWeb          : form.sitoWeb,
+      // Dati azienda aggiuntivi (stampe intestazioni)
+      sedeLegale    : sedeLegaleNew    || appPrev.sedeLegale    || '',
+      sedeOperativa : sedeOperativaNew || appPrev.sedeOperativa || '',
+      email         : emailNew         || appPrev.email         || '',
+      telefono      : telefonoNew      || appPrev.telefono      || '',
+      sitoWeb       : form.sitoWeb,
 
       // Dati fiscali aggiuntivi
       rea            : form.rea,
@@ -11568,9 +11565,10 @@ const counters0 = lsGet('counters', {}) || {};
       publicBaseUrl,
 
       // Altre opzioni
-      magUpdateCMP        : magUpdateCMP,
-      publicBaseUrl       : publicBaseUrl,
-      costoOrarioAzienda  : Number(form.costoOrarioAzienda) || 0,
+      magUpdateCMP       : magUpdateCMP,
+      costoOrarioAzienda : Number.isFinite(costoAziendaNew)
+        ? costoAziendaNew
+        : (Number(appPrev.costoOrarioAzienda) || 0),
 
       // Logo
       logoDataUrl     : form.logoDataUrl || app0.logoDataUrl || '',
