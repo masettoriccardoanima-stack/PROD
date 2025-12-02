@@ -10521,8 +10521,22 @@ function ReportProdView({ query = '' } = {}) {
 
   const ddtCommessa = React.useMemo(() => {
     if (!sel) return [];
+    const jobId = String(sel.id || '');
+    if (!jobId) return [];
+
     return (Array.isArray(ddtRows) ? ddtRows : [])
-      .filter(d => String(d.commessa||'') === sel.id)
+      .filter(d => d && !d.deletedAt) // ignora DDT eliminati (soft-delete)
+      .filter(d => !(d.annullato === true || String(d.stato || '') === 'Annullato')) // ignora annullati
+      .filter(d => {
+        const dJobId = String(
+          d.commessaId ||
+          d.commessa   ||
+          d.commessaRif ||
+          d.__fromCommessaId ||
+          ''
+        );
+        return dJobId === jobId;
+      })
       .sort((a,b)=> (Date.parse(b.data||0)||0) - (Date.parse(a.data||0)||0));
   }, [sel, ddtRows]);
 
