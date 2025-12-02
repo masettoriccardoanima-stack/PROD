@@ -18588,19 +18588,45 @@ function plannedMinsFromFase(f){
 window.plannedMinsFromFase = plannedMinsFromFase; // debug console
 
 function plannedMinPerPiece(c){
-  const fasi = Array.isArray(c.fasi) ? c.fasi : [];
+  // 1) Se esistono fasi per-riga con tempi pianificati, uso quelle
+  const righe = Array.isArray(c?.righeArticolo) ? c.righeArticolo : [];
+  const hasRowFasiPlanned = righe.some(row =>
+    Array.isArray(row?.fasi) &&
+    row.fasi.some(f => plannedMinsFromFase(f) > 0)
+  );
+
+  if (righe.length && hasRowFasiPlanned){
+    let perPieceNumer = 0;
+    let piecesSel = 0;
+
+    for (const row of righe){
+      const qRow = Math.max(0, Number(row?.qta || row?.qtaPezzi || row?.pezzi || 0));
+      if (!qRow) continue;
+
+      const perRow = plannedMinPerPieceRow(c, row); // esclude già le una-tantum
+      perPieceNumer += perRow * qRow;
+      piecesSel += qRow;
+    }
+
+    if (piecesSel > 0){
+      return Math.max(0, Math.round(perPieceNumer / piecesSel));
+    }
+    // se arrivo qui (pezzi=0), passo al fallback legacy sotto
+  }
+
+  // 2) Fallback legacy su fasi globali / oreMin-oreHHMM
+  const fasi = Array.isArray(c?.fasi) ? c.fasi : [];
   if (fasi.length === 0){
     // se non ci sono fasi: interpreta oreMin/oreHHMM come tempo per pezzo
     const perPiece = (typeof c.oreMin==='number' ? c.oreMin : toMin(c.oreHHMM||'0')) || 0;
     return Math.max(0, Math.round(perPiece));
   }
+
   let perPiece = 0;
-  let unaTantum = 0;
   for (const f of fasi){
-      const min = plannedMinsFromFase(f);
-    if (f.unaTantum || f.once) unaTantum += min; else perPiece += min;
+    const min = plannedMinsFromFase(f);
+    if (!(f.unaTantum || f.once)) perPiece += min;   // una tantum fuori dal per-pezzo
   }
-  // unaTantum NON è per pezzo; qui ritorniamo solo la parte per pezzo
   return Math.max(0, Math.round(perPiece));
 }
 // === R3: pianificato per singola riga articolo (usa fasi per-riga se presenti) ===
