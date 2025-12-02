@@ -12651,34 +12651,30 @@ function openEdit(id){
   }
 
   // ricerca + ordinamento
-  const listDDT = React.useMemo(()=>{
-    const s = String(qDDT||'').toLowerCase();
-    return (Array.isArray(rowsDDT)?rowsDDT:[])
-      // nascondo i DDT marcati come eliminati
-      .filter(r => r && !r.deletedAt)
+const filteredDDT = (Array.isArray(rowsDDT) ? rowsDDT : [])
+      .filter(r => !r.deletedAt)   // se in futuro useremo deletedAt, spariscono anche dai listati
       .filter(r => {
         const hay =
-          String(r.id||'')+' '+
-          String(r.cliente || r.clienteRagione || '')+' '+
-          String(r.note||'')+' '+
-          String(r.commessaRif||'')+' '+
-          String(r.rifCliente||'');
-        return hay.toLowerCase().includes(s);
+          String(r.id || '') + ' ' +
+          String(r.cliente || r.clienteRagione || '') + ' ' +
+          String(r.note || '') + ' ' +
+          String(r.commessaRif || '') + ' ' +
+          String(r.rifCliente || '');
+        const term = String(qDDT || '').toLowerCase();
+        return hay.toLowerCase().includes(term);
       })
-      .sort((a,b)=>{
-
-        const ma = String(a.id||'').match(/^DDT-(\d{4})-(\d{3})$/);
-        const mb = String(b.id||'').match(/^DDT-(\d{4})-(\d{3})$/);
-        if (ma && mb){
+      .sort((a, b) => {
+        const ma = String(a.id || '').match(/^DDT-(\d{4})-(\d{3})$/);
+        const mb = String(b.id || '').match(/^DDT-(\d{4})-(\d{3})$/);
+        if (ma && mb) {
           if (+mb[1] !== +ma[1]) return +mb[1] - +ma[1];
           if (+mb[2] !== +ma[2]) return +mb[2] - +ma[2];
         }
-        const ta = (Date.parse(b.updatedAt||b.__CreatedAt||b.__createdAt||0) -
-                    Date.parse(a.updatedAt||a.__CreatedAt||a.__createdAt||0));
+        const ta = (Date.parse(b.updatedAt || b.__CreatedAt || b.__createdAt || 0) -
+                    Date.parse(a.updatedAt || a.__CreatedAt || a.__createdAt || 0));
         if (ta !== 0 && isFinite(ta)) return ta;
-        return String(b.id||'').localeCompare(String(a.id||''));
+        return String(b.id || '').localeCompare(String(a.id || ''));
       });
-  },[rowsDDT,qDDT]);
 
   // ===== Modale multi-fattura (definito PRIMA del return) =====
   const modalMultiFa = bulkFaOpen ? e('div', {
