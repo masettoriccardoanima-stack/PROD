@@ -1742,10 +1742,7 @@ window.nextIdUnique = window.nextIdUnique || function (kind, series, storageKey)
   const year = new Date().getFullYear();
   const re = new RegExp(`^${series}-${year}-([0-9]{3})$`, 'i');
   let max = 0;
-  for (const r of rows) {
-    const m = String(r?.id||'').match(re);
-    if (m) { const n = parseInt(m[1], 10) || 0; if (n > max) max = n; }
-  }
+
   const next = max + 1;
   const pad = (window.formatNNN ? window.formatNNN(next) : String(next).padStart(3,'0'));
   return { id: `${series}-${year}-${pad}`, year, num: next };
