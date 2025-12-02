@@ -6607,7 +6607,17 @@ function DashboardView(){
   function opFaseLabel(row){
     const op = row && row.operatore ? row.operatore : '—';
     const idx = row ? row.faseIdx : null;
+
+    // 1) Se abbiamo salvato il nome fase nel record ore, usiamo quello
+    const stored = row && row.faseLabelAtReg
+      ? String(row.faseLabelAtReg).trim()
+      : '';
+    if (stored) return `${op} – ${stored}`;
+
+    // 2) Se non c’è fase → Extra
     if (idx === '' || idx == null) return `${op} – Extra`;
+
+    // 3) Altrimenti ricostruisci dal dataset commesse (come prima)
     const c = (Array.isArray(commesse)?commesse:[]).find(x => x.id === row.commessaId);
     const label = (typeof window.faseLabel === 'function')
       ? window.faseLabel(c, Number(idx))
@@ -19959,6 +19969,7 @@ function MagazzinoView(props){
   const [articoli, setArticoli]     = React.useState(()=> loadArticoliFromLS());
   const [movimenti, setMovimenti]   = React.useState(()=> lsGet('magMovimenti', []));
   const [q, setQ]                   = React.useState('');
+  const [onlyNewFromOrder, setOnlyNewFromOrder] = React.useState(false);
   const [editArt, setEditArt]       = React.useState(null); // {codice, descrizione, um, prezzo, costo} | null
   const [schedaArt, setSchedaArt]   = React.useState(null); // articolo o null
   const [newMov, setNewMov]         = React.useState({ data:new Date().toISOString().slice(0,10), codice:'', qta:0, note:'' });
@@ -20184,19 +20195,35 @@ function MagazzinoView(props){
   );
 
   // ---- ARTICOLI ----
-  const filtered = (articoli||[]).filter(a=>{
-    if (!q) return true;
-    const s = (a.codice+' '+a.descrizione).toLowerCase();
-    return s.includes(q.toLowerCase());
-  });
+  const filtered = (articoli||[])
+    // se attivo, mostra solo articoli creati da ordine (flag nuovoDaOrdine)
+    .filter(a => !onlyNewFromOrder || a?.nuovoDaOrdine)
+    .filter(a=>{
+      if (!q) return true;
+      const s = (a.codice+' '+a.descrizione).toLowerCase();
+      return s.includes(q.toLowerCase());
+    });
 
   const articoliUI = e('div', null,
-  e('div', {className:'actions', style:{justifyContent:'space-between', gap:8}},
-    e('input', {
-      placeholder:'Cerca…',
-      value:q,
-      onChange:ev=>setQ(ev.target.value)
-    }),
+  e('div', {className:'actions', style:{justifyContent:'space-between', gap:8, alignItems:'center'}},
+    e('div', {style:{display:'flex', alignItems:'center', gap:8}},
+      e('input', {
+        placeholder:'Cerca…',
+        value:q,
+        onChange:ev=>setQ(ev.target.value)
+      }),
+      e('label', {
+        className:'muted',
+        style:{fontSize:12, display:'flex', alignItems:'center', gap:4}
+      },
+        e('input', {
+          type:'checkbox',
+          checked: !!onlyNewFromOrder,
+          onChange: ev => setOnlyNewFromOrder(ev.target.checked)
+        }),
+        'Solo articoli da ordine'
+      )
+    ),
     e('div', null,
       // Import articoli (.xlsx/.xls/.csv) – SOLO se non read-only
       e('button', {
@@ -22539,10 +22566,31 @@ var TimbraturaMobileView = function(){
           return { id: `O-${y}-${String(n).padStart(3,'0')}` };
         })()
     );
+
+    // Nome fase al momento della registrazione (per viste future/dashboard)
+    let faseLabelAtReg = '';
+    try{
+      const allC  = lsGet('commesseRows', []);
+      const jobIdStr = String(jobId || '');
+      const idxF  = Number(act.faseIdx);
+      if (jobIdStr && Number.isFinite(idxF) && idxF >= 0){
+        const c = (Array.isArray(allC)?allC:[]).find(x => String(x.id) === jobIdStr);
+        if (c){
+          if (typeof window.faseLabel === 'function'){
+            faseLabelAtReg = String(window.faseLabel(c, idxF) || '').trim();
+          }
+          if (!faseLabelAtReg && Array.isArray(c.fasi) && c.fasi[idxF]){
+            faseLabelAtReg = String(c.fasi[idxF].lav || '').trim();
+          }
+        }
+      }
+    }catch{}
+
     const rec = {
       id: nid.id, data: todayISO(),
       commessaId: String(jobId),
       faseIdx: Number(act.faseIdx),
+      faseLabelAtReg: faseLabelAtReg || undefined,
       operatore: act.operatore,
       oreHHMM, oreMin, ore,
       note: qty>0 ? `Quantità prodotta: ${qty}` : '',
