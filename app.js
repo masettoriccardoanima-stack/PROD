@@ -12778,7 +12778,7 @@ const filteredDDT = (Array.isArray(rowsDDT) ? rowsDDT : [])
           )
         ),
         e('tbody', null,
-          filteredDDT.map(r => e('tr', { key:r.id },
+          listDDT.map(r => e('tr', { key:r.id },
             e('td', null, r.id),
             e('td', null, r.data || ''),
             e('td', null, r.cliente || r.clienteRagione || ''),
