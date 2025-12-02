@@ -8065,6 +8065,7 @@ function CommesseView({ query = '' }) {
       let sum = 0;
       (Array.isArray(ddtRows) ? ddtRows : []).forEach(ddt => {
         if (!ddt) return;
+        if (ddt.deletedAt) return; // 🔴 DDT eliminato → ignoralo
         if (ddt.annullato === true || String(ddt.stato||'') === 'Annullato') return;
 
         // fallback: id commessa letto dall'header DDT
@@ -12252,7 +12253,11 @@ React.useEffect(() => {
   const ddtForCli = React.useMemo(()=>{
     if (!bulkCliId) return [];
     return (rowsDDT||[])
-      .filter(r => String(r.clienteId||'') === String(bulkCliId) && !r.__fatturato)
+      .filter(r =>
+        r && !r.deletedAt &&
+        String(r.clienteId||'') === String(bulkCliId) &&
+        !r.__fatturato
+      )
       .sort((a,b)=>{
         const ma = String(a.id||'').match(/^DDT-(\d{4})-(\d{3})$/);
         const mb = String(b.id||'').match(/^DDT-(\d{4})-(\d{3})$/);
@@ -12451,28 +12456,38 @@ function openEdit(id){
   setEditingId(id);
   setShowForm(true);
 }
-  // 👇 NUOVO BLOCCO P1
+
+  // 👇 P1: soft delete DDT (marca deletedAt + updatedAt)
   async function delRec(id){
     if (!confirm('Eliminare DDT?')) return;
 
-    // 1) Leggo dal localStorage e filtro fuori il DDT
     let all = [];
     try {
       all = JSON.parse(localStorage.getItem('ddtRows') || '[]') || [];
     } catch {
       all = [];
     }
-    const next = (Array.isArray(all) ? all : []).filter(r => String(r.id) !== String(id));
 
-    // 2) Scrivo subito in localStorage (atomico)
+    const nowISO = new Date().toISOString();
+
+    // NON rimuoviamo la riga: la marchiamo come eliminata
+    const next = (Array.isArray(all) ? all : []).map(r => {
+      if (!r || String(r.id) !== String(id)) return r;
+      const clone = { ...r };
+      clone.deletedAt = nowISO;
+      clone.updatedAt = nowISO;
+      return clone;
+    });
+
+    // salva subito in LS
     try {
       localStorage.setItem('ddtRows', JSON.stringify(next));
     } catch {}
 
-    // 3) Aggiorno la UI (stato React)
+    // aggiorna UI
     setRowsDDT(next);
 
-    // 4) Sync cloud + KV (best effort, non deve bloccare)
+    // sync cloud + KV (best effort)
     try {
       if (window.syncExportToCloudOnly) {
         window.syncExportToCloudOnly(['ddtRows']);
@@ -12483,16 +12498,15 @@ function openEdit(id){
       if (window.api?.kv?.set) {
         await window.api.kv.set('ddtRows', next);
       }
-    } catch (e) {
-      console.warn('[DDT] sync eliminazione fallita', e);
+    } catch(e) {
+      console.warn('Errore sync DDT eliminato:', e);
     }
 
-    try {
-      alert('DDT eliminato ✅');
-    } catch {}
+    try { alert('DDT eliminato ✅'); } catch {}
   }
 
   // --- SALVA (DDT) --- SOSTITUISCI INTERAMENTE QUESTA FUNZIONE ---
+
   async function save(ev){
     ev && ev.preventDefault();
 
@@ -12637,9 +12651,11 @@ function openEdit(id){
   }
 
   // ricerca + ordinamento
-const filteredDDT = React.useMemo(()=>{
+  const listDDT = React.useMemo(()=>{
     const s = String(qDDT||'').toLowerCase();
     return (Array.isArray(rowsDDT)?rowsDDT:[])
+      // nascondo i DDT marcati come eliminati
+      .filter(r => r && !r.deletedAt)
       .filter(r => {
         const hay =
           String(r.id||'')+' '+
@@ -12650,6 +12666,7 @@ const filteredDDT = React.useMemo(()=>{
         return hay.toLowerCase().includes(s);
       })
       .sort((a,b)=>{
+
         const ma = String(a.id||'').match(/^DDT-(\d{4})-(\d{3})$/);
         const mb = String(b.id||'').match(/^DDT-(\d{4})-(\d{3})$/);
         if (ma && mb){
@@ -13663,6 +13680,7 @@ window.printDDT = function(state){
         let sum = 0;
         (Array.isArray(ddtRows) ? ddtRows : []).forEach(ddt => {
           if (!ddt) return;
+          if (ddt.deletedAt) return; // 🔴 DDT eliminato → ignoralo
           if (ddt.annullato === true || String(ddt.stato||'') === 'Annullato') return;
 
           const ddtJobId = String(
