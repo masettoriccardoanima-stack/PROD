@@ -15802,7 +15802,8 @@ const ORD_KEY = window.__OF_KEY || (window.__OF_KEY = 'ordiniFornitoriRows');
   }
 
   function startEdit(r){ setDraft(clone(r)); setShowForm(true); }
-  // P3 – eliminazione ordine fornitore robusta (LS + cloud/KV)
+
+    // P3 – eliminazione ordine fornitore robusta (LS + cloud/KV)
   async function removeRow(id){
     if (!confirm('Eliminare ordine?')) return;
 
@@ -15819,11 +15820,18 @@ const ORD_KEY = window.__OF_KEY || (window.__OF_KEY = 'ordiniFornitoriRows');
       all = [];
     }
 
-    const next = (Array.isArray(all) ? all : []).filter(
-      x => String(x?.id || '') !== String(id)
-    );
+    const nowISO = new Date().toISOString();
 
-    // 2) Scrivi subito in localStorage (write-through)
+    // 2) Soft delete: marca deletedAt / updatedAt senza rimuovere il record
+    const next = (Array.isArray(all) ? all : []).map(x => {
+      if (!x || String(x?.id || '') !== String(id)) return x;
+      const clone = { ...x };
+      clone.deletedAt = nowISO;
+      clone.updatedAt = nowISO;
+      return clone;
+    });
+
+    // 3) Scrivi subito in localStorage (write-through)
     try {
       if (typeof lsSet === 'function') {
         lsSet(ORD_KEY, next);
@@ -15832,10 +15840,10 @@ const ORD_KEY = window.__OF_KEY || (window.__OF_KEY = 'ordiniFornitoriRows');
       }
     } catch {}
 
-    // 3) Aggiorna la UI (stato React)
+    // 4) Aggiorna la UI (stato React)
     setRows(next);
 
-    // 4) Sync cloud / KV (best effort, non blocca se offline)
+    // 5) Sync cloud / KV (best effort, non blocca se offline)
     try {
       // snapshot selettivo Supabase
       if (typeof window.syncExportToCloudOnly === 'function') {
@@ -16144,6 +16152,8 @@ setTimeout(()=>{ try{ alert('Ordine salvato.'); }catch{} }, 0);
   };
 
   const frows = (rows||[])
+  // nascondi ordini soft-delete
+  .filter(r => !r?.deletedAt)
   .map(o => ({ ...o, statoCalc: (function(){
     const righe = o?.righe || [];
     if (!righe.length) return o.stato || 'Bozza';
@@ -16196,7 +16206,7 @@ setTimeout(()=>{ try{ alert('Ordine salvato.'); }catch{} }, 0);
 
   return e('div', { className:'container' },
     e('div', { className:'row', style:{alignItems:'center', gap:12, marginBottom:12} },
-      e('h2', null, `Ordini Fornitori (${rows.length})`),
+      e('h2', null, `Ordini Fornitori (${frows.length})`),
       e('div', { style:{flex:1} }),
       e('select', { value:filtroStato, onChange:ev=>setFiltroStato(ev.target.value), style:{minWidth:150} },
         e('option', {value:'TUTTI'}, 'Tutti'),
