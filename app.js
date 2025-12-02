@@ -4698,9 +4698,25 @@ window.stampaCommessaV2 = function (r) {
 
       if (fnSmart) {
         const totMin = Number(fnSmart(r)) || 0;
-        const perMin = pezzi > 0 ? Math.round(totMin / pezzi) : 0;
         oreTotPrev = totMin ? min2hhmm(totMin) : '00:00';
-        orePerPezzo = perMin ? min2hhmm(perMin) : '00:00';
+        totalPlannedMins = totMin;
+
+        // tempo per pezzo: stessa definizione del Report (plannedMinPerPiece)
+        let perMin = 0;
+        try {
+          if (typeof plannedMinPerPiece === 'function') {
+            perMin = Number(plannedMinPerPiece(r)) || 0;
+          }
+        } catch (e2) {
+          perMin = 0;
+        }
+
+        // fallback di sicurezza: se perMin non viene fuori, uso tot/pezzi
+        if (perMin <= 0 && pezzi > 0) {
+          perMin = Math.round(totMin / pezzi);
+        }
+
+        orePerPezzo = perMin > 0 ? min2hhmm(perMin) : '00:00';
       } else if (r.oreTotaliPrev != null) {
         const totMin = Number(r.oreTotaliPrev) || 0;
         if (totMin > 0) {
