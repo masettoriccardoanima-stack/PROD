@@ -5123,28 +5123,35 @@ window.stampaCommessaV2 = function (r) {
             var c = document.getElementById('qr');
             new QRious({ element: c, value: ${JSON.stringify('' + (qrUrl || ''))}, size: 140 });
           } catch(e) { /* ignore */ }
-          setTimeout(function(){ window.print(); }, 200);
+          // La stampa viene gestita dal wrapper esterno (safePrintHTMLStringWithPageNum / iframe)
         </script>
       </body></html>
     `;
 
-    const f = document.createElement('iframe');
-    Object.assign(f.style, {
-      position: 'fixed',
-      right: 0,
-      bottom: 0,
-      width: 0,
-      height: 0,
-      border: 0
-    });
-    document.body.appendChild(f);
-    const w = f.contentWindow;
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
-    w.focus();
-    setTimeout(() => { try { w.print(); } catch(e){} }, 200);
-    setTimeout(() => { try { document.body.removeChild(f); } catch(e){} }, 1500);
+    // --- stampa tramite wrapper unico (no doppio popup) ---
+    if (window.safePrintHTMLStringWithPageNum) {
+      window.safePrintHTMLStringWithPageNum(html);
+    } else if (window.safePrintHTMLString) {
+      window.safePrintHTMLString(html);
+    } else {
+      const f = document.createElement('iframe');
+      Object.assign(f.style, {
+        position: 'fixed',
+        right: 0,
+        bottom: 0,
+        width: 0,
+        height: 0,
+        border: 0
+      });
+      document.body.appendChild(f);
+      const w = f.contentWindow;
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      try { w.focus(); } catch(e){}
+      setTimeout(() => { try { w.print(); } catch(e){} }, 200);
+      setTimeout(() => { try { document.body.removeChild(f); } catch(e){} }, 1500);
+    }
   } catch (e) {
     console.error('Errore in stampaCommessaV2:', e);
     // fallback sul vecchio layout se esiste
