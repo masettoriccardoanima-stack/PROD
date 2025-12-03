@@ -18528,13 +18528,16 @@ function _saveImportedCloudIds(set){
     // ======= LOCALE =======
     (mode==='local') && e('div', {className:'grid', style:{gap:16}},
       // Form locale
-      e('div', {className:'card'},
+      e('div', {
+          className:'card',
+          style: form.id ? { border:'2px solid #f97316' } : {}
+        },
         e('h3', {style:{marginBottom:8}},
           form.id
             ? `Modifica registrazione ore (locale) — ${form.id}`
             : 'Nuova registrazione ore (locale)'
         ),
-        e('form', {className:'form', onSubmit:saveLocal},
+       e('form', {className:'form', onSubmit:saveLocal},
           e('div', null, e('label', null, 'Data'),
             e('input', {type:'date', name:'data', value:form.data, onChange:onChangeLocal})
           ),
@@ -18563,8 +18566,16 @@ function _saveImportedCloudIds(set){
           e('div', {style:{gridColumn:'1 / -1'}}, e('label', null, 'Note'),
             e('textarea', {name:'note', value:form.note, onChange:onChangeLocal})
           ),
-          e('div', {className:'actions', style:{gridColumn:'1 / -1', justifyContent:'flex-end'}},
-            e('button', {className:'btn'}, 'Salva registrazione (locale)')
+          e('div', {className:'actions', style:{gridColumn:'1 / -1', justifyContent:'flex-end', gap:8}},
+            form.id && e('button', {
+              type:'button',
+              className:'btn btn-outline',
+              onClick: resetLocalForm
+            }, 'Annulla modifica'),
+            e('button', {
+              className:'btn',
+              type:'submit'
+            }, form.id ? 'Aggiorna registrazione' : 'Salva registrazione (locale)')
           )
         )
       ),
