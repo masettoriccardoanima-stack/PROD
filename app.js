@@ -23757,17 +23757,33 @@ var TimbraturaMobileView = function(){
 
   const [askQty, setAskQty] = React.useState(null);
   const [qtyVal, setQtyVal] = React.useState('');
-function stop(){
+  function stop(){
     if (!active) return;
     const startMs = new Date(active.startISO).getTime();
     let mins = Math.round((Date.now() - startMs)/60000);
     mins = Math.max(1, mins) * Math.min(3, Math.max(1, Number(active.opsCount)||1));
-    setQtyVal('');
+
+    // === Suggerimento Q.tà pezzi (solo flusso standard, non extra gas) ===
+    let suggestedQty = 0;
+    try{
+      if (!(gasChange || (active && active.isGasChange)) && commessa){
+        // residuo pezzi commessa / riga selezionata
+        suggestedQty = residualPiecesUI(commessa, rigaIdx);
+        if (!Number.isFinite(suggestedQty) || suggestedQty < 0) suggestedQty = 0;
+      }
+    }catch{
+      suggestedQty = 0;
+    }
+
+    // Pre-compila il campo quantità nel popup
+    setQtyVal(String(suggestedQty));
+
     const snap = { ...active };
     // NON rimuoviamo più qui timbraturaActive: aspettiamo la conferma
     setActive(null);
-    setAskQty({ minsEff: mins, snapshot: snap });
+    setAskQty({ minsEff: mins, snapshot: snap, suggestedQty });
   }
+
   function cancelStop(){
     if (askQty && askQty.snapshot){
       const snap = askQty.snapshot;
