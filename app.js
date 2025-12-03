@@ -11650,6 +11650,57 @@ const counters0 = lsGet('counters', {}) || {};
     else alert('Funzioni cloud non inizializzate. Salva e ricarica (Ctrl+F5).');
   }
 
+  function svuotaCestinoDDT(){
+    if (!isAdmin) {
+      alert('Solo l’admin può svuotare il cestino DDT.');
+      return;
+    }
+    if (!confirm('Svuotare il cestino DDT?\nVerranno eliminati DEFINITIVAMENTE i DDT già eliminati (deletedAt) da più di 6 mesi.')) {
+      return;
+    }
+
+    let all = [];
+    try {
+      all = JSON.parse(localStorage.getItem('ddtRows') || '[]') || [];
+    } catch {
+      all = [];
+    }
+
+    const now = new Date();
+    const cutoff = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
+    const cutTime = cutoff.getTime();
+
+    let removed = 0;
+    const kept = (Array.isArray(all) ? all : []).filter(d => {
+      if (!d || !d.deletedAt) return true; // DDT non cancellato → lo tengo
+      const t = Date.parse(d.deletedAt);
+      if (!t || t > cutTime) return true;  // deletedAt recente → lo tengo
+      removed++;
+      return false;                        // deletedAt vecchio → lo butto
+    });
+
+    try {
+      localStorage.setItem('ddtRows', JSON.stringify(kept));
+    } catch {}
+
+    // best effort sync su cloud / KV
+    try {
+      if (typeof window.syncExportToCloudOnly === 'function') {
+        window.syncExportToCloudOnly(['ddtRows']);
+      }
+      if (typeof window.persistKV === 'function') {
+        window.persistKV('ddtRows', kept);
+      }
+      if (window.api?.kv?.set) {
+        window.api.kv.set('ddtRows', kept);
+      }
+    } catch (e) {
+      console.warn('[Impostazioni] sync svuotaCestinoDDT fallita', e);
+    }
+
+    alert(`Cestino DDT svuotato.\nDDT rimossi definitivamente: ${removed}.`);
+  }
+
   const autosync = !!(window.__cloudSync__ && window.__cloudSync__.enabled);
 
   // UI
@@ -11806,7 +11857,15 @@ const counters0 = lsGet('counters', {}) || {};
             disabled: !isAdmin
           })
         ),
-        e('div', {className:'muted'}, 'Inserisci l’ULTIMO numero emesso nel ', new Date().getFullYear(), '. Dal prossimo documento proseguirà +1. Nel 2026 riparte da 1 automaticamente.')
+    e('div', {className:'muted'}, 'Inserisci l’ULTIMO numero emesso nel ', new Date().getFullYear(), '. Dal prossimo documento proseguirà +1. Nel 2026 riparte da 1 automaticamente.')
+      ),
+      e('div', {className:'row', style:{marginTop:8}},
+        e('button', {
+          type:'button',
+          className:'btn btn-outline',
+          disabled: !isAdmin,
+          onClick: svuotaCestinoDDT
+        }, '🗑️ Svuota cestino DDT (≥ 6 mesi)')
       )
     ),
 
@@ -22474,14 +22533,14 @@ var TimbraturaMobileView = function(){
 
   const [askQty, setAskQty] = React.useState(null);
   const [qtyVal, setQtyVal] = React.useState('');
-  function stop(){
+function stop(){
     if (!active) return;
     const startMs = new Date(active.startISO).getTime();
     let mins = Math.round((Date.now() - startMs)/60000);
     mins = Math.max(1, mins) * Math.min(3, Math.max(1, Number(active.opsCount)||1));
     setQtyVal('');
     const snap = { ...active };
-    try { localStorage.removeItem(ACTIVE_KEY); } catch {}
+    // NON rimuoviamo più qui timbraturaActive: aspettiamo la conferma
     setActive(null);
     setAskQty({ minsEff: mins, snapshot: snap });
   }
@@ -22572,6 +22631,7 @@ var TimbraturaMobileView = function(){
       }catch(e){ console.warn('Mirror extra gas failed:', e); }
 
       setAskQty(null); setActive(null); setGasChange(false);
+      try { localStorage.removeItem(ACTIVE_KEY); } catch {}
       alert('Registrazione extra (Cambio bombola gas) salvata ✅');
       try{ window.syncExportToCloudOnly && window.syncExportToCloudOnly(['oreRows']); }catch{}
       return;
@@ -22698,6 +22758,7 @@ var TimbraturaMobileView = function(){
     }catch{}
 
     setAskQty(null); setActive(null); setGasChange(false);
+    try { localStorage.removeItem(ACTIVE_KEY); } catch {}
     alert('Registrazione salvata ✅');
 
     try{ window.syncExportToCloudOnly && window.syncExportToCloudOnly(['oreRows','commesseRows']); }catch{}
