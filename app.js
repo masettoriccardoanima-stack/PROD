@@ -20069,21 +20069,7 @@ function SchedaArticoloModal({ articolo, movimenti, onClose }) {
 function SaturazioneRepartiView({ query = '' }) {
   const e = React.createElement;
 
-  // helper: chiudo commessa se stato/flag/progress dicono che è finita
-  function isCommessaAperta(c){
-    try{
-      const stato = String(c && c.stato || '').toLowerCase();
-      if (stato === 'chiusa' || stato === 'consegnata') return false;
-      if (c && (c.chiusa === true || c.consegnata === true)) return false;
-      const prog = Number(c && (c.progress || c.avanzamento) || 0) || 0;
-      if (prog >= 100) return false;
-      return true;
-    }catch(_){
-      return true;
-    }
-  }
-
-  // helper: ISO week key (YYYY-Www) from 'YYYY-MM-DD'
+  // helper: settimana ISO da data ISO (YYYY-MM-DD)
   function weekKeyFromDateISO(isoDate){
     if (!isoDate) return 'senza-data';
     const parts = String(isoDate).slice(0,10).split('-');
@@ -20093,10 +20079,9 @@ function SaturazioneRepartiView({ query = '' }) {
     const dt = new Date(Date.UTC(y,m,d));
     if (isNaN(dt.getTime())) return 'senza-data';
 
-    // ISO week: Monday=0
     const dayMs = 24*60*60*1000;
     const tmp = new Date(dt.getTime());
-    const dayNr = (tmp.getUTCDay() + 6) % 7; // 0..6, Monday=0
+    const dayNr = (tmp.getUTCDay() + 6) % 7; // Monday=0
     tmp.setUTCDate(tmp.getUTCDate() - dayNr + 3); // nearest Thursday
     const firstThursday = new Date(Date.UTC(tmp.getUTCFullYear(),0,4));
     const firstDayNr = (firstThursday.getUTCDay() + 6) % 7;
@@ -20106,18 +20091,36 @@ function SaturazioneRepartiView({ query = '' }) {
     return year + '-W' + String(week).padStart(2,'0');
   }
 
-  function buildRows(){
-    let commesse = [];
+  function loadCommesse(){
     try{
-      commesse = (typeof lsGet === 'function')
-        ? lsGet('commesseRows', [])
-        : JSON.parse(localStorage.getItem('commesseRows')||'[]');
-    }catch(_){ commesse = []; }
-    if (!Array.isArray(commesse) || !commesse.length) return [];
+      const raw = (typeof window.lsGet === 'function')
+        ? window.lsGet('commesseRows', [])
+        : JSON.parse(localStorage.getItem('commesseRows') || '[]');
+      return Array.isArray(raw) ? raw : [];
+    }catch(_){
+      return [];
+    }
+  }
 
-    // solo commesse "aperte"
-    const active = commesse.filter(isCommessaAperta);
-    if (!active.length) return [];
+  // criteri super-semplici: escludo solo se proprio marcata chiusa/archiviata
+  function isCandidata(c){
+    const stato = String(c?.stato || '').toLowerCase();
+    if (stato === 'chiusa' || stato === 'consegnata') return false;
+    if (c && (c.chiusa === true || c.consegnata === true || c.archiviata === true)) return false;
+    return true;
+  }
+
+  function buildRowsAndStats(){
+    const commesse = loadCommesse();
+    const stats = {
+      tot: commesse.length,
+      candidate: 0,
+      conCarico: 0
+    };
+
+    if (!commesse.length){
+      return { rows: [], stats };
+    }
 
     const buckets = new Map();
 
@@ -20135,63 +20138,91 @@ function SaturazioneRepartiView({ query = '' }) {
       cur.minuti += m;
     };
 
-    for (const c of active){
-      const righe = Array.isArray(c && c.righeArticolo) ? c.righeArticolo : [];
-      const scadRaw = (c && (c.scadenza || c.dataScadenza || c.dataConsegna || c.consegnaPrevista)) || null;
+    for (const c of commesse){
+      if (!isCandidata(c)) continue;
+      stats.candidate++;
+
+      const righe = Array.isArray(c?.righeArticolo)
+        ? c.righeArticolo
+        : (Array.isArray(c?.righe) ? c.righe : []);
+
+      // data di riferimento: scadenza / consegna / data_scadenza...
+      const scadRaw =
+        c?.scadenza ||
+        c?.dataScadenza ||
+        c?.data_scadenza ||
+        c?.dataConsegna ||
+        c?.consegnaPrevista ||
+        c?.consegna_prevista ||
+        null;
+
       const dataScad = scadRaw ? String(scadRaw).slice(0,10) : null;
       const wk = weekKeyFromDateISO(dataScad);
 
-      if (!righe.length){
-        // se non ho righe dettagliate, uso il totale commessa come blocco generico
+      let addedForCommessa = 0;
+
+      // --- 1) Provo a spacchettare per riga e per fase ---
+      if (Array.isArray(righe) && righe.length){
+        for (const row of righe){
+          const rowFasi  = (row && Array.isArray(row.fasi) && row.fasi.length) ? row.fasi : [];
+          const commFasi = (c && Array.isArray(c.fasi) && c.fasi.length) ? c.fasi : [];
+
+          // override per-riga SOLO se contiene tempi pianificati
+          const hasRowPlanned = rowFasi.some(f => {
+            try{
+              return (typeof window.plannedMinsFromFase === 'function')
+                ? window.plannedMinsFromFase(f) > 0
+                : (typeof plannedMinsFromFase === 'function' ? plannedMinsFromFase(f) > 0 : false);
+            }catch(_){ return false; }
+          });
+
+          const fasiEff = hasRowPlanned ? rowFasi : commFasi;
+          let qRow = Number(row?.qta || row?.qtaPezzi || row?.qtaPrevista || c?.qtaPezzi) || 0;
+          if (qRow <= 0) qRow = 1;
+
+          if (!Array.isArray(fasiEff) || !fasiEff.length) continue;
+
+          for (const f of fasiEff){
+            let base = 0;
+            try{
+              if (typeof window.plannedMinsFromFase === 'function') base = window.plannedMinsFromFase(f) || 0;
+              else if (typeof plannedMinsFromFase === 'function') base = plannedMinsFromFase(f) || 0;
+            }catch(_){ base = 0; }
+            if (!base) continue;
+
+            const isUnaTantum = !!(f.unaTantum || f.once);
+            const tot = isUnaTantum ? base : (base * qRow);
+
+            const rep = String(
+              (f && (f.reparto || f.repartoNome || f.lav || f.nome)) || ''
+            ).trim() || '[Senza fase]';
+
+            add(wk, rep, tot);
+            addedForCommessa += tot;
+          }
+        }
+      }
+
+      // --- 2) Fallback: se non ho aggiunto nulla, uso totale commessa ---
+      if (addedForCommessa <= 0){
         try{
-          if (typeof plannedMinTotalCommessaSmart === 'function'){
+          if (typeof window.plannedMinTotalCommessaSmart === 'function'){
+            const tot = window.plannedMinTotalCommessaSmart(c);
+            if (tot > 0){
+              add(wk, '[Commessa]', tot);
+              addedForCommessa += tot;
+            }
+          } else if (typeof plannedMinTotalCommessaSmart === 'function'){
             const tot = plannedMinTotalCommessaSmart(c);
-            if (tot > 0) add(wk, '[Commessa]', tot);
-            continue;
+            if (tot > 0){
+              add(wk, '[Commessa]', tot);
+              addedForCommessa += tot;
+            }
           }
         }catch(_){}
-        continue;
       }
 
-      for (const row of righe){
-        const rowFasi  = (row && Array.isArray(row.fasi) && row.fasi.length) ? row.fasi : [];
-        const commFasi = (c && Array.isArray(c.fasi) && c.fasi.length) ? c.fasi : [];
-        const hasRowPlanned = rowFasi.some(f =>
-          (typeof plannedMinsFromFase === 'function') ? plannedMinsFromFase(f) > 0 : false
-        );
-        const fasiEff = hasRowPlanned ? rowFasi : commFasi;
-
-        let qRow = Number(row && (row.qta || row.qtaPezzi || row.qtaPrevista || c.qtaPezzi)) || 0;
-        if (qRow <= 0) qRow = 1;
-
-        if (!fasiEff.length){
-          // fallback: se non ci sono fasi, ma ho per-pezzo, attribuisco al bucket generico
-          try{
-            if (typeof plannedMinPerPieceRow === 'function'){
-              const perPiece = plannedMinPerPieceRow(c, row);
-              if (perPiece > 0) add(wk, '[Commessa]', perPiece * qRow);
-            }
-          }catch(_){}
-          continue;
-        }
-
-        for (const f of fasiEff){
-          let base = 0;
-          try{
-            if (typeof plannedMinsFromFase === 'function') base = plannedMinsFromFase(f) || 0;
-          }catch(_){ base = 0; }
-          if (!base) continue;
-
-          const isUnaTantum = !!(f.unaTantum || f.once);
-          const tot = isUnaTantum ? base : (base * qRow);
-
-          const rep = String(
-            (f && (f.reparto || f.repartoNome || f.lav || f.nome)) || ''
-          ).trim() || '[Senza fase]';
-
-          add(wk, rep, tot);
-        }
-      }
+      if (addedForCommessa > 0) stats.conCarico++;
     }
 
     const out = Array.from(buckets.values());
@@ -20203,10 +20234,12 @@ function SaturazioneRepartiView({ query = '' }) {
       if (b.weekKey === 'senza-data') return -1;
       return a.weekKey.localeCompare(b.weekKey);
     });
-    return out;
+
+    return { rows: out, stats };
   }
 
-  const rows = buildRows();
+  const { rows, stats } = buildRowsAndStats();
+
   const fmtHH = (mins) => {
     if (typeof window.fmtHHMMfromMin === 'function') return window.fmtHHMMfromMin(mins);
     if (typeof window.fmtHHMM === 'function') return window.fmtHHMM(mins);
@@ -20218,11 +20251,18 @@ function SaturazioneRepartiView({ query = '' }) {
   return e('div', { className:'page' },
     e('h2', null, 'Saturazione reparti (pianificato)'),
     e('p', { style:{ maxWidth:600, fontSize:13, color:'#4b5563'} },
-      'Carico pianificato per settimana e reparto, calcolato dai tempi previsti nelle fasi delle commesse aperte. ',
-      'Al momento viene mostrato solo il monte ore pianificato (nessuna capacità per reparto).'
+      'Carico pianificato per settimana e reparto, calcolato dai tempi previsti nelle commesse. ',
+      'In questa versione viene mostrato solo il monte ore pianificato; la capacità per reparto la aggiungiamo dopo.'
+    ),
+    e('p', { style:{ fontSize:11, color:'#9ca3af', marginTop:4 } },
+      'Commesse totali: ', String(stats.tot),
+      ' — considerate: ', String(stats.candidate),
+      ' — con carico pianificato > 0: ', String(stats.conCarico)
     ),
     !rows.length
-      ? e('p', { className:'muted' }, 'Nessuna commessa aperta con tempi pianificati.')
+      ? e('p', { className:'muted', style:{ marginTop:8 } },
+          'Nessuna commessa con carico pianificato trovata (controlla che i tempi previsti siano impostati).'
+        )
       : e('table', { className:'table', style:{ marginTop:12 } },
           e('thead', null,
             e('tr', null,
