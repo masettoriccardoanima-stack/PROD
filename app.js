@@ -23759,7 +23759,7 @@ function stop(){
       faseLabelAtReg: faseLabelAtReg || undefined,
       operatore: act.operatore,
       oreHHMM, oreMin, ore,
-      note: qty>0 ? `Quantità prodotta: ${qty}` : '',
+      note      : '',
       qtaPezzi: qty
     };
 
