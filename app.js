@@ -18719,75 +18719,77 @@ function _saveImportedCloudIds(set){
                   if (tb!==ta) return tb-ta;
                   return String(b.id||'').localeCompare(String(a.id||''));
                 })).map((r,i)=>{
-                  const faseLab = (function(){
-                    // Nessuna fase = Extra (lavoro fuori fase)
-                    if (r.faseIdx === '' || r.faseIdx == null) return 'Extra';
+                const faseLab = (function(){
+                  // Nessuna fase → Extra
+                  if (r.faseIdx === '' || r.faseIdx == null) return 'Extra';
 
-                    // Se abbiamo salvato il nome fase nel record ore, usiamo quello
-                    const stored = r.faseLabelAtReg ? String(r.faseLabelAtReg).trim() : '';
-                    if (stored) return stored;
+                  // 1) Se abbiamo salvato un nome fase, ma NON è "Fase N", usiamo quello
+                  const storedRaw = r.faseLabelAtReg != null ? String(r.faseLabelAtReg).trim() : '';
+                  if (storedRaw && !/^fase\s+\d+$/i.test(storedRaw)) {
+                    return storedRaw;
+                  }
 
-                    const idx = Number(r.faseIdx);
-                    if (!Number.isFinite(idx) || idx < 0) return `Fase ${r.faseIdx}`;
+                  const idx = Number(r.faseIdx);
+                  if (!Number.isFinite(idx) || idx < 0) return `Fase ${r.faseIdx}`;
 
-                    const commId = r.commessaId != null ? String(r.commessaId) : '';
-                    const allC = Array.isArray(commesse) ? commesse : [];
-                    const c = allC.find(x => String(x.id) === commId);
+                  const commId = r.commessaId != null ? String(r.commessaId) : '';
+                  const allC = Array.isArray(commesse) ? commesse : [];
+                  const c = allC.find(x => String(x.id) === commId);
 
-                    let label = '';
+                  let label = '';
 
-                    // 1) Fasi per-riga articolo, se abbiamo rigaIdx
+                  // 2) Fasi per-riga articolo, se abbiamo rigaIdx
+                  try{
+                    const righe = c && Array.isArray(c.righeArticolo)
+                      ? c.righeArticolo
+                      : (c && Array.isArray(c.righe) ? c.righe : []);
+                    const rIdxRaw = r.rigaIdx;
+                    const rIdx = (rIdxRaw === '' || rIdxRaw == null) ? null : Number(rIdxRaw);
+
+                    if (
+                      Number.isFinite(rIdx) &&
+                      rIdx >= 0 &&
+                      Array.isArray(righe) &&
+                      righe[rIdx] &&
+                      Array.isArray(righe[rIdx].fasi)
+                    ){
+                      const f = righe[rIdx].fasi[idx];
+                      if (f){
+                        label = f.lav || f.label || f.nome || f.reparto || f.repartoNome || '';
+                      }
+                    }
+                  }catch(e){}
+
+                  // 3) Fasi globali commessa
+                  if (!label){
                     try{
-                      const righe = c && Array.isArray(c.righeArticolo)
-                        ? c.righeArticolo
-                        : (c && Array.isArray(c.righe) ? c.righe : []);
-                      const rIdxRaw = r.rigaIdx;
-                      const rIdx = (rIdxRaw === '' || rIdxRaw == null) ? null : Number(rIdxRaw);
-
-                      if (
-                        Number.isFinite(rIdx) &&
-                        rIdx >= 0 &&
-                        Array.isArray(righe) &&
-                        righe[rIdx] &&
-                        Array.isArray(righe[rIdx].fasi)
-                      ){
-                        const f = righe[rIdx].fasi[idx];
-                        if (f){
-                          label = f.lav || f.label || f.nome || f.reparto || f.repartoNome || '';
-                        }
+                      const fasiG = c && Array.isArray(c.fasi) ? c.fasi : [];
+                      if (fasiG[idx]){
+                        const f = fasiG[idx];
+                        label = f.lav || f.label || f.nome || f.reparto || f.repartoNome || '';
                       }
                     }catch(e){}
+                  }
 
-                    // 2) Fasi globali commessa
-                    if (!label){
-                      try{
-                        const fasiG = c && Array.isArray(c.fasi) ? c.fasi : [];
-                        if (fasiG[idx]){
-                          const f = fasiG[idx];
-                          label = f.lav || f.label || f.nome || f.reparto || f.repartoNome || '';
-                        }
-                      }catch(e){}
-                    }
+                  // 4) Fasi standard da appSettings (stesso indice)
+                  if (!label){
+                    try{
+                      const app = (typeof lsGet === 'function')
+                        ? lsGet('appSettings', {})
+                        : JSON.parse(localStorage.getItem('appSettings')||'{}');
+                      const fas = Array.isArray(app && app.fasiStandard) ? app.fasiStandard : [];
+                      const entry = fas[idx];
+                      if (entry){
+                        label = (typeof entry === 'string')
+                          ? entry
+                          : (entry.label || entry.nome || entry.lav || entry.reparto || entry.repartoNome || '');
+                      }
+                    }catch(e){}
+                  }
 
-                    // 3) Fasi standard da appSettings
-                    if (!label){
-                      try{
-                        const app = (typeof lsGet === 'function')
-                          ? lsGet('appSettings', {})
-                          : JSON.parse(localStorage.getItem('appSettings')||'{}');
-                        const fas = Array.isArray(app && app.fasiStandard) ? app.fasiStandard : [];
-                        const entry = fas[idx];
-                        if (entry){
-                          label = (typeof entry === 'string')
-                            ? entry
-                            : (entry.label || entry.nome || entry.lav || entry.reparto || entry.repartoNome || '');
-                        }
-                      }catch(e){}
-                    }
-
-                    if (!label) label = `Fase ${idx+1}`;
-                    return label;
-                  })();
+                  if (!label) label = `Fase ${idx+1}`;
+                  return label;
+                })();
                   return e('tr', {key:r.id||i},
                     e('td', null,
                       r.id,
