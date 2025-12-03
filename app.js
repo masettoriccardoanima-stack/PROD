@@ -4473,6 +4473,11 @@ function applyCloudQtyToCommessa(commessaId, faseIdx, qty){
   }
 }
 
+// Espongo la funzione core (commessa + oreRows) per usarla altrove
+if (typeof window !== 'undefined') {
+  window.producedPiecesCore = producedPieces;
+}
+
 function producedPieces(c, oreRows){
   if (!c) return 0;
 
@@ -23421,7 +23426,7 @@ var TimbraturaMobileView = function(){
     const idxNum =
       (rigaIdx === '' || rigaIdx == null) ? null : Number(rigaIdx);
 
-    // 1) Se ho una riga selezionata con fasi per-riga → mantengo la logica attuale
+    // 1) Caso con riga articolo selezionata: mantengo la logica attuale per-riga
     if (Number.isFinite(idxNum) &&
         Array.isArray(c.righeArticolo) &&
         c.righeArticolo[idxNum]) {
@@ -23432,22 +23437,22 @@ var TimbraturaMobileView = function(){
       return Math.max(0, totRiga - prodRiga);
     }
 
-    // 2) Residuo a livello di commessa → uso prima le timbrature locali (oreRows),
-    //    poi i fallback legacy se necessario
+    // 2) Residuo a livello di commessa: uso le timbrature locali (oreRows)
     let prodComm = 0;
     try {
       const oreRows = lsGet('oreRows', []);
+      const arr = Array.isArray(oreRows) ? oreRows : [];
+
       if (typeof window.producedPiecesCore === 'function') {
-        // stessa logica "core" usata da CommesseView
-        const arr = Array.isArray(oreRows) ? oreRows : [];
         prodComm = window.producedPiecesCore(c, arr);
       } else if (typeof window.producedPieces === 'function') {
         // vecchia logica globale, se ancora presente
         prodComm = window.producedPieces(c);
       } else {
-        // fallback locale (solo su c.qtaProdotta / fasi)
-        prodComm = producedPieces(c);
+        // fallback locale (solo su stato commessa)
+        prodComm = producedPieces(c, arr);
       }
+
       if (!Number.isFinite(prodComm) || prodComm < 0) prodComm = 0;
     } catch {
       try {
