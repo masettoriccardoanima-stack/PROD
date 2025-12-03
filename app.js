@@ -18639,6 +18639,22 @@ function _saveImportedCloudIds(set){
 
   // Import nuove dal Cloud (accetta {silent:true} per non mostrare alert)
   async function importNewFromCloud(opts={}) {
+  function parseQtyFromNote(note) {
+    try {
+      const s = String(note || '');
+      // pattern tipo "Qta: 5"
+      let m = s.match(/Qta\s*[:=]\s*(\d+)/i);
+      if (!m) {
+        // pattern vecchio "Quantità prodotta: 5"
+        m = s.match(/Quantit[àa]\s*prodotta\s*[:=]\s*(\d+)/i);
+      }
+      if (!m) return 0;
+      const val = Number(m[1].replace(',', '.'));
+      return (Number.isFinite(val) && val > 0) ? val : 0;
+    } catch {
+      return 0;
+    }
+  }
   const silent = !!opts.silent;
   if(!sbOk){ if(!silent) alert('Configura Supabase in Impostazioni.'); return 0; }
   try{
@@ -18676,6 +18692,7 @@ function _saveImportedCloudIds(set){
       }
       const oreMin = Number(r.minutes||0);
       const { year, num } = getNextOreProgressivo();
+      const qtaPezzi = parseQtyFromNote(r.note);
       const rec = {
         id: `O-${year}-${String(num).padStart(3,'0')}`,
         data: String(r.created_at||'').slice(0,10),
@@ -18683,6 +18700,7 @@ function _saveImportedCloudIds(set){
         faseIdx: (r.fase_idx==null ? null : Number(r.fase_idx)),
         operatore: r.operatore || '',
         oreHHMM: fmtHHMMfromMin(oreMin),
+        qtaPezzi,
         note: r.note || '',
         oreMin,
         ore: +((oreMin||0)/60).toFixed(2),
