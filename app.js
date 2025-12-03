@@ -6313,7 +6313,8 @@ function OrdiniFornitoriRitardoView({ query = '' }) {
             e('th', {className:'right'}, 'Ritardo (gg)'),
             e('th', null, 'Stato'),
             e('th', {className:'right'}, 'Qta residua'),
-            e('th', {className:'right'}, 'Totale ordine')
+            e('th', {className:'right'}, 'Totale ordine'),
+            e('th', null, 'Azioni')
           )
         ),
         e('tbody', null,
@@ -6329,10 +6330,20 @@ function OrdiniFornitoriRitardoView({ query = '' }) {
                 e('td', {className:'right'}, (function(v){
                   const n = Number(v||0);
                   return n ? n.toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '';
-                })(o.totale))
+                })(o.totale)),
+                e('td', null,
+                  e('button', {
+                    type:'button',
+                    className:'btn btn-sm',
+                    onClick:()=>{
+                      try { localStorage.setItem('__OF_OPEN_ID', String(o.id||'')); } catch(_){}
+                      location.hash = '#/ordini';
+                    }
+                  }, 'Apri')
+                )
               ))
             : e('tr', null,
-                e('td', { colSpan:8, className:'muted' }, 'Nessun ordine in ritardo secondo i filtri attuali.')
+                e('td', { colSpan:9, className:'muted' }, 'Nessun ordine in ritardo secondo i filtri attuali.')
               )
         )
       )
@@ -16636,6 +16647,20 @@ setTimeout(()=>{ try{ alert('Ordine salvato.'); }catch{} }, 0);
     return true;
   })
   .sort(compareOF);
+
+    // Se arriviamo da "OF in ritardo" con un ID da aprire, apri subito l'ordine
+  React.useEffect(()=>{
+    try{
+      const openId = localStorage.getItem('__OF_OPEN_ID');
+      if (!openId) return;
+      localStorage.removeItem('__OF_OPEN_ID');
+      const target = (rows || []).find(r => String(r.id) === openId);
+      if (target) {
+        setDraft(clone(target));
+        setShowForm(true);
+      }
+    }catch(_){}
+  }, [rows]);
 
   // UI
   async function creaNuovoOrdine(){
