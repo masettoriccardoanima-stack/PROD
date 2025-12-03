@@ -17987,6 +17987,11 @@ function RegistrazioniOreView({ query = '' }) {
       qtaPezzi  : (r.qtaPezzi!=null && r.qtaPezzi!=='') ? String(r.qtaPezzi) : '',
       note      : r.note || ''
     });
+
+    // porta in alto il form, così vedi chiaramente che sei in modifica
+    try{
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }catch{}
   }
   
     // Validazione dati form locale
