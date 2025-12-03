@@ -4413,6 +4413,66 @@ window.createDDTRapidoFromCommessa = function(c){
   }catch(e){ console.error(e); alert('Errore creazione DDT'); }
 };
 
+function applyCloudQtyToCommessa(commessaId, faseIdx, qty){
+  try{
+    const cid = (commessaId != null) ? String(commessaId) : '';
+    const q   = Math.max(0, Number(qty || 0));
+    if (!cid || !q) return;
+
+    const all = lsGet('commesseRows', []);
+    const ix  = all.findIndex(c => String(c.id) === cid);
+    if (ix < 0) return;
+
+    const c = { ...all[ix] };
+    const totComm = Math.max(1, Number(c.qtaPezzi || 1));
+
+    // 1) Se esiste la fase globale, aggiorno quella
+    let didPerFase = false;
+    const fIdx = (faseIdx == null ? null : Number(faseIdx));
+    if (Array.isArray(c.fasi) && Number.isFinite(fIdx) && fIdx >= 0 && c.fasi[fIdx]){
+      const prevF = Math.max(0, Number(c.fasi[fIdx].qtaProdotta || 0));
+      const nuovo = Math.max(0, Math.min(totComm, prevF + q));
+      c.fasi = c.fasi.map((f, j) =>
+        j === fIdx ? { ...f, qtaProdotta: nuovo } : f
+      );
+      didPerFase = true;
+    }
+
+    // 2) Ricalcolo q.tà prodotta totale
+    if (didPerFase){
+      // uso la stessa logica centrale
+      c.qtaProdotta = producedPieces(c);
+    } else {
+      // fallback: non ho fasi → aumento direttamente qtaProdotta
+      const prev = Math.max(0, Number(c.qtaProdotta || 0));
+      c.qtaProdotta = Math.max(0, Math.min(totComm, prev + q));
+    }
+
+    all[ix] = c;
+    lsSet('commesseRows', all);
+    window.__anima_dirty = true;
+
+    // 3) Se ho appena completato la commessa, gestisco etichette (come in Timbratura)
+    const prod = (typeof window.producedPieces === 'function')
+      ? window.producedPieces(c)
+      : Math.max(0, Number(c.qtaProdotta || 0));
+    const justCompleted = (prod >= totComm) && !c.__completedAt;
+    if (justCompleted){
+      c.__completedAt = new Date().toISOString();
+      all[ix] = c; lsSet('commesseRows', all);
+      try{
+        if (typeof window.openEtichetteColliDialog === 'function'){
+          window.openEtichetteColliDialog(c);
+        } else if (typeof window.triggerEtichetteFor === 'function'){
+          window.triggerEtichetteFor(c, {});
+        }
+      }catch(e){}
+    }
+  }catch(e){
+    console.warn('applyCloudQtyToCommessa failed', e);
+  }
+}
+
 function producedPieces(c, oreRows){
   if (!c) return 0;
 
@@ -18719,13 +18779,19 @@ function _saveImportedCloudIds(set){
         faseIdx: (r.fase_idx==null ? null : Number(r.fase_idx)),
         operatore: r.operatore || '',
         oreHHMM: fmtHHMMfromMin(oreMin),
-        qtaPezzi,
+        qtaPezzi,              // (se l’avevamo già messo prima)
         note: r.note || '',
         oreMin,
         ore: +((oreMin||0)/60).toFixed(2),
         __createdAt: new Date(r.created_at || Date.now()).toISOString()
       };
+
+      if (rec.qtaPezzi && rec.commessaId) {
+        applyCloudQtyToCommessa(rec.commessaId, rec.faseIdx, rec.qtaPezzi);
+      }
+
       toAdd.push(rec);
+
       if (cloudId) importedIds.add(cloudId);
       if (r.created_at && r.created_at > maxIso) maxIso = r.created_at;
     }
