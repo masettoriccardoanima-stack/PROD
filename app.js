@@ -23426,22 +23426,45 @@ var TimbraturaMobileView = function(){
     const idxNum =
       (rigaIdx === '' || rigaIdx == null) ? null : Number(rigaIdx);
 
-    // 1) Caso con riga articolo selezionata: mantengo la logica attuale per-riga
-    if (Number.isFinite(idxNum) &&
-        Array.isArray(c.righeArticolo) &&
-        c.righeArticolo[idxNum]) {
+  // 1) Caso con riga articolo selezionata: mantengo la logica attuale per-riga
+  if (Number.isFinite(idxNum) &&
+      Array.isArray(c.righeArticolo) &&
+      c.righeArticolo[idxNum]) {
 
-      const r = c.righeArticolo[idxNum] || {};
-      const totRiga = Math.max(1, Number(r.qta || totComm));
-      const prodRiga = producedPiecesUI(c, idxNum);
-      return Math.max(0, totRiga - prodRiga);
-    }
+    const r = c.righeArticolo[idxNum] || {};
+    const totRiga = Math.max(1, Number(r.qta || totComm));
+    const prodRiga = producedPiecesUI(c, idxNum);
+
+    console.log('[TIMB][dbg] residualPiecesUI:row', {
+      cid: String(c.id || ''),
+      idxNum,
+      totRiga,
+      prodRiga,
+      resid: Math.max(0, totRiga - prodRiga)
+    });
+
+    return Math.max(0, totRiga - prodRiga);
+  }
 
     // 2) Residuo a livello di commessa: uso le timbrature locali (oreRows)
     let prodComm = 0;
     try {
       const oreRows = lsGet('oreRows', []);
       const arr = Array.isArray(oreRows) ? oreRows : [];
+
+      const evForJob = arr.filter(o =>
+        String(o?.commessaId || '') === String(c.id || '')
+      );
+
+      console.log('[TIMB][dbg] residualPiecesUI:start', {
+        cid: String(c.id || ''),
+        rigaIdx,
+        idxNum,
+        totComm,
+        oreRowsLen: arr.length,
+        evForJob: evForJob.length,
+        hasCore: typeof window.producedPiecesCore === 'function'
+      });
 
       if (typeof window.producedPiecesCore === 'function') {
         prodComm = window.producedPiecesCore(c, arr);
@@ -23454,16 +23477,36 @@ var TimbraturaMobileView = function(){
       }
 
       if (!Number.isFinite(prodComm) || prodComm < 0) prodComm = 0;
+
+      console.log('[TIMB][dbg] residualPiecesUI:afterCore', {
+        cid: String(c.id || ''),
+        prodComm
+      });
+
     } catch {
       try {
         prodComm = producedPieces(c);
         if (!Number.isFinite(prodComm) || prodComm < 0) prodComm = 0;
+
+        console.log('[TIMB][dbg] residualPiecesUI:catchProduced', {
+          cid: String(c.id || ''),
+          prodComm
+        });
       } catch {
         prodComm = 0;
+        console.log('[TIMB][dbg] residualPiecesUI:catchFallback', {
+          cid: String(c.id || ''),
+          prodComm
+        });
       }
     }
 
-    return Math.max(0, totComm - prodComm);
+    const resid = Math.max(0, totComm - prodComm);
+    console.log('[TIMB][dbg] residualPiecesUI:result', {
+      cid: String(c.id || ''),
+      resid
+    });
+    return resid;
   }
 
   // ---- fine G1-UI helpers ----
