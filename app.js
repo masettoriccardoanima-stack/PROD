@@ -23500,7 +23500,18 @@ var TimbraturaMobileView = function(){
     const start = async ()=>{
       try{
         if (window.Html5QrcodeScanner){
-          const scanner = new window.Html5QrcodeScanner(elId, { fps: 10, qrbox: 240 }, false);
+          const scanner = new window.Html5QrcodeScanner(
+            elId,
+            {
+              fps: 10,
+              qrbox: 240,
+              // prova a usare sempre la camera posteriore
+              videoConstraints: { facingMode: "environment" },
+              // se l'utente cambia camera, ricordala per le volte successive
+              rememberLastUsedCamera: true
+            },
+            false
+          );
           scanner.render((decodedText)=>{
             try{
               const jid = extractJobId(decodedText);
