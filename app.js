@@ -18246,6 +18246,25 @@ function RegistrazioniOreView({ query = '' }) {
   };
   const todayISO = () => new Date().toISOString().slice(0,10);
 
+    // --- Helper per quantità dentro la nota Cloud (es. "Qta: 5") ---
+  const parseQtyFromNoteCloud = (note) => {
+    try {
+      const s = String(note || '');
+      // pattern tipo "Qta: 5"
+      let m = s.match(/Qta\s*[:=]\s*(\d+)/i);
+      if (!m) {
+        // pattern vecchio "Quantità prodotta: 5"
+        m = s.match(/Quantit[àa]\s*prodotta\s*[:=]\s*(\d+)/i);
+      }
+      if (!m) return '';
+      const val = Number(m[1].replace(',', '.'));
+      if (!Number.isFinite(val) || val <= 0) return '';
+      return String(val);
+    } catch {
+      return '';
+    }
+  };
+
   // --- Helper ID coerenti con Timbratura ---
   function formatNNN(n){ return String(n).padStart(3,'0'); }
 
@@ -18971,6 +18990,7 @@ function _saveImportedCloudIds(set){
                   e('th', null, 'Operatore'),
                   e('th', {className:'right'}, 'Min'),
                   e('th', {className:'right'}, 'HH:MM'),
+                  e('th', {className:'right'}, 'Qta'),
                   e('th', null, 'Note')
                 )
               ),
@@ -19023,6 +19043,7 @@ function _saveImportedCloudIds(set){
                   e('td', null, r.operatore || '—'),
                   e('td', {className:'right'}, String(r.minutes||0)),
                   e('td', {className:'right'}, fmtHHMMfromMin(r.minutes||0)),
+                  e('td', {className:'right'}, parseQtyFromNoteCloud(r.note)),
                   e('td', null, r.note || ' ')
                 ))
               )
