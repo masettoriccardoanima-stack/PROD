@@ -8510,35 +8510,39 @@ function CommesseView({ query = '' }) {
   const fmtHHMM = (mins) => { const t=Math.max(0,Math.round(+mins||0)), h=Math.floor(t/60), m=t%60; return `${h}:${String(m).padStart(2,'0')}`; };
   const todayISO = () => new Date().toISOString().slice(0,10);
 
-  // --- producedPieces coerente ovunque (usa le timbrature locali) ---
+  // --- producedPieces coerente ovunque: calcolata dalle timbrature locali (oreRows) ---
   const producedPieces = (c) => {
     if (!c) return 0;
     try {
-      // Leggo le timbrature locali (oreRows) da localStorage
-      let oreRows = [];
-      try {
-        const raw = localStorage.getItem('oreRows');
-        oreRows = raw ? JSON.parse(raw) || [] : [];
-        if (!Array.isArray(oreRows)) oreRows = [];
-      } catch {
-        oreRows = [];
+      // Totale pezzi teorici della commessa
+      const totComm = Math.max(1, Number(c.qtaPezzi || 0));
+
+      // Leggo le timbrature locali
+      const oreRows = lsGet('oreRows', []);
+      const ev = (Array.isArray(oreRows) ? oreRows : [])
+        .filter(o => String(o?.commessaId || '') === String(c.id || ''));
+
+      // Se NON ho timbrature locali per quella commessa → fallback legacy
+      if (!ev.length) {
+        // 1) Se esiste window.producedPieces globale, la uso (vecchia logica su fasi / qtaProdotta)
+        if (typeof window.producedPieces === 'function') {
+          const v = window.producedPieces(c);
+          return Number.isFinite(v) ? v : 0;
+        }
+
+        // 2) Ultimo fallback: uso c.qtaProdotta clampata al totale
+        const prodLegacy = Math.max(0, Number(c.qtaProdotta || 0));
+        return Math.max(0, Math.min(totComm, prodLegacy));
       }
 
-      // Se esiste la funzione core a 2 argomenti, la uso
-      if (typeof window.producedPiecesCore === 'function') {
-        return window.producedPiecesCore(c, oreRows);
-      }
+      // Se ho timbrature: sommo le quantità pezzi registrate
+      const sum = ev.reduce(
+        (s, o) => s + Math.max(0, Number(o.qtaPezzi || 0)),
+        0
+      );
 
-      // Fallback legacy: uso la vecchia window.producedPieces (solo stato commessa)
-      if (typeof window.producedPieces === 'function') {
-        const v = window.producedPieces(c);
-        return Number.isFinite(v) ? v : 0;
-      }
-
-      // Ultimo fallback di sicurezza: clamp su qtaProdotta commessa
-      const tot = Math.max(1, Number(c.qtaPezzi || 1));
-      const prod = Math.max(0, Number(c.qtaProdotta || 0));
-      return Math.max(0, Math.min(tot, prod));
+      // Clamp a totale commessa (non voglio sovraprodurre oltre qtaPezzi)
+      return Math.max(0, Math.min(totComm, sum));
     } catch {
       return 0;
     }
