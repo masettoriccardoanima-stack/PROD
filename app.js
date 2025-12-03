@@ -17959,12 +17959,12 @@ function RegistrazioniOreView({ query = '' }) {
     });
   }
 
-    function startEditLocal(r){
+  function startEditLocal(r){
     if (!isAdmin){
       alert('Solo un utente ADMIN può modificare una registrazione ore.');
       return;
     }
-    const mins = Number(r.oreMin)||0;
+    const mins = Number(r.oreMin) || toMin(r.oreHHMM || '0') || 0;
     const hhmm = r.oreHHMM || fmtHHMMfromMin(mins);
 
     setForm({
@@ -17998,7 +17998,6 @@ function RegistrazioniOreView({ query = '' }) {
       const nowISO = new Date().toISOString();
 
       const updatedFields = {
-        // id invariato
         data      : form.data,
         commessaId: form.commessaId,
         faseIdx   : (form.faseIdx === '' ? null : Number(form.faseIdx)),
@@ -18018,7 +18017,7 @@ function RegistrazioniOreView({ query = '' }) {
         return { ...r, ...updatedFields };
       }));
 
-      // Audit "update" minimale
+      // audit "update"
       try{
         appendOreAudit({
           ts        : nowISO,
