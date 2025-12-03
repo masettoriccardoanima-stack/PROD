@@ -23421,6 +23421,7 @@ var TimbraturaMobileView = function(){
     const idxNum =
       (rigaIdx === '' || rigaIdx == null) ? null : Number(rigaIdx);
 
+    // 1) Se ho una riga selezionata con fasi per-riga → mantengo la logica attuale
     if (Number.isFinite(idxNum) &&
         Array.isArray(c.righeArticolo) &&
         c.righeArticolo[idxNum]) {
@@ -23431,9 +23432,35 @@ var TimbraturaMobileView = function(){
       return Math.max(0, totRiga - prodRiga);
     }
 
-    const prodComm = producedPieces(c);
+    // 2) Residuo a livello di commessa → uso prima le timbrature locali (oreRows),
+    //    poi i fallback legacy se necessario
+    let prodComm = 0;
+    try {
+      const oreRows = lsGet('oreRows', []);
+      if (typeof window.producedPiecesCore === 'function') {
+        // stessa logica "core" usata da CommesseView
+        const arr = Array.isArray(oreRows) ? oreRows : [];
+        prodComm = window.producedPiecesCore(c, arr);
+      } else if (typeof window.producedPieces === 'function') {
+        // vecchia logica globale, se ancora presente
+        prodComm = window.producedPieces(c);
+      } else {
+        // fallback locale (solo su c.qtaProdotta / fasi)
+        prodComm = producedPieces(c);
+      }
+      if (!Number.isFinite(prodComm) || prodComm < 0) prodComm = 0;
+    } catch {
+      try {
+        prodComm = producedPieces(c);
+        if (!Number.isFinite(prodComm) || prodComm < 0) prodComm = 0;
+      } catch {
+        prodComm = 0;
+      }
+    }
+
     return Math.max(0, totComm - prodComm);
   }
+
   // ---- fine G1-UI helpers ----
 
   // ---- jobId da hash ?job=... o da 'qrJob' persistito ----
