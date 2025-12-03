@@ -22312,6 +22312,7 @@ var TimbraturaMobileView = function(){
   const ACTIVE_KEY = 'timbraturaActive';
 
   const [active, setActive] = React.useState(null);
+  const [orphanActive, setOrphanActive] = React.useState(null);
   React.useEffect(()=>{
     if (thirdOp)      { if (secondOp) setSecondOp(false); setOpsCount(3); }
     else if (secondOp){ setOpsCount(2); }
@@ -22323,16 +22324,24 @@ var TimbraturaMobileView = function(){
   }, [secondOp, thirdOp]); // <-- corretto
 
   // Ripristino sessione attiva per quella commessa
+  // oppure mostra "timbratura orfana" se è su un'altra commessa
   React.useEffect(()=>{
     const raw = lsGet(ACTIVE_KEY, null);
-    if (raw && String(raw.jobId) === String(jobId)){
-      setActive(raw);
-      setOperatore(raw.operatore||'');
-      setFaseIdx(String(raw.faseIdx ?? ''));
-      const oc = Number(raw.opsCount||1);
-      setSecondOp(oc===2); setThirdOp(oc===3); setOpsCount(Math.min(3, Math.max(1, oc)));
-      setGasChange(!!raw.isGasChange);
-      if (typeof raw.rigaIdx === 'number') setRigaIdx(String(raw.rigaIdx));
+    if (raw && raw.jobId){
+      if (String(raw.jobId) === String(jobId)){
+        setActive(raw);
+        setOperatore(raw.operatore||'');
+        setFaseIdx(String(raw.faseIdx ?? ''));
+        const oc = Number(raw.opsCount||1);
+        setSecondOp(oc===2); setThirdOp(oc===3); setOpsCount(Math.min(3, Math.max(1, oc)));
+        setGasChange(!!raw.isGasChange);
+        if (typeof raw.rigaIdx === 'number') setRigaIdx(String(raw.rigaIdx));
+        setOrphanActive(null);
+      } else {
+        setOrphanActive(raw);
+      }
+    } else {
+      setOrphanActive(null);
     }
   },[jobId]);
 
@@ -22750,6 +22759,33 @@ var TimbraturaMobileView = function(){
   );
 
   return e('div', {className:'timbratura', style:{padding:8}},
+    orphanActive && card([
+      e('h4',{style:{fontSize:14, fontWeight:600, marginBottom:4}}, 'Timbratura attiva trovata'),
+      e('div',{className:'muted', style:{marginBottom:6}},
+        `Commessa ${String(orphanActive.jobId||'')} — Operatore ${String(orphanActive.operatore||'')}`
+      ),
+      e('div',{className:'actions', style:{justifyContent:'flex-end', gap:8}},
+        e('button',{
+          className:'btn btn-outline',
+          type:'button',
+          onClick:()=>{
+            try { localStorage.removeItem(ACTIVE_KEY); } catch {}
+            setOrphanActive(null);
+          }
+        }, 'Ignora'),
+        e('button',{
+          className:'btn',
+          type:'button',
+          onClick:()=>{
+            const jid = String(orphanActive.jobId||'').trim();
+            if (!jid) return;
+            // memorizzo anche in qrJob così viene agganciata dal refreshJob()
+            try { localStorage.setItem('qrJob', JSON.stringify(jid)); } catch {}
+            window.location.hash = '#/timbratura?job='+encodeURIComponent(jid);
+          }
+        }, 'Vai alla timbratura')
+      )
+    ]),
     card([
       e('h3',{style:{fontSize:18, fontWeight:700, marginBottom:4}}, 'Timbratura'),
       e('div',{className:'muted', style:{marginBottom:8}}, header),
