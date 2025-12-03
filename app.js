@@ -3565,11 +3565,29 @@ function mergeAppSettings(localApp, remoteApp){
   // il remoto sovrascrive SOLO i campi che fornisce
   const out = { ...localApp, ...remoteApp };
 
-  // proteggi array locali se il remoto NON li fornisce
+  // proteggi array locali se il remoto NON li fornisce affatto
   if (!Array.isArray(remoteApp?.operators) && Array.isArray(localApp?.operators)) {
     out.operators = localApp.operators;
   }
   if (!Array.isArray(remoteApp?.fasiStandard) && Array.isArray(localApp?.fasiStandard)) {
+    out.fasiStandard = localApp.fasiStandard;
+  }
+
+  // se il remoto li fornisce MA sono array vuoti e il locale ha dati, tieni il locale
+  if (
+    Array.isArray(remoteApp?.operators) &&
+    remoteApp.operators.length === 0 &&
+    Array.isArray(localApp?.operators) &&
+    localApp.operators.length > 0
+  ) {
+    out.operators = localApp.operators;
+  }
+  if (
+    Array.isArray(remoteApp?.fasiStandard) &&
+    remoteApp.fasiStandard.length === 0 &&
+    Array.isArray(localApp?.fasiStandard) &&
+    localApp.fasiStandard.length > 0
+  ) {
     out.fasiStandard = localApp.fasiStandard;
   }
 
