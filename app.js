@@ -4565,6 +4565,13 @@ function producedPieces(c, oreRows){
   return Math.max(0, Math.min(tot, sumEv));
 }
 
+// Espone la variante "core" a 2 argomenti (commessa + oreRows)
+// così le viste (es. Commesse) possono leggere la produzione
+// direttamente dalle timbrature locali.
+if (typeof window !== 'undefined') {
+  window.producedPiecesCore = window.producedPiecesCore || producedPieces;
+}
+
 function residualPieces(c, oreRows){
   const tot = Math.max(1, Number(c?.qtaPezzi || 1));
   return Math.max(0, tot - producedPieces(c, oreRows));
@@ -8503,14 +8510,38 @@ function CommesseView({ query = '' }) {
   const fmtHHMM = (mins) => { const t=Math.max(0,Math.round(+mins||0)), h=Math.floor(t/60), m=t%60; return `${h}:${String(m).padStart(2,'0')}`; };
   const todayISO = () => new Date().toISOString().slice(0,10);
 
-  // --- producedPieces coerente ovunque ---
-  const producedPieces = window.producedPieces || function(c){
-    const tot = Math.max(1, Number(c?.qtaPezzi || 1));
-    if (!Array.isArray(c?.fasi) || c.fasi.length === 0) {
-      return Math.min(tot, Math.max(0, Number(c?.qtaProdotta || 0)));
+  // --- producedPieces coerente ovunque (usa le timbrature locali) ---
+  const producedPieces = (c) => {
+    if (!c) return 0;
+    try {
+      // Leggo le timbrature locali (oreRows) da localStorage
+      let oreRows = [];
+      try {
+        const raw = localStorage.getItem('oreRows');
+        oreRows = raw ? JSON.parse(raw) || [] : [];
+        if (!Array.isArray(oreRows)) oreRows = [];
+      } catch {
+        oreRows = [];
+      }
+
+      // Se esiste la funzione core a 2 argomenti, la uso
+      if (typeof window.producedPiecesCore === 'function') {
+        return window.producedPiecesCore(c, oreRows);
+      }
+
+      // Fallback legacy: uso la vecchia window.producedPieces (solo stato commessa)
+      if (typeof window.producedPieces === 'function') {
+        const v = window.producedPieces(c);
+        return Number.isFinite(v) ? v : 0;
+      }
+
+      // Ultimo fallback di sicurezza: clamp su qtaProdotta commessa
+      const tot = Math.max(1, Number(c.qtaPezzi || 1));
+      const prod = Math.max(0, Number(c.qtaProdotta || 0));
+      return Math.max(0, Math.min(tot, prod));
+    } catch {
+      return 0;
     }
-    const perPhase = c.fasi.filter(f => !(f?.unaTantum || f?.once)).map(f => Math.max(0, Number(f.qtaProdotta || 0)));
-    return perPhase.length ? Math.min(tot, Math.min(...perPhase)) : 0;
   };
 
   // --- qta spedita derivata dai DDT collegati ---
