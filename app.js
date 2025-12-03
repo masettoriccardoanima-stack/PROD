@@ -6611,6 +6611,75 @@ function DashboardView(){
     .slice(0, 10);
 
   // ---- UI helper ----
+  // Ricostruisce il nome fase usando anche fasi per-riga, commessa e appSettings
+  function inferFaseLabelRow(row){
+    if (!row || typeof row !== 'object') return '';
+
+    const idxRaw = row.faseIdx;
+    if (idxRaw === '' || idxRaw == null) return '';
+    const idx = Number(idxRaw);
+    if (!Number.isFinite(idx) || idx < 0) return '';
+
+    const commId = row.commessaId != null ? String(row.commessaId) : '';
+    if (!commId) return '';
+
+    const allC = Array.isArray(commesse) ? commesse : [];
+    const c = allC.find(x => String(x.id) === commId);
+    if (!c) return '';
+
+    // 1) Fasi per-riga articolo, se abbiamo rigaIdx
+    try{
+      const righe = Array.isArray(c.righeArticolo)
+        ? c.righeArticolo
+        : (Array.isArray(c.righe) ? c.righe : []);
+      const rIdxRaw = row.rigaIdx;
+      const rIdx = (rIdxRaw === '' || rIdxRaw == null) ? null : Number(rIdxRaw);
+
+      if (
+        Number.isFinite(rIdx) &&
+        rIdx >= 0 &&
+        Array.isArray(righe) &&
+        righe[rIdx] &&
+        Array.isArray(righe[rIdx].fasi)
+      ){
+        const f = righe[rIdx].fasi[idx];
+        if (f){
+          const lab = f.lav || f.label || f.nome || f.reparto || f.repartoNome || '';
+          if (lab) return String(lab).trim();
+        }
+      }
+    }catch(_){}
+
+    // 2) Fasi globali commessa
+    try{
+      const fasiG = Array.isArray(c.fasi) ? c.fasi : [];
+      if (fasiG[idx]){
+        const f = fasiG[idx];
+        const lab = f.lav || f.label || f.nome || f.reparto || f.repartoNome || '';
+        if (lab) return String(lab).trim();
+      }
+    }catch(_){}
+
+    // 3) Fasi standard da appSettings (stesso indice)
+    try{
+      const app = (typeof lsGet === 'function')
+        ? lsGet('appSettings', {})
+        : (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}'); }catch{ return {}; } })();
+
+      const fas = Array.isArray(app && app.fasiStandard) ? app.fasiStandard : [];
+      const entry = fas[idx];
+      if (entry){
+        const lab = (typeof entry === 'string')
+          ? entry
+          : (entry.label || entry.nome || entry.lav || '');
+        if (lab) return String(lab).trim();
+      }
+    }catch(_){}
+
+    // Se non ho trovato nulla, lascio vuoto: deciderà opFaseLabel
+    return '';
+  }
+
   function opFaseLabel(row){
     const op = row && row.operatore ? row.operatore : '—';
     const idx = row ? row.faseIdx : null;
@@ -6624,8 +6693,12 @@ function DashboardView(){
     // 2) Se non c’è fase → Extra
     if (idx === '' || idx == null) return `${op} – Extra`;
 
-    // 3) Altrimenti ricostruisci dal dataset commesse (come prima)
-    const c = (Array.isArray(commesse)?commesse:[]).find(x => x.id === row.commessaId);
+    // 3) Prova a inferire il nome fase usando commessa + riga + appSettings
+    const inferred = inferFaseLabelRow(row);
+    if (inferred) return `${op} – ${inferred}`;
+
+    // 4) Fallback: usa ancora window.faseLabel (potrebbe restituire "Fase N")
+    const c = (Array.isArray(commesse)?commesse:[]).find(x => String(x.id) === String(row.commessaId));
     const label = (typeof window.faseLabel === 'function')
       ? window.faseLabel(c, Number(idx))
       : `Fase ${(Number(idx)||0)+1}`;
