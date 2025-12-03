@@ -2147,6 +2147,7 @@ window.navigateTo = window.navigateTo || function(label){
   const map = {
     'Impostazioni':'#/impostazioni','DDT':'#/ddt','Fatture':'#/fatture','Magazzino':'#/magazzino',
     'Ore':'#/ore','Commesse':'#/commesse','Report':'#/report','Report tempi':'#/report-tempi',
+    'Saturazione reparti':'#/saturazione',
     'Report materiali':'#/report-materiali','OrdiniFornitori':'#/ordini','Dashboard':'#/dashboard',
     'TIMBRATURA':'#/timbratura','Timbratura':'#/timbratura'
   };
@@ -20064,6 +20065,187 @@ function SchedaArticoloModal({ articolo, movimenti, onClose }) {
   );
 }
 
+// === Dashboard Saturazione Reparti (pianificato, tabellare) ===
+function SaturazioneRepartiView({ query = '' }) {
+  const e = React.createElement;
+
+  // helper: chiudo commessa se stato/flag/progress dicono che è finita
+  function isCommessaAperta(c){
+    try{
+      const stato = String(c && c.stato || '').toLowerCase();
+      if (stato === 'chiusa' || stato === 'consegnata') return false;
+      if (c && (c.chiusa === true || c.consegnata === true)) return false;
+      const prog = Number(c && (c.progress || c.avanzamento) || 0) || 0;
+      if (prog >= 100) return false;
+      return true;
+    }catch(_){
+      return true;
+    }
+  }
+
+  // helper: ISO week key (YYYY-Www) from 'YYYY-MM-DD'
+  function weekKeyFromDateISO(isoDate){
+    if (!isoDate) return 'senza-data';
+    const parts = String(isoDate).slice(0,10).split('-');
+    if (parts.length !== 3) return 'senza-data';
+    const y = parseInt(parts[0],10), m = parseInt(parts[1],10)-1, d = parseInt(parts[2],10);
+    if (!y || m<0 || m>11 || !d) return 'senza-data';
+    const dt = new Date(Date.UTC(y,m,d));
+    if (isNaN(dt.getTime())) return 'senza-data';
+
+    // ISO week: Monday=0
+    const dayMs = 24*60*60*1000;
+    const tmp = new Date(dt.getTime());
+    const dayNr = (tmp.getUTCDay() + 6) % 7; // 0..6, Monday=0
+    tmp.setUTCDate(tmp.getUTCDate() - dayNr + 3); // nearest Thursday
+    const firstThursday = new Date(Date.UTC(tmp.getUTCFullYear(),0,4));
+    const firstDayNr = (firstThursday.getUTCDay() + 6) % 7;
+    firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNr + 3);
+    const week = 1 + Math.round((tmp.getTime() - firstThursday.getTime()) / (7*dayMs));
+    const year = tmp.getUTCFullYear();
+    return year + '-W' + String(week).padStart(2,'0');
+  }
+
+  function buildRows(){
+    let commesse = [];
+    try{
+      commesse = (typeof lsGet === 'function')
+        ? lsGet('commesseRows', [])
+        : JSON.parse(localStorage.getItem('commesseRows')||'[]');
+    }catch(_){ commesse = []; }
+    if (!Array.isArray(commesse) || !commesse.length) return [];
+
+    // solo commesse "aperte"
+    const active = commesse.filter(isCommessaAperta);
+    if (!active.length) return [];
+
+    const buckets = new Map();
+
+    const add = (weekKey, reparto, mins) => {
+      const m = Number(mins)||0;
+      if (!m) return;
+      const wk = weekKey || 'senza-data';
+      const rep = reparto || '[Generico]';
+      const key = wk + '||' + rep;
+      let cur = buckets.get(key);
+      if (!cur){
+        cur = { weekKey: wk, reparto: rep, minuti: 0 };
+        buckets.set(key, cur);
+      }
+      cur.minuti += m;
+    };
+
+    for (const c of active){
+      const righe = Array.isArray(c && c.righeArticolo) ? c.righeArticolo : [];
+      const scadRaw = (c && (c.scadenza || c.dataScadenza || c.dataConsegna || c.consegnaPrevista)) || null;
+      const dataScad = scadRaw ? String(scadRaw).slice(0,10) : null;
+      const wk = weekKeyFromDateISO(dataScad);
+
+      if (!righe.length){
+        // se non ho righe dettagliate, uso il totale commessa come blocco generico
+        try{
+          if (typeof plannedMinTotalCommessaSmart === 'function'){
+            const tot = plannedMinTotalCommessaSmart(c);
+            if (tot > 0) add(wk, '[Commessa]', tot);
+            continue;
+          }
+        }catch(_){}
+        continue;
+      }
+
+      for (const row of righe){
+        const rowFasi  = (row && Array.isArray(row.fasi) && row.fasi.length) ? row.fasi : [];
+        const commFasi = (c && Array.isArray(c.fasi) && c.fasi.length) ? c.fasi : [];
+        const hasRowPlanned = rowFasi.some(f =>
+          (typeof plannedMinsFromFase === 'function') ? plannedMinsFromFase(f) > 0 : false
+        );
+        const fasiEff = hasRowPlanned ? rowFasi : commFasi;
+
+        let qRow = Number(row && (row.qta || row.qtaPezzi || row.qtaPrevista || c.qtaPezzi)) || 0;
+        if (qRow <= 0) qRow = 1;
+
+        if (!fasiEff.length){
+          // fallback: se non ci sono fasi, ma ho per-pezzo, attribuisco al bucket generico
+          try{
+            if (typeof plannedMinPerPieceRow === 'function'){
+              const perPiece = plannedMinPerPieceRow(c, row);
+              if (perPiece > 0) add(wk, '[Commessa]', perPiece * qRow);
+            }
+          }catch(_){}
+          continue;
+        }
+
+        for (const f of fasiEff){
+          let base = 0;
+          try{
+            if (typeof plannedMinsFromFase === 'function') base = plannedMinsFromFase(f) || 0;
+          }catch(_){ base = 0; }
+          if (!base) continue;
+
+          const isUnaTantum = !!(f.unaTantum || f.once);
+          const tot = isUnaTantum ? base : (base * qRow);
+
+          const rep = String(
+            (f && (f.reparto || f.repartoNome || f.lav || f.nome)) || ''
+          ).trim() || '[Senza fase]';
+
+          add(wk, rep, tot);
+        }
+      }
+    }
+
+    const out = Array.from(buckets.values());
+    out.sort((a,b)=>{
+      if (a.weekKey === b.weekKey){
+        return a.reparto.localeCompare(b.reparto);
+      }
+      if (a.weekKey === 'senza-data') return 1;
+      if (b.weekKey === 'senza-data') return -1;
+      return a.weekKey.localeCompare(b.weekKey);
+    });
+    return out;
+  }
+
+  const rows = buildRows();
+  const fmtHH = (mins) => {
+    if (typeof window.fmtHHMMfromMin === 'function') return window.fmtHHMMfromMin(mins);
+    if (typeof window.fmtHHMM === 'function') return window.fmtHHMM(mins);
+    const t = Math.max(0, Math.round(Number(mins)||0));
+    const h = Math.floor(t/60), m = t%60;
+    return h + ':' + String(m).padStart(2,'0');
+  };
+
+  return e('div', { className:'page' },
+    e('h2', null, 'Saturazione reparti (pianificato)'),
+    e('p', { style:{ maxWidth:600, fontSize:13, color:'#4b5563'} },
+      'Carico pianificato per settimana e reparto, calcolato dai tempi previsti nelle fasi delle commesse aperte. ',
+      'Al momento viene mostrato solo il monte ore pianificato (nessuna capacità per reparto).'
+    ),
+    !rows.length
+      ? e('p', { className:'muted' }, 'Nessuna commessa aperta con tempi pianificati.')
+      : e('table', { className:'table', style:{ marginTop:12 } },
+          e('thead', null,
+            e('tr', null,
+              e('th', null, 'Settimana'),
+              e('th', null, 'Reparto / fase'),
+              e('th', { style:{ textAlign:'right' } }, 'Min. pianificati'),
+              e('th', { style:{ textAlign:'right' } }, 'Ore pianificate')
+            )
+          ),
+          e('tbody', null,
+            rows.map((r,idx) => e('tr', { key: idx },
+              e('td', null, r.weekKey === 'senza-data' ? 'Senza data' : r.weekKey),
+              e('td', null, r.reparto),
+              e('td', { style:{ textAlign:'right' } }, Math.round(r.minuti)),
+              e('td', { style:{ textAlign:'right' } }, fmtHH(r.minuti))
+            ))
+          )
+        )
+  );
+}
+
+window.SaturazioneRepartiView = window.SaturazioneRepartiView || SaturazioneRepartiView;
+
 /* ================== MAGAZZINO (Articoli + Movimenti) ================== */
 function MagazzinoView(props){
   const initialTab = (props && props.initialTab) ? props.initialTab : 'articoli';
@@ -21842,6 +22024,7 @@ window.findCommessaById = window.findCommessaById || function(id){
 
       ['__section__', 'Report'],
         ['#/report-tempi', 'Report tempi'],
+        ['#/saturazione', 'Saturazione reparti'],
         ['#/report-materiali', 'Report materiali'],
         ['#/report', 'Report'],
 
@@ -23215,6 +23398,7 @@ if (typeof window !== 'undefined') { window.TimbraturaMobileView = TimbraturaMob
     '#/dashboard':        window.DashboardView,
     '#/commesse':         window.CommesseView,
     '#/report-tempi':     window.ReportTempiView,
+    '#/saturazione':      (window.SaturazioneRepartiView || window.SaturazioneView),
     '#/report-materiali': (window.ReportProdView || window.ReportMaterialiView),
     '#/clienti':          window.ClientiView,
     '#/fornitori':        window.FornitoriView,
