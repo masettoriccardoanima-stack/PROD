@@ -9751,7 +9751,8 @@ window.delCommessa     = window.delCommessa     || delCommessa;
                 e('th', null, 'Descrizione'),
                 e('th', null, 'Rif. cliente'),
                 e('th', {className:'right'}, 'Q.tà'),
-                e('th', {className:'right'}, 'Spedita'),   // 👈 nuova colonna
+                e('th', {className:'right'}, 'Spedita'),
+                e('th', {className:'right'}, 'Q.tà prod.'),
                 e('th', null, 'Scadenza'),
                 e('th', null, 'Azioni')
               )
@@ -9895,6 +9896,7 @@ window.delCommessa     = window.delCommessa     || delCommessa;
                       }, info.label)
                     );
                   })(),
+                  e('td', {className:'right'}, String(producedPieces(c) || 0)),
                   (function(){
                     const sc = getScadenzaInfo(c);
                     return e('td', null,
