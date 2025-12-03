@@ -19526,6 +19526,49 @@ function ReportTempiView({ query = '' }) {
 
 function isGasNote(t){ return /cambio\s*bombola\s*gas/i.test(String(t||'')); }
 
+function faseLabelFromRow(row){
+  try{
+    if (!row || typeof row !== 'object') return 'Intera commessa';
+
+    // 1) Nome salvato al momento della timbratura (se non è "Fase N")
+    const storedRaw = row.faseLabelAtReg != null
+      ? String(row.faseLabelAtReg).trim()
+      : '';
+    const isGeneric = /^fase\s+\d+$/i.test(storedRaw);
+    if (storedRaw && !isGeneric) {
+      return storedRaw;
+    }
+
+    const idxRaw = row.faseIdx;
+
+    // 2) Nessuna fase impostata
+    if (idxRaw === '' || idxRaw == null) {
+      if (isGasNote(row.note)) return 'EXTRA: Cambio Bombola Gas';
+      return 'Intera commessa';
+    }
+
+    // 3) Prova a inferire il nome fase dalle strutture commessa/appSettings
+    if (typeof inferFaseLabelRow === 'function') {
+      const inferred = inferFaseLabelRow(row);
+      if (inferred) return inferred;
+    }
+
+    // 4) Fallback: usa ancora window.faseLabel
+    const idx = Number(idxRaw);
+    const commId = row.commessaId != null ? String(row.commessaId) : '';
+    const allC = Array.isArray(commesse) ? commesse : [];
+    const c = allC.find(x => String(x.id) === commId);
+    if (typeof window.faseLabel === 'function') {
+      return window.faseLabel(c, idx);
+    }
+
+    // 5) Ultima spiaggia
+    return `Fase ${(Number(idxRaw)||0)+1}`;
+  } catch(_){
+    return 'Intera commessa';
+  }
+}
+
   // Helper tempo
     const toMin = (hhmm) => {
     const [h, m] = String(hhmm||'0').split(':');
@@ -19972,12 +20015,7 @@ const q = (query||'').toLowerCase();
       const cliente = (c?.cliente || '').toLowerCase();
       const idc = (c?.id || '').toLowerCase();
       const descr = (c?.descrizione || '').toLowerCase();
-      const faseLabel = (function(){
-        if (r.faseIdx == null || r.faseIdx === '') return 'EXTRA: Cambio Bombola Gas';
-        return (typeof window.faseLabel === 'function')
-          ? window.faseLabel(c, Number(r.faseIdx))
-          : `Fase ${(Number(r.faseIdx)||0)+1}`;
-      })().toLowerCase();
+      const faseLabel = String(faseLabelFromRow(r)).toLowerCase();
       const oper = (r.operatore||'').toLowerCase();
       const codice = (r.rigaCodice||'').toLowerCase();
       if (fltCodice && codice !== fltCodice.toLowerCase()) return false;
@@ -20012,12 +20050,7 @@ const q = (query||'').toLowerCase();
         descrizione: byCodice ? (r.rigaDescrizione || c.descrizione || '') : (c.descrizione || ''),
         codice: code,
         faseIdx: isNoFase ? null : (r.faseIdx|0),
-        faseLabel: (isExtra
-          ? 'EXTRA: Cambio Bombola Gas'
-          : (isNoFase
-              ? 'Intera commessa'
-              : ((typeof window.faseLabel === 'function') ? window.faseLabel(c, (r.faseIdx|0)) : `Fase ${(r.faseIdx|0)+1}`)
-            )),
+        faseLabel: faseLabelFromRow(r),
         minutes: 0,
         __commesseSet: byCodice ? new Set() : null,
         __clientiSet: byCodice ? new Set() : null
