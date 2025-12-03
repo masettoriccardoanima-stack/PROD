@@ -6115,6 +6115,232 @@ global.requireLogin = async function () {
   root.render(e(SessionBar));
 })();
 
+// === Nuova vista: Ordini Fornitori in ritardo ===
+function OrdiniFornitoriRitardoView({ query = '' }) {
+  const e = React.createElement;
+  const lsGet = window.lsGet || ((k,d)=>{ try{ const v=JSON.parse(localStorage.getItem(k)); return (v??d);}catch{return d;}});
+  const ORD_KEY = (window.__OF_KEY || 'ordiniFornitoriRows');
+
+  const [fltForn, setFltForn]        = React.useState('');
+  const [dalConsegna, setDalConsegna]= React.useState('');
+  const [alConsegna, setAlConsegna]  = React.useState('');
+  const [minRit, setMinRit]          = React.useState('0');
+  const [q, setQ]                    = React.useState(query || '');
+
+  const allRows = React.useMemo(()=>{
+    const raw = lsGet(ORD_KEY, []);
+    return Array.isArray(raw) ? raw : [];
+  },[]);
+
+  const fornitori = React.useMemo(()=>{
+    const s = new Set();
+    (allRows||[]).forEach(o=>{
+      const nome = String(o.fornitoreRagione || o.fornitore || '').trim();
+      if (nome) s.add(nome);
+    });
+    return Array.from(s).sort((a,b)=> a.localeCompare(b,'it-IT'));
+  },[allRows]);
+
+  const lateRows = React.useMemo(()=>{
+    const MS = 24*60*60*1000;
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const now = today.getTime();
+
+    const minDays = parseInt(String(minRit||'0'),10) || 0;
+    const sQuery  = String(q||'').toLowerCase().trim();
+    const fornSel = String(fltForn||'').toLowerCase().trim();
+
+    const inRange = (iso) => {
+      if (!iso) return true;
+      const t = Date.parse(iso);
+      if (!t) return false;
+      if (dalConsegna && t < Date.parse(dalConsegna)) return false;
+      if (alConsegna && t > (Date.parse(alConsegna) + MS - 1)) return false;
+      return true;
+    };
+
+    const mapStato = (o) => {
+      try{
+        if (typeof window.statoAutoPerOrdine === 'function') {
+          return window.statoAutoPerOrdine(o);
+        }
+      }catch(_){}
+      const righe = Array.isArray(o.righe) ? o.righe : [];
+      const totQ  = righe.reduce((S,r)=> S + Number(r.qta||0), 0);
+      const totRx = righe.reduce((S,r)=> S + Number(r.qtaRicevuta||0), 0);
+      if (!righe.length) return o.stato || 'Bozza';
+      if (totQ>0 && totRx>=totQ) return 'Chiuso';
+      if (totRx>0) return 'Parziale';
+      return o.stato || 'Bozza';
+    };
+
+    return (Array.isArray(allRows)?allRows:[])
+      .filter(o => o && !o.deletedAt)
+      .map(o => {
+        const statoCalc = mapStato(o);
+        const consegna  = o.consegnaPrevista || o.dataConsegna || o.consegna || '';
+        let giorniRitardo = 0;
+        if (consegna) {
+          const t = Date.parse(consegna);
+          if (t) {
+            const diff = Math.floor((now - t) / MS);
+            if (diff > 0) giorniRitardo = diff;
+          }
+        }
+        const righe = Array.isArray(o.righe) ? o.righe : [];
+        const residuoTot = righe.reduce((S,r)=>{
+          const q = Number(r.qta || 0);
+          const rx = Number(r.qtaRicevuta || 0);
+          return S + Math.max(0, q - rx);
+        },0);
+        const totale = righe.reduce((S,r)=>{
+          const q   = Number(r.qta || 0);
+          const pr  = Number(r.prezzo || r.prezzoUnitario || 0);
+          const s   = Number(r.sconto || r.scontoPerc || 0);
+          const net = pr * (Number.isFinite(s) ? (1 - s/100) : 1);
+          return S + (q * net);
+        },0);
+        return { ...o, statoCalc, consegnaEffettiva: consegna, giorniRitardo, residuoTot, totale };
+      })
+      .filter(o => o.consegnaEffettiva && o.giorniRitardo > 0)
+      .filter(o => o.statoCalc !== 'Chiuso' && o.statoCalc !== 'Annullato')
+      .filter(o => {
+        if (!inRange(o.consegnaEffettiva)) return false;
+        if (minDays > 0 && o.giorniRitardo < minDays) return false;
+
+        const fornNome = String(o.fornitoreRagione || o.fornitore || '').toLowerCase();
+        if (fornSel && fornNome !== fornSel) return false;
+
+        if (sQuery) {
+          const hay = [
+            o.id, o.rifOrdine, o.data, o.consegnaEffettiva,
+            o.stato, o.statoCalc,
+            o.fornitoreRagione, o.fornitoreId,
+            ...(Array.isArray(o.righe)?o.righe:[]).map(r => `${r.codice||''} ${r.descr||r.descrizione||''}`)
+          ].join(' ').toLowerCase();
+          if (!hay.includes(sQuery)) return false;
+        }
+        return true;
+      })
+      .sort((a,b)=>{
+        if (b.giorniRitardo !== a.giorniRitardo) return b.giorniRitardo - a.giorniRitardo;
+        const da = a.consegnaEffettiva || '';
+        const db = b.consegnaEffettiva || '';
+        return da.localeCompare(db);
+      });
+  }, [allRows, q, fltForn, dalConsegna, alConsegna, minRit]);
+
+  const totResiduo = lateRows.reduce((S,o)=> S + Number(o.residuoTot||0), 0);
+  const totOrdini  = lateRows.length;
+
+  return e('div', { className:'page' },
+    e('div', { className:'actions', style:{justifyContent:'space-between', alignItems:'center', marginBottom:12} },
+      e('h2', null, `Ordini fornitori in ritardo (${totOrdini})`),
+      e('div', { className:'row', style:{gap:8, alignItems:'center'} },
+        e('button', {
+          type:'button',
+          className:'btn btn-outline',
+          onClick:()=>{ location.hash = '#/ordini'; }
+        }, '⬅️ Torna a ordini')
+      )
+    ),
+    e('div', { className:'card', style:{marginBottom:12} },
+      e('div', { className:'row', style:{gap:8, flexWrap:'wrap'} },
+        e('div', { className:'form-group' },
+          e('label', { className:'lbl' }, 'Fornitore'),
+          e('select', {
+            className:'input',
+            value: fltForn,
+            onChange: ev => setFltForn(ev.target.value)
+          },
+            e('option', { value:'' }, 'Tutti'),
+            fornitori.map(nome => e('option', { key:nome, value:nome }, nome))
+          )
+        ),
+        e('div', { className:'form-group' },
+          e('label', { className:'lbl' }, 'Consegna dal'),
+          e('input', {
+            type:'date',
+            className:'input',
+            value: dalConsegna,
+            onChange: ev => setDalConsegna(ev.target.value)
+          })
+        ),
+        e('div', { className:'form-group' },
+          e('label', { className:'lbl' }, 'Consegna al'),
+          e('input', {
+            type:'date',
+            className:'input',
+            value: alConsegna,
+            onChange: ev => setAlConsegna(ev.target.value)
+          })
+        ),
+        e('div', { className:'form-group' },
+          e('label', { className:'lbl' }, 'Ritardo minimo (giorni)'),
+          e('input', {
+            type:'number',
+            min:0,
+            className:'input',
+            value: minRit,
+            onChange: ev => setMinRit(ev.target.value)
+          })
+        ),
+        e('div', { className:'form-group', style:{minWidth:220} },
+          e('label', { className:'lbl' }, 'Cerca'),
+          e('input', {
+            type:'search',
+            className:'input',
+            placeholder:'ID, rif ordine, codice...',
+            value: q,
+            onChange: ev => setQ(ev.target.value)
+          })
+        ),
+        e('div', { className:'form-group' },
+          e('label', { className:'lbl' }, 'Totale qta residua'),
+          e('div', null, String(totResiduo || 0))
+        )
+      )
+    ),
+    e('div', { className:'table-wrap' },
+      e('table', { className:'table' },
+        e('thead', null,
+          e('tr', null,
+            e('th', null, 'ID'),
+            e('th', null, 'Fornitore'),
+            e('th', null, 'Data ordine'),
+            e('th', null, 'Consegna prevista'),
+            e('th', {className:'right'}, 'Ritardo (gg)'),
+            e('th', null, 'Stato'),
+            e('th', {className:'right'}, 'Qta residua'),
+            e('th', {className:'right'}, 'Totale ordine')
+          )
+        ),
+        e('tbody', null,
+          lateRows.length
+            ? lateRows.map(o => e('tr', { key:o.id },
+                e('td', null, o.id),
+                e('td', null, o.fornitoreRagione || o.fornitore || ''),
+                e('td', null, o.data || ''),
+                e('td', null, o.consegnaEffettiva || ''),
+                e('td', {className:'right'}, String(o.giorniRitardo || 0)),
+                e('td', null, o.statoCalc || o.stato || ''),
+                e('td', {className:'right'}, String(o.residuoTot || 0)),
+                e('td', {className:'right'}, (function(v){
+                  const n = Number(v||0);
+                  return n ? n.toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '';
+                })(o.totale))
+              ))
+            : e('tr', null,
+                e('td', { colSpan:8, className:'muted' }, 'Nessun ordine in ritardo secondo i filtri attuali.')
+              )
+        )
+      )
+    )
+  );
+}
+window.OrdiniFornitoriRitardoView = window.OrdiniFornitoriRitardoView || OrdiniFornitoriRitardoView;
+
 /* ================== MAGAZZINO ▸ MOVIMENTI (compat + CSV + ricalcolo + sorting) ================== */
 function MagazzinoMovimentiView({ query = '' }) {
   const e = React.createElement;
@@ -22416,6 +22642,7 @@ window.findCommessaById = window.findCommessaById || function(id){
         ['#/ordini', 'Ordini fornitori'],
         ['#/ddt', 'DDT'],
         ['#/fatture', 'Fatture'],
+        ['#/ordini-ritardo', 'OF in ritardo'],
 
       ['__section__', 'Magazzino'],
         ['#/magazzino', 'Magazzino'],
@@ -23811,6 +24038,7 @@ if (typeof window !== 'undefined') { window.TimbraturaMobileView = TimbraturaMob
     '#/ddt':              window.DDTView,
     '#/fatture':          window.FattureView,
     '#/ordini':           window.OrdiniFornitoriView,
+    '#/ordini-ritardo':   window.OrdiniFornitoriRitardoView,
     '#/magazzino':        window.MagazzinoView,
     '#/report':           window.ReportView,
     '#/impostazioni':     (window.SettingsView || window.ImpostazioniView),
