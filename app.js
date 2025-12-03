@@ -11351,6 +11351,23 @@ const counters0 = lsGet('counters', {}) || {};
         .filter(Boolean)
     : [];
 
+      // Capacità reparti: app0.capacitaReparti = { Taglio: 40, Saldatura: 55, ... }
+  const capMap = (app0.capacitaReparti && typeof app0.capacitaReparti === 'object')
+    ? app0.capacitaReparti
+    : {};
+  let capacitaRepartiTextInitial = '';
+  try{
+    capacitaRepartiTextInitial = String(app0.capacitaRepartiText || '').trim();
+  }catch(e){
+    capacitaRepartiTextInitial = '';
+  }
+  if (!capacitaRepartiTextInitial && capMap && Object.keys(capMap).length){
+    capacitaRepartiTextInitial = Object.keys(capMap).map(name => {
+      const ore = capMap[name];
+      return String(name) + ': ' + String(ore);
+    }).join('\n');
+  }
+
   const [form, setForm] = React.useState({
     publicBaseUrl : app0.publicBaseUrl || '',
 
@@ -11403,6 +11420,9 @@ const counters0 = lsGet('counters', {}) || {};
 
     // Fasi standard
     fasiStandard     : fasiStandardInitial,
+    
+    // Capacità reparti (ore/settimana)
+    capacitaRepartiText: capacitaRepartiTextInitial,
 
     // Logo (base64 per stampe)
     logoDataUrl      : app0.logoDataUrl || ''
@@ -11561,6 +11581,21 @@ const counters0 = lsGet('counters', {}) || {};
       })
       .filter(Boolean);
 
+          // Capacità reparti: "Reparto: ore" per riga -> { Reparto: oreNumber }
+    const capLines = String(form.capacitaRepartiText || '').split(/\r?\n/);
+    const capacitaReparti = {};
+    capLines.forEach(line => {
+      const t = line.trim();
+      if (!t) return;
+      const parts = t.split(':');
+      const name = (parts[0] || '').trim();
+      if (!name) return;
+      const oreStr = (parts.slice(1).join(':') || '').trim().replace(',', '.');
+      const ore = Number(oreStr);
+      if (!Number.isFinite(ore) || ore <= 0) return;
+      capacitaReparti[name] = ore; // ore/settimana
+    });
+
     // numerazioni
     const numerazioni = Object.assign(
       {},
@@ -11661,10 +11696,12 @@ const counters0 = lsGet('counters', {}) || {};
 
       syncTable      : String(form.syncTable || form.supabaseTable || 'anima_sync'),
 
-      // Utenti, operatori, fasi standard
-      users          : usersSanitized,
-      operators      : operatorsArr,
-      fasiStandard   : fasiStd,
+      // Utenti, operatori, fasi standard, capacità reparti
+      users              : usersSanitized,
+      operators          : operatorsArr,
+      fasiStandard       : fasiStd,
+      capacitaReparti    : capacitaReparti,
+      capacitaRepartiText: form.capacitaRepartiText || '',
 
       // Config timbratura
       timbraturaAutoScarico: !!form.timbraturaAutoScarico,
@@ -11891,6 +11928,22 @@ const counters0 = lsGet('counters', {}) || {};
           disabled: !isAdmin
         }, '➕ Aggiungi fase')
       )
+    ),
+
+        // Capacità reparti (ore/settimana)
+    e('div', {className:'card'},
+      e('h3', null, 'Capacità reparti (ore/settimana)'),
+      e('p', {className:'muted', style:{fontSize:12}},
+        'Uno per riga, formato "Reparto: ore". Esempio:',
+        ' Taglio: 40   Saldatura: 55   Montaggio: 32.'
+      ),
+      e('textarea', {
+        name:'capacitaRepartiText',
+        value: form.capacitaRepartiText || '',
+        onChange: onChange,
+        rows: 4,
+        readOnly: !isAdmin
+      })
     ),
 
     // ► Dati bancari (per stampa di cortesia)
@@ -20297,6 +20350,28 @@ function SaturazioneRepartiView({ query = '' }) {
     return true;
   }
 
+    function loadCapacitaRepartiMin(){
+    try{
+      const app = (typeof window.lsGet === 'function')
+        ? window.lsGet('appSettings', {})
+        : JSON.parse(localStorage.getItem('appSettings')||'{}');
+      const src = app && app.capacitaReparti && typeof app.capacitaReparti === 'object'
+        ? app.capacitaReparti
+        : {};
+      const out = {};
+      Object.keys(src).forEach(name => {
+        const ore = Number(src[name]);
+        if (!Number.isFinite(ore) || ore <= 0) return;
+        const key = String(name).trim();
+        if (!key) return;
+        out[key] = ore * 60; // minuti/settimana
+      });
+      return out;
+    }catch(e){
+      return {};
+    }
+  }
+
   // parser HH:MM locale per questa vista
   const toMinLocal = (s) => {
     const t = String(s || '').trim();
@@ -20456,6 +20531,7 @@ function SaturazioneRepartiView({ query = '' }) {
   }
 
   const { rows, stats } = buildRowsAndStats();
+  const capMinByRep = loadCapacitaRepartiMin();
 
     // costruiamo matrice: settimane × reparti
   const uniqWeeks = [];
@@ -20493,7 +20569,7 @@ function SaturazioneRepartiView({ query = '' }) {
     e('h2', null, 'Saturazione reparti (pianificato)'),
     e('p', { style:{ maxWidth:600, fontSize:13, color:'#4b5563'} },
       'Carico pianificato per settimana e reparto, calcolato dai tempi previsti nelle commesse. ',
-      'In questa versione viene mostrato solo il monte ore pianificato; la capacità per reparto la aggiungiamo dopo.'
+      'Se in Impostazioni imposti la capacità settimanale per reparto (ore), qui vedi anche la percentuale di saturazione e i colori (verde / giallo / rosso).'
     ),
     e('p', { style:{ fontSize:11, color:'#9ca3af', marginTop:4 } },
       'Commesse totali: ', String(stats.tot),
@@ -20521,10 +20597,34 @@ function SaturazioneRepartiView({ query = '' }) {
               const cells = uniqReps.map(rep => {
                 const mins = byKey.get(wk + '||' + rep) || 0;
                 rowTot += mins;
+
+                const capMin = capMinByRep[rep] || 0;
+                let label = '';
+                let cellStyle = { textAlign:'right' };
+
+                if (mins > 0){
+                  label = fmtHH(mins);
+
+                  if (capMin > 0){
+                    const perc = Math.round((mins * 100) / capMin);
+                    label += ' ('+perc+'%)';
+
+                    // Colori saturazione: <70 verde, 70–100 giallo, >100 rosso
+                    if (perc > 100){
+                      cellStyle.background = '#fee2e2';   // rosso chiaro
+                      cellStyle.fontWeight = 600;
+                    } else if (perc >= 70){
+                      cellStyle.background = '#fef9c3';   // giallino
+                    } else {
+                      cellStyle.background = '#dcfce7';   // verdino
+                    }
+                  }
+                }
+
                 return e('td', {
                   key: 'c-'+wk+'||'+rep,
-                  style:{ textAlign:'right' }
-                }, mins ? fmtHH(mins) : '');
+                  style: cellStyle
+                }, label);
               });
 
               const children = [
