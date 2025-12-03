@@ -17940,19 +17940,33 @@ function RegistrazioniOreView({ query = '' }) {
     }
   }
 
-  // Operatori (select se presenti in Impostazioni)
-  function renderOperatoreField_Local(value, onChange){
-    const app = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}'); }catch{return{}} })();
-    const ops = Array.isArray(app.operators) ? app.operators.map(s=>String(s).trim()).filter(Boolean) : [];
-    return ops.length
-      ? e('select', {name:'operatore', value:value, onChange:onChange},
-          e('option', {value:''}, '— seleziona —'),
-          ...ops.map((op,i)=> e('option',{key:i, value:op}, op))
-        )
-      : e('input', {name:'operatore', value:value, onChange:onChange, placeholder:'es. Mario Rossi'});
+// Operatori (select se presenti in Impostazioni)
+function renderOperatoreField_Local(value, onChange){
+  let app = {};
+  try{
+    app = JSON.parse(localStorage.getItem('appSettings')||'{}');
+  }catch{
+    app = {};
   }
 
-  // --- Supabase config (se presente) ---
+  const rawOps = Array.isArray(app.operators) ? app.operators : [];
+  const ops = rawOps.map(item => {
+    if (item && typeof item === 'object') {
+      const lab = item.label || item.nome || item.name || item.id || '';
+      return String(lab || '').trim();
+    }
+    return String(item || '').trim();
+  }).filter(Boolean);
+
+  return ops.length
+    ? e('select', {name:'operatore', value:value, onChange:onChange},
+        e('option', {value:''}, '— seleziona —'),
+        ...ops.map((op,i)=> e('option',{key:i, value:op}, op))
+      )
+    : e('input', {name:'operatore', value:value, onChange:onChange, placeholder:'es. Mario Rossi'});
+}
+
+// --- Supabase config (se presente) ---
   const sbCfg = (typeof getSB === 'function') && getSB();
   const sbOk = !!sbCfg;
 
