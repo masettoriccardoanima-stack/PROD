@@ -18584,10 +18584,46 @@ function _saveImportedCloudIds(set){
                   e('td', null, new Date(r.created_at).toLocaleString('it-IT')),
                   e('td', null, r.commessa_id || '—'),
                   e('td', null, (function(){
-                    if (r.fase_idx==null) return '—';
-                    const c = commesse.find(x=>x.id===r.commessa_id);
-                    const f = c && Array.isArray(c.fasi) ? c.fasi[r.fase_idx|0] : null;
-                    return (f && f.lav) ? f.lav : `Fase ${(r.fase_idx|0)+1}`;
+                    if (r.fase_idx == null) return '—';
+
+                    // Se il record cloud ha già un label esplicito, usiamo quello
+                    const stored = r.fase_label_at_reg || r.fase_label || r.faseLabel;
+                    if (stored) return String(stored);
+
+                    const idx = (r.fase_idx|0);
+                    const cid = String(r.commessa_id || '');
+
+                    const allC = Array.isArray(commesse) ? commesse : [];
+                    const c = allC.find(x => String(x.id) === cid);
+
+                    let label = '';
+
+                    // 1) Fasi della commessa (lav/label/nome/reparto)
+                    try{
+                      if (c && Array.isArray(c.fasi) && c.fasi[idx]) {
+                        const f = c.fasi[idx];
+                        label = f.lav || f.label || f.nome || f.reparto || f.repartoNome || '';
+                      }
+                    }catch(e){}
+
+                    // 2) Fasi standard da appSettings (fallback)
+                    if (!label) {
+                      try{
+                        const app = (typeof lsGet === 'function')
+                          ? lsGet('appSettings', {})
+                          : JSON.parse(localStorage.getItem('appSettings')||'{}');
+                        const fas = Array.isArray(app && app.fasiStandard) ? app.fasiStandard : [];
+                        const entry = fas[idx];
+                        if (entry){
+                          label = (typeof entry === 'string')
+                            ? entry
+                            : (entry.label || entry.nome || entry.lav || entry.reparto || entry.repartoNome || '');
+                        }
+                      }catch(e){}
+                    }
+
+                    if (!label) label = `Fase ${idx+1}`;
+                    return label;
                   })() ),
                   e('td', null, r.operatore || '—'),
                   e('td', {className:'right'}, String(r.minutes||0)),
@@ -18683,12 +18719,74 @@ function _saveImportedCloudIds(set){
                   if (tb!==ta) return tb-ta;
                   return String(b.id||'').localeCompare(String(a.id||''));
                 })).map((r,i)=>{
-                  const c = commesse.find(x=>x.id===r.commessaId);
                   const faseLab = (function(){
-                    if (r.faseIdx==null) return '—';
-                    const f = c && Array.isArray(c?.fasi) ? c.fasi[r.faseIdx|0] : null;
-                    if (typeof window.faseLabel === 'function') return window.faseLabel(c, Number(r.faseIdx));
-                    return (f && f.lav) ? f.lav : `Fase ${(r.faseIdx|0)+1}`;
+                    // Nessuna fase = Extra (lavoro fuori fase)
+                    if (r.faseIdx === '' || r.faseIdx == null) return 'Extra';
+
+                    // Se abbiamo salvato il nome fase nel record ore, usiamo quello
+                    const stored = r.faseLabelAtReg ? String(r.faseLabelAtReg).trim() : '';
+                    if (stored) return stored;
+
+                    const idx = Number(r.faseIdx);
+                    if (!Number.isFinite(idx) || idx < 0) return `Fase ${r.faseIdx}`;
+
+                    const commId = r.commessaId != null ? String(r.commessaId) : '';
+                    const allC = Array.isArray(commesse) ? commesse : [];
+                    const c = allC.find(x => String(x.id) === commId);
+
+                    let label = '';
+
+                    // 1) Fasi per-riga articolo, se abbiamo rigaIdx
+                    try{
+                      const righe = c && Array.isArray(c.righeArticolo)
+                        ? c.righeArticolo
+                        : (c && Array.isArray(c.righe) ? c.righe : []);
+                      const rIdxRaw = r.rigaIdx;
+                      const rIdx = (rIdxRaw === '' || rIdxRaw == null) ? null : Number(rIdxRaw);
+
+                      if (
+                        Number.isFinite(rIdx) &&
+                        rIdx >= 0 &&
+                        Array.isArray(righe) &&
+                        righe[rIdx] &&
+                        Array.isArray(righe[rIdx].fasi)
+                      ){
+                        const f = righe[rIdx].fasi[idx];
+                        if (f){
+                          label = f.lav || f.label || f.nome || f.reparto || f.repartoNome || '';
+                        }
+                      }
+                    }catch(e){}
+
+                    // 2) Fasi globali commessa
+                    if (!label){
+                      try{
+                        const fasiG = c && Array.isArray(c.fasi) ? c.fasi : [];
+                        if (fasiG[idx]){
+                          const f = fasiG[idx];
+                          label = f.lav || f.label || f.nome || f.reparto || f.repartoNome || '';
+                        }
+                      }catch(e){}
+                    }
+
+                    // 3) Fasi standard da appSettings
+                    if (!label){
+                      try{
+                        const app = (typeof lsGet === 'function')
+                          ? lsGet('appSettings', {})
+                          : JSON.parse(localStorage.getItem('appSettings')||'{}');
+                        const fas = Array.isArray(app && app.fasiStandard) ? app.fasiStandard : [];
+                        const entry = fas[idx];
+                        if (entry){
+                          label = (typeof entry === 'string')
+                            ? entry
+                            : (entry.label || entry.nome || entry.lav || entry.reparto || entry.repartoNome || '');
+                        }
+                      }catch(e){}
+                    }
+
+                    if (!label) label = `Fase ${idx+1}`;
+                    return label;
                   })();
                   return e('tr', {key:r.id||i},
                     e('td', null,
