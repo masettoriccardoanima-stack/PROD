@@ -6910,11 +6910,12 @@ function DashboardView(){
     const op = row && row.operatore ? row.operatore : '—';
     const idx = row ? row.faseIdx : null;
 
-    // 1) Se abbiamo salvato il nome fase nel record ore, usiamo quello
-    const stored = row && row.faseLabelAtReg
+    // 1) Se abbiamo salvato il nome fase nel record ore, ma NON è "Fase N", usiamo quello
+    const storedRaw = row && row.faseLabelAtReg
       ? String(row.faseLabelAtReg).trim()
       : '';
-    if (stored) return `${op} – ${stored}`;
+    const isGeneric = /^fase\s+\d+$/i.test(storedRaw);
+    if (storedRaw && !isGeneric) return `${op} – ${storedRaw}`;
 
     // 2) Se non c’è fase → Extra
     if (idx === '' || idx == null) return `${op} – Extra`;
