@@ -16112,7 +16112,18 @@ const ORD_KEY = window.__OF_KEY || (window.__OF_KEY = 'ordiniFornitoriRows');
   const clone = o => JSON.parse(JSON.stringify(o));
   const num = v => Number(v||0);
   const residuoRiga = r => Math.max(0, num(r.qta) - num(r.qtaRicevuta));
-  const totaleDoc = o => (o?.righe||[]).reduce((s,r)=> s + num(r.qta)*num(r.prezzo), 0);
+
+  const totaleRigaImponibile = r => num(r.qta) * num(r.prezzo);
+  const totaleRigaIvato = r => {
+    const imponibile = totaleRigaImponibile(r);
+    const ivaPerc = num(r.iva != null ? r.iva : DEFAULT_IVA);
+    return imponibile * (1 + (ivaPerc || 0) / 100);
+  };
+  const totaleDocImponibile = o => (o?.righe||[]).reduce((s,r)=> s + totaleRigaImponibile(r), 0);
+  const totaleDocIvato = o => (o?.righe||[]).reduce((s,r)=> s + totaleRigaIvato(r), 0);
+
+  // compat: alias storico (imponibile)
+  const totaleDoc = totaleDocImponibile;
 
   // ===== Stato automatico ordine =====
   function statoAutoPerOrdine(o){
@@ -16390,7 +16401,16 @@ const ORD_KEY = window.__OF_KEY || (window.__OF_KEY = 'ordiniFornitoriRows');
       if (idObj && idObj.id) doc.id = idObj.id;
     }
 
-    doc.totale = (doc?.righe||[]).reduce((s,r)=> s + Number(r.qta||0)*Number(r.prezzo||0), 0);
+    const imponibileDoc = (doc?.righe||[]).reduce((s,r)=> s + Number(r.qta||0)*Number(r.prezzo||0), 0);
+    const totaleIvatoDoc = (doc?.righe||[]).reduce((s,r)=>{
+      const q = Number(r.qta||0);
+      const p = Number(r.prezzo||0);
+      const perc = (r.iva != null ? Number(r.iva) : DEFAULT_IVA) || 0;
+      return s + q * p * (1 + perc/100);
+    }, 0);
+    doc.imponibile = imponibileDoc;
+    doc.totaleIvato = totaleIvatoDoc;
+    doc.totale = totaleIvatoDoc;
     doc.stato  = (function(o){
       const righe = o?.righe || [];
       if (!righe.length) return o.stato || 'Bozza';
@@ -16678,9 +16698,13 @@ setTimeout(()=>{ try{ alert('Ordine salvato.'); }catch{} }, 0);
               e('td', null, r.data || ''),
               e('td', null, r.fornitoreRagione || r.fornitoreId || ''),
               e('td', null, (r.righe || []).length),
-              e('td', null, (r.totale || totaleDoc(r)).toFixed(2)),
+              e('td', null, (function(o){
+                const totIvato = (o.totaleIvato != null ? o.totaleIvato : totaleDocIvato(o));
+                return totIvato.toFixed(2);
+              })(r)),
               e('td', null, r.statoCalc || r.stato || 'Bozza'),
-                            e('td', null,
+
+              e('td', null,
                 // Modifica
                 e('button', {
                   className:'btn btn-sm',
@@ -16970,10 +16994,16 @@ e('div', {
               e('td', null, residuoRiga(r)),
               e('td', null,
                 e('input', {
-                  type:'number',
-                  step:'0.01',
-                  value: r.prezzo || 0,
-                  onChange:ev => updRiga(i,{ prezzo:Number(ev.target.value) })
+                  type:'text',
+                  inputMode:'decimal',
+                  value: (r.prezzo != null && !Number.isNaN(r.prezzo))
+                    ? String(r.prezzo).replace('.', ',')
+                    : '',
+                  onChange:ev => {
+                    const raw = (ev.target.value || '').replace(',', '.');
+                    const n = Number(raw);
+                    updRiga(i,{ prezzo: Number.isFinite(n) ? n : 0 });
+                  }
                 })
               ),
               e('td', null,
@@ -16998,7 +17028,15 @@ e('div', {
         ),
 
         e('button', { className:'btn btn-sm', onClick:addRiga }, '➕ Aggiungi riga'),
-        e('div', { style:{float:'right', marginTop:8, fontWeight:'bold'} }, `Totale: € ${(totaleDoc(draft)).toFixed(2)}`)
+        e('div', {
+          style:{float:'right', marginTop:8, fontWeight:'bold', textAlign:'right'}
+        }, (()=>{
+          const imp = totaleDocImponibile(draft);
+          const tot = totaleDocIvato(draft);
+          const iva = tot - imp;
+          const fmt = v => v.toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});
+          return `Imponibile: € ${fmt(imp)}  —  IVA: € ${fmt(iva)}  —  Totale: € ${fmt(tot)}`;
+        })())
       )
     ),
 
