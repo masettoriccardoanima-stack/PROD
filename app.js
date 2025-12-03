@@ -20270,6 +20270,32 @@ function SaturazioneRepartiView({ query = '' }) {
 
   const { rows, stats } = buildRowsAndStats();
 
+    // costruiamo matrice: settimane × reparti
+  const uniqWeeks = [];
+  const uniqReps  = [];
+  const seenWeeks = new Set();
+  const seenReps  = new Set();
+  const byKey     = new Map(); // key = week||reparto → minuti
+
+  rows.forEach(r => {
+    const wk  = r.weekKey || 'senza-data';
+    const rep = r.reparto || '[Generico]';
+    const key = wk + '||' + rep;
+    const min = Number(r.minuti) || 0;
+
+    if (!seenWeeks.has(wk)) { seenWeeks.add(wk); uniqWeeks.push(wk); }
+    if (!seenReps.has(rep)) { seenReps.add(rep); uniqReps.push(rep); }
+
+    byKey.set(key, (byKey.get(key) || 0) + min);
+  });
+
+  uniqWeeks.sort((a,b)=>{
+    if (a === 'senza-data') return 1;
+    if (b === 'senza-data') return -1;
+    return a.localeCompare(b);
+  });
+  uniqReps.sort((a,b)=> a.localeCompare(b));
+
   const fmtHH = (mins) => {
     const t = Math.max(0, Math.round(Number(mins)||0));
     const h = Math.floor(t/60), m = t%60;
@@ -20291,22 +20317,40 @@ function SaturazioneRepartiView({ query = '' }) {
       ? e('p', { className:'muted', style:{ marginTop:8 } },
           'Nessuna commessa con carico pianificato trovata (controlla che i tempi previsti siano impostati).'
         )
-      : e('table', { className:'table', style:{ marginTop:12 } },
+      : e('table', { className:'table', style:{ marginTop:12, fontSize:13 } },
           e('thead', null,
             e('tr', null,
               e('th', null, 'Settimana'),
-              e('th', null, 'Reparto / fase'),
-              e('th', { style:{ textAlign:'right' } }, 'Min. pianificati'),
-              e('th', { style:{ textAlign:'right' } }, 'Ore pianificate')
+              // una colonna per reparto
+              ...uniqReps.map(rep =>
+                e('th', { key: 'h-'+rep, style:{ textAlign:'right' } }, rep)
+              ),
+              e('th', { style:{ textAlign:'right' } }, 'Totale ore')
             )
           ),
           e('tbody', null,
-            rows.map((r,idx) => e('tr', { key: idx },
-              e('td', null, r.weekKey === 'senza-data' ? 'Senza data' : r.weekKey),
-              e('td', null, r.reparto),
-              e('td', { style:{ textAlign:'right' } }, Math.round(r.minuti)),
-              e('td', { style:{ textAlign:'right' } }, fmtHH(r.minuti))
-            ))
+            uniqWeeks.map(wk => {
+              let rowTot = 0;
+              const cells = uniqReps.map(rep => {
+                const mins = byKey.get(wk + '||' + rep) || 0;
+                rowTot += mins;
+                return e('td', {
+                  key: 'c-'+wk+'||'+rep,
+                  style:{ textAlign:'right' }
+                }, mins ? fmtHH(mins) : '');
+              });
+
+              const children = [
+                e('td', { key:'wk' }, wk === 'senza-data' ? 'Senza data' : wk),
+                ...cells,
+                e('td', {
+                  key:'tot',
+                  style:{ textAlign:'right', fontWeight:600 }
+                }, rowTot ? fmtHH(rowTot) : '')
+              ];
+
+              return e('tr', { key: wk }, children);
+            })
           )
         )
   );
