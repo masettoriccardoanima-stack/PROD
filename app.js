@@ -7669,6 +7669,15 @@ function safePrintHTMLString(html){
     }
   }
 }
+
+  // Helper globale: converte minuti → "H:MM"
+  window.fmtHHMMfromMin = window.fmtHHMMfromMin || function fmtHHMMfromMin(mins){
+    const t = Math.max(0, Math.round(Number(mins) || 0));
+    const h = Math.floor(t / 60);
+    const m = t % 60;
+    return `${h}:${String(m).padStart(2,'0')}`;
+  };
+
   // === REF CLIENTE → TESTO (globale, idempotente) ===
   window.refClienteToText = window.refClienteToText || function refClienteToText(x) {
     if (!x) return '';
@@ -17957,6 +17966,7 @@ function RegistrazioniOreView({ query = '' }) {
       qtaPezzi: '',
       note: ''
     });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function startEditLocal(r){
@@ -17977,6 +17987,32 @@ function RegistrazioniOreView({ query = '' }) {
       qtaPezzi  : (r.qtaPezzi!=null && r.qtaPezzi!=='') ? String(r.qtaPezzi) : '',
       note      : r.note || ''
     });
+  }
+  
+    // Validazione dati form locale
+  function validateLocal(){
+    const d = String(form.data || '').trim();
+    if (!d) return 'Seleziona una data per la registrazione.';
+
+    const commId = String(form.commessaId || '').trim();
+    if (!commId) return 'Seleziona una commessa.';
+
+    // ore: accetto HH:MM o minuti numerici
+    const rawOre = String(form.oreHHMM || '').trim();
+    const mins = toMin(rawOre || form.oreMin || form.ore);
+    if (!Number.isFinite(mins) || mins <= 0){
+      return 'Inserisci un valore di ore valido nel formato H:MM (es. 1:30).';
+    }
+
+    // qtaPezzi non è obbligatoria, ma se c'è dev’essere >= 0
+    if (form.qtaPezzi != null && form.qtaPezzi !== ''){
+      const q = Number(form.qtaPezzi);
+      if (!Number.isFinite(q) || q < 0){
+        return 'La quantità pezzi deve essere un numero positivo (o vuota).';
+      }
+    }
+
+    return '';
   }
 
   // Salva locale (nuova o modifica esistente)
