@@ -17959,13 +17959,90 @@ function RegistrazioniOreView({ query = '' }) {
     });
   }
 
-  // Salva locale (assegna ID qui)
+    function startEditLocal(r){
+    if (!isAdmin){
+      alert('Solo un utente ADMIN può modificare una registrazione ore.');
+      return;
+    }
+    const mins = Number(r.oreMin)||0;
+    const hhmm = r.oreHHMM || fmtHHMMfromMin(mins);
+
+    setForm({
+      id        : r.id || '',
+      data      : r.data || todayISO(),
+      commessaId: r.commessaId || '',
+      faseIdx   : (r.faseIdx == null ? '' : String(r.faseIdx)),
+      operatore : r.operatore || '',
+      oreHHMM   : hhmm,
+      qtaPezzi  : (r.qtaPezzi!=null && r.qtaPezzi!=='') ? String(r.qtaPezzi) : '',
+      note      : r.note || ''
+    });
+  }
+
+  // Salva locale (nuova o modifica esistente)
   function saveLocal(ev){
     ev.preventDefault();
     const err = validateLocal(); 
     if (err){ alert(err); return; }
 
     const oreMin = toMin(form.oreHHMM);
+    const isEdit = !!form.id && (rows || []).some(r => r.id === form.id);
+
+    // --- MODIFICA ESISTENTE ---
+    if (isEdit){
+      if (!isAdmin){
+        alert('Solo un utente ADMIN può modificare una registrazione ore esistente.');
+        return;
+      }
+
+      const nowISO = new Date().toISOString();
+
+      const updatedFields = {
+        // id invariato
+        data      : form.data,
+        commessaId: form.commessaId,
+        faseIdx   : (form.faseIdx === '' ? null : Number(form.faseIdx)),
+        operatore : form.operatore,
+        oreHHMM   : form.oreHHMM,
+        oreMin,
+        ore       : +(oreMin/60).toFixed(2),
+        qtaPezzi  : Math.max(0, Number(form.qtaPezzi||0)),
+        note      : form.note,
+        __editedAt      : nowISO,
+        __editedBy      : currentUserLabel || null,
+        __editedManually: true
+      };
+
+      setRows(prev => prev.map(r => {
+        if (r.id !== form.id) return r;
+        return { ...r, ...updatedFields };
+      }));
+
+      // Audit "update" minimale
+      try{
+        appendOreAudit({
+          ts        : nowISO,
+          action    : 'update',
+          id        : form.id || null,
+          commessaId: form.commessaId || '',
+          data      : form.data || null,
+          operatore : form.operatore || '',
+          minutes   : oreMin,
+          qtaPezzi  : Math.max(0, Number(form.qtaPezzi||0)),
+          note      : form.note || '',
+          user      : currentUserLabel || null,
+          role      : (u && u.role) || null
+        });
+      }catch(err){
+        console.error('appendOreAudit update failed', err);
+      }
+
+      alert('Registrazione aggiornata ✅');
+      resetLocalForm();
+      return;
+    }
+
+    // --- NUOVA REGISTRAZIONE ---
     const { year, num } = getNextOreProgressivo();
     const recId = `O-${year}-${String(num).padStart(3,'0')}`;
 
@@ -18412,7 +18489,11 @@ function _saveImportedCloudIds(set){
     (mode==='local') && e('div', {className:'grid', style:{gap:16}},
       // Form locale
       e('div', {className:'card'},
-        e('h3', {style:{marginBottom:8}}, 'Nuova registrazione ore (locale)'),
+        e('h3', {style:{marginBottom:8}},
+          form.id
+            ? `Modifica registrazione ore (locale) — ${form.id}`
+            : 'Nuova registrazione ore (locale)'
+        ),
         e('form', {className:'form', onSubmit:saveLocal},
           e('div', null, e('label', null, 'Data'),
             e('input', {type:'date', name:'data', value:form.data, onChange:onChangeLocal})
@@ -18485,7 +18566,10 @@ function _saveImportedCloudIds(set){
                     return (f && f.lav) ? f.lav : `Fase ${(r.faseIdx|0)+1}`;
                   })();
                   return e('tr', {key:r.id||i},
-                    e('td', null, r.id),
+                    e('td', null,
+                      r.id,
+                      r.__editedManually ? ' ✎' : ''
+                    ),
                     e('td', null, r.data),
                     e('td', null, r.commessaId),
                     e('td', null, faseLab || '—'),
@@ -18493,7 +18577,19 @@ function _saveImportedCloudIds(set){
                     e('td', {className:'right'}, r.oreHHMM || fmtHHMMfromMin(r.oreMin||0)),
                     e('td', {className:'right'}, String(r.qtaPezzi||0)),
                     e('td', null, r.note || ' '),
-                    e('td', null, e('button', {className:'btn btn-outline', onClick:()=>delLocal(r)}, '🗑'))
+                    e('td', null,
+                      isAdmin && e('button', {
+                        className:'btn btn-outline',
+                        type:'button',
+                        onClick:()=>startEditLocal(r)
+                      }, '✏️'),
+                      ' ',
+                      e('button', {
+                        className:'btn btn-outline',
+                        type:'button',
+                        onClick:()=>delLocal(r)
+                      }, '🗑')
+                    )
                   );
                 })
               )
