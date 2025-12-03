@@ -293,7 +293,7 @@ input, select, textarea{ padding: 8px 10px; }
 .table .btn{ padding:4px 8px; font-size:11px; border-radius:8px; }
 /* ====== LAYOUT GUARDRAILS ====== */
 :root{
-  --sidebar-w: 260px;        /* larghezza sidebar */
+  --sidebar-w: 200px;        /* larghezza sidebar */
   --sessionbar-safe: 148px;  /* spazio per il box admin/logout in alto a dx */
 }
 
@@ -447,7 +447,7 @@ input, select, textarea{ padding: 8px 10px; }
 
 /* ===== HOTFIX LAYOUT + TABELLE (DEVE STARE ALLA FINE) ===== */
 :root{
-  --sidebar-w: 260px;
+  --sidebar-w: 200px;
   --sessionbar-safe: 148px;
 }
 
@@ -821,7 +821,7 @@ aside.sidebar + aside.card, aside.sidebar ~ aside.card { display: none !importan
 
 /* Variabile unica larghezza sidebar */
 :root{
-  --sidebar-w: 260px !important;
+  --sidebar-w: 200px !important;
 }
 
 /* Desktop: sidebar fissa + content spostato a destra */
