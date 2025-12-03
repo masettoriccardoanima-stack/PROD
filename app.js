@@ -20102,12 +20102,48 @@ function SaturazioneRepartiView({ query = '' }) {
     }
   }
 
-  // criteri super-semplici: escludo solo se proprio marcata chiusa/archiviata
+  // criteri semplici: escludo solo se marcata chiusa/archiviata
   function isCandidata(c){
-    const stato = String(c?.stato || '').toLowerCase();
+    const stato = String(c && c.stato || '').toLowerCase();
     if (stato === 'chiusa' || stato === 'consegnata') return false;
     if (c && (c.chiusa === true || c.consegnata === true || c.archiviata === true)) return false;
     return true;
+  }
+
+  // parser HH:MM locale per questa vista
+  const toMinLocal = (s) => {
+    const t = String(s || '').trim();
+    if (!t) return 0;
+    const m = t.match(/^(\d{1,4})(?::([0-5]?\d))?$/);
+    if (!m) return 0;
+    const h = parseInt(m[1] || '0', 10) || 0;
+    const mm = parseInt(m[2] || '0', 10) || 0;
+    return h*60 + mm;
+  };
+
+  // minuti pianificati da una singola fase (copia logica ReportTempi)
+  function minsFromFase(f){
+    if (!f || typeof f !== 'object') return 0;
+
+    const n =
+      (typeof f.oreMin === 'number' && isFinite(f.oreMin)) ? f.oreMin :
+      (typeof f.minuti === 'number' && isFinite(f.minuti)) ? f.minuti :
+      (typeof f.min === 'number' && isFinite(f.min)) ? f.min :
+      (typeof f.orePrevMin === 'number' && isFinite(f.orePrevMin)) ? f.orePrevMin :
+      null;
+
+    if (n != null) return Math.max(0, Math.round(n));
+
+    const hhmm =
+      f.orePrevHHMM ||        // per-riga, quello che compili nel form
+      f.oreHHMM ||
+      f.hhmm ||
+      f.orePrevistaHHMM ||
+      f.orePrev ||
+      f.durataHHMM ||
+      '';
+
+    return Math.max(0, Math.round(toMinLocal(hhmm || '0')));
   }
 
   function buildRowsAndStats(){
@@ -20125,7 +20161,7 @@ function SaturazioneRepartiView({ query = '' }) {
     const buckets = new Map();
 
     const add = (weekKey, reparto, mins) => {
-      const m = Number(mins)||0;
+      const m = Number(mins) || 0;
       if (!m) return;
       const wk = weekKey || 'senza-data';
       const rep = reparto || '[Generico]';
@@ -20142,18 +20178,12 @@ function SaturazioneRepartiView({ query = '' }) {
       if (!isCandidata(c)) continue;
       stats.candidate++;
 
-      const righe = Array.isArray(c?.righeArticolo)
+      const righe = Array.isArray(c && c.righeArticolo)
         ? c.righeArticolo
-        : (Array.isArray(c?.righe) ? c.righe : []);
+        : (Array.isArray(c && c.righe) ? c.righe : []);
 
-      // data di riferimento: scadenza / consegna / data_scadenza...
       const scadRaw =
-        c?.scadenza ||
-        c?.dataScadenza ||
-        c?.data_scadenza ||
-        c?.dataConsegna ||
-        c?.consegnaPrevista ||
-        c?.consegna_prevista ||
+        (c && (c.scadenza || c.dataScadenza || c.data_scadenza || c.dataConsegna || c.consegnaPrevista || c.consegna_prevista)) ||
         null;
 
       const dataScad = scadRaw ? String(scadRaw).slice(0,10) : null;
@@ -20161,33 +20191,22 @@ function SaturazioneRepartiView({ query = '' }) {
 
       let addedForCommessa = 0;
 
-      // --- 1) Provo a spacchettare per riga e per fase ---
+      // 1) Uso fasi per-riga / globali con preferenza per-riga
       if (Array.isArray(righe) && righe.length){
         for (const row of righe){
           const rowFasi  = (row && Array.isArray(row.fasi) && row.fasi.length) ? row.fasi : [];
           const commFasi = (c && Array.isArray(c.fasi) && c.fasi.length) ? c.fasi : [];
 
-          // override per-riga SOLO se contiene tempi pianificati
-          const hasRowPlanned = rowFasi.some(f => {
-            try{
-              return (typeof window.plannedMinsFromFase === 'function')
-                ? window.plannedMinsFromFase(f) > 0
-                : (typeof plannedMinsFromFase === 'function' ? plannedMinsFromFase(f) > 0 : false);
-            }catch(_){ return false; }
-          });
-
+          const hasRowPlanned = rowFasi.some(f => minsFromFase(f) > 0);
           const fasiEff = hasRowPlanned ? rowFasi : commFasi;
-          let qRow = Number(row?.qta || row?.qtaPezzi || row?.qtaPrevista || c?.qtaPezzi) || 0;
+
+          let qRow = Number(row && (row.qta || row.qtaPezzi || row.qtaPrevista || row.pezzi || c.qtaPezzi)) || 0;
           if (qRow <= 0) qRow = 1;
 
           if (!Array.isArray(fasiEff) || !fasiEff.length) continue;
 
           for (const f of fasiEff){
-            let base = 0;
-            try{
-              if (typeof window.plannedMinsFromFase === 'function') base = window.plannedMinsFromFase(f) || 0;
-              else if (typeof plannedMinsFromFase === 'function') base = plannedMinsFromFase(f) || 0;
-            }catch(_){ base = 0; }
+            const base = minsFromFase(f);
             if (!base) continue;
 
             const isUnaTantum = !!(f.unaTantum || f.once);
@@ -20203,23 +20222,34 @@ function SaturazioneRepartiView({ query = '' }) {
         }
       }
 
-      // --- 2) Fallback: se non ho aggiunto nulla, uso totale commessa ---
+      // 2) Fallback: se non ho carico, provo su fasi globali / ore totali
       if (addedForCommessa <= 0){
-        try{
-          if (typeof window.plannedMinTotalCommessaSmart === 'function'){
-            const tot = window.plannedMinTotalCommessaSmart(c);
-            if (tot > 0){
-              add(wk, '[Commessa]', tot);
-              addedForCommessa += tot;
-            }
-          } else if (typeof plannedMinTotalCommessaSmart === 'function'){
-            const tot = plannedMinTotalCommessaSmart(c);
-            if (tot > 0){
-              add(wk, '[Commessa]', tot);
-              addedForCommessa += tot;
-            }
+        const fasiComm = Array.isArray(c && c.fasi) ? c.fasi : [];
+        const qComm = Math.max(1, Number(c && (c.qtaPezzi || c.pezzi || 1)));
+
+        if (fasiComm.length){
+          let perPiece = 0, unaTantum = 0;
+          for (const f of fasiComm){
+            const min = minsFromFase(f);
+            if (!min) continue;
+            if (f.unaTantum || f.once) unaTantum += min;
+            else perPiece += min;
           }
-        }catch(_){}
+          const totComm = Math.max(0, Math.round(unaTantum + perPiece * qComm));
+          if (totComm > 0){
+            add(wk, '[Commessa]', totComm);
+            addedForCommessa += totComm;
+          }
+        } else {
+          const perPiece = (typeof c.oreMin === 'number' && isFinite(c.oreMin))
+            ? c.oreMin
+            : toMinLocal(c.oreHHMM || '0');
+          const totComm = Math.max(0, Math.round(perPiece * qComm));
+          if (totComm > 0){
+            add(wk, '[Commessa]', totComm);
+            addedForCommessa += totComm;
+          }
+        }
       }
 
       if (addedForCommessa > 0) stats.conCarico++;
@@ -20241,8 +20271,6 @@ function SaturazioneRepartiView({ query = '' }) {
   const { rows, stats } = buildRowsAndStats();
 
   const fmtHH = (mins) => {
-    if (typeof window.fmtHHMMfromMin === 'function') return window.fmtHHMMfromMin(mins);
-    if (typeof window.fmtHHMM === 'function') return window.fmtHHMM(mins);
     const t = Math.max(0, Math.round(Number(mins)||0));
     const h = Math.floor(t/60), m = t%60;
     return h + ':' + String(m).padStart(2,'0');
