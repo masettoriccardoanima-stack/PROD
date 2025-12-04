@@ -23969,7 +23969,31 @@ var TimbraturaMobileView = function(){
     const elId = 'qr-reader';
     const start = async ()=>{
       try{
-        if (window.Html5QrcodeScanner){
+        const isMobile = (typeof navigator !== 'undefined')
+          && /Android|iPhone|iPad|iPod/i.test(String(navigator.userAgent || ''));
+
+        // 1) Su mobile: se ho Html5Qrcode, uso direttamente quello con camera posteriore
+        if (isMobile && window.Html5Qrcode){
+          const h5 = new window.Html5Qrcode(elId);
+          await h5.start(
+            { facingMode: "environment" },
+            { fps: 10, qrbox: 240 },
+            (decodedText)=>{
+              try{
+                const jid = extractJobId(decodedText);
+                if (jid){
+                  setJobId(jid);
+                  try{ localStorage.setItem('qrJob', JSON.stringify(jid)); }catch{}
+                }
+                setScanOpen(false);
+                h5.stop().then(()=> h5.clear());
+              }catch{}
+            }
+          );
+          scannerRef.current = h5;
+
+        // 2) Desktop (o mobile senza Html5Qrcode): usa ancora Html5QrcodeScanner
+        } else if (window.Html5QrcodeScanner){
           const scanner = new window.Html5QrcodeScanner(
             elId,
             {
@@ -23985,22 +24009,34 @@ var TimbraturaMobileView = function(){
           scanner.render((decodedText)=>{
             try{
               const jid = extractJobId(decodedText);
-              if (jid){ setJobId(jid); try{ localStorage.setItem('qrJob', JSON.stringify(jid)); }catch{} }
+              if (jid){
+                setJobId(jid);
+                try{ localStorage.setItem('qrJob', JSON.stringify(jid)); }catch{}
+              }
               setScanOpen(false);
               scanner.clear && scanner.clear();
             }catch{}
           }, ()=>{});
           scannerRef.current = scanner;
+
+        // 3) Fallback: Html5Qrcode anche su desktop se lo scanner non c'è
         } else if (window.Html5Qrcode){
           const h5 = new window.Html5Qrcode(elId);
-          await h5.start({ facingMode: "environment" }, { fps: 10, qrbox: 240 }, (decodedText)=>{
-            try{
-              const jid = extractJobId(decodedText);
-              if (jid){ setJobId(jid); try{ localStorage.setItem('qrJob', JSON.stringify(jid)); }catch{} }
-              setScanOpen(false);
-              h5.stop().then(()=> h5.clear());
-            }catch{}
-          });
+          await h5.start(
+            { facingMode: "environment" },
+            { fps: 10, qrbox: 240 },
+            (decodedText)=>{
+              try{
+                const jid = extractJobId(decodedText);
+                if (jid){
+                  setJobId(jid);
+                  try{ localStorage.setItem('qrJob', JSON.stringify(jid)); }catch{}
+                }
+                setScanOpen(false);
+                h5.stop().then(()=> h5.clear());
+              }catch{}
+            }
+          );
           scannerRef.current = h5;
         }
       }catch(e){ console.warn('QR init error', e); }
