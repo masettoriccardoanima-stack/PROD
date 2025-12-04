@@ -24378,8 +24378,8 @@ try{
     children
   );
 
-  return e('div', {className:'timbratura', style:{padding:8}},
-    orphanActive && card([
+    return e('div', {className:'timbratura'},
+      orphanActive && card([
       e('h4',{style:{fontSize:14, fontWeight:600, marginBottom:4}}, 'Timbratura attiva trovata'),
       e('div',{className:'muted', style:{marginBottom:6}},
         `Commessa ${String(orphanActive.jobId||'')} — Operatore ${String(orphanActive.operatore||'')}`

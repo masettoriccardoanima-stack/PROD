@@ -149,6 +149,11 @@ body { margin:0; font-family:system-ui, Arial, sans-serif; background:#f5f6f8; }
   min-height:0;    /* evita overflow strani dentro .content flex */
 }
 
+/* Vista Timbratura: padding base come le altre pagine */
+.timbratura{
+  padding:8px;
+}
+
 /* Toolbar standard: prima riga con filtri + azioni */
 .toolbar{
   display:flex;
