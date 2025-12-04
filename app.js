@@ -6879,32 +6879,26 @@ function DashboardView(){
     .map(c => {
       const tot = Math.max(1, Number(c.qtaPezzi||1));
 
-      // Usa la stessa logica di Commesse: produzione da oreRows locali
+      // Usa sempre la logica centralizzata basata sulle timbrature (oreRows)
       let prod = 0;
       try{
-        if (typeof window !== 'undefined'
-          && typeof window.producedPiecesCore === 'function') {
+        if (typeof window !== 'undefined' && typeof window.producedPiecesCore === 'function') {
           prod = Number(window.producedPiecesCore(c, oreRows) || 0);
         } else if (typeof producedPieces === 'function') {
           prod = Number(producedPieces(c, oreRows) || 0);
         }
-      }catch(e){
-        console.warn('DashboardView: producedPiecesCore error', e);
+      }catch(_){
         prod = 0;
       }
 
       const residuo = (typeof residualPieces === 'function')
-        ? residualPieces(c, oreRows)
+        ? Number(residualPieces(c, oreRows) || 0)
         : Math.max(0, tot - prod);
 
-      return {
-        c,
-        tot,
-        prod: Math.max(0, Math.min(tot, prod)),
-        residuo: Math.max(0, Math.min(tot, residuo))
-      };
+      return { c, tot, prod, residuo };
     })
     .filter(x => x.residuo === 0)
+
     .sort((a,b)=>{
       const ma = String(a.c.id||'').match(/^C-(\d{4})-(\d{3})$/);
       const mb = String(b.c.id||'').match(/^C-(\d{4})-(\d{3})$/);
@@ -6932,8 +6926,22 @@ function DashboardView(){
       const { tot: planTot } = plannedMinutes(c);
       const effTot = effectiveMinutes(c, oreRows);
       const tot = Math.max(1, Number(c.qtaPezzi||1));
-      const prod = producedPieces(c);
-      const residuo = Math.max(0, tot - prod);
+
+      // Produzione effettiva e residuo basati su oreRows (stessa logica delle altre viste)
+      let prod = 0;
+      try{
+        if (typeof window !== 'undefined' && typeof window.producedPiecesCore === 'function') {
+          prod = Number(window.producedPiecesCore(c, oreRows) || 0);
+        } else if (typeof producedPieces === 'function') {
+          prod = Number(producedPieces(c, oreRows) || 0);
+        }
+      }catch(_){
+        prod = 0;
+      }
+
+      const residuo = (typeof residualPieces === 'function')
+        ? Number(residualPieces(c, oreRows) || 0)
+        : Math.max(0, tot - prod);
 
       const lastRow = (Array.isArray(oreRows)?oreRows:[]).filter(o => o.commessaId === c.id)
         .sort((a,b)=> (Date.parse(b.__createdAt||b.data||0) - Date.parse(a.__createdAt||a.data||0)))[0];
@@ -6969,47 +6977,57 @@ function DashboardView(){
     const idx = Number(idxRaw);
     if (!Number.isFinite(idx) || idx < 0) return '';
 
-    const commId = row.commessaId != null ? String(row.commessaId) : '';
-    if (!commId) return '';
-
-    const allC = Array.isArray(commesse) ? commesse : [];
-    const c = allC.find(x => String(x.id) === commId);
-    if (!c) return '';
-
-    // 1) Fasi per-riga articolo, se abbiamo rigaIdx
+    // Prova a recuperare la commessa, se disponibile;
+    // se non la troviamo, useremo comunque le fasiStandard da appSettings.
+    let c = null;
     try{
-      const righe = Array.isArray(c.righeArticolo)
-        ? c.righeArticolo
-        : (Array.isArray(c.righe) ? c.righe : []);
-      const rIdxRaw = row.rigaIdx;
-      const rIdx = (rIdxRaw === '' || rIdxRaw == null) ? null : Number(rIdxRaw);
+      const commId = row.commessaId != null ? String(row.commessaId) : '';
+      if (commId){
+        const allC = Array.isArray(commesse) ? commesse : [];
+        c = allC.find(x => String(x.id) === commId) || null;
+      }
+    }catch(_){
+      c = null;
+    }
 
-      if (
-        Number.isFinite(rIdx) &&
-        rIdx >= 0 &&
-        Array.isArray(righe) &&
-        righe[rIdx] &&
-        Array.isArray(righe[rIdx].fasi)
-      ){
-        const f = righe[rIdx].fasi[idx];
-        if (f){
+    // 1) Fasi per-riga articolo, se abbiamo rigaIdx e la commessa
+    try{
+      if (c){
+        const righe = Array.isArray(c.righeArticolo)
+          ? c.righeArticolo
+          : (Array.isArray(c.righe) ? c.righe : []);
+        const rIdxRaw = row.rigaIdx;
+        const rIdx = (rIdxRaw === '' || rIdxRaw == null) ? null : Number(rIdxRaw);
+
+        if (
+          Number.isFinite(rIdx) &&
+          rIdx >= 0 &&
+          Array.isArray(righe) &&
+          righe[rIdx] &&
+          Array.isArray(righe[rIdx].fasi)
+        ){
+          const f = righe[rIdx].fasi[idx];
+          if (f){
+            const lab = f.lav || f.label || f.nome || f.reparto || f.repartoNome || '';
+            if (lab) return String(lab).trim();
+          }
+        }
+      }
+    }catch(_){}
+
+    // 2) Fasi globali commessa (se abbiamo la commessa)
+    try{
+      if (c){
+        const fasiG = Array.isArray(c.fasi) ? c.fasi : [];
+        if (fasiG[idx]){
+          const f = fasiG[idx];
           const lab = f.lav || f.label || f.nome || f.reparto || f.repartoNome || '';
           if (lab) return String(lab).trim();
         }
       }
     }catch(_){}
 
-    // 2) Fasi globali commessa
-    try{
-      const fasiG = Array.isArray(c.fasi) ? c.fasi : [];
-      if (fasiG[idx]){
-        const f = fasiG[idx];
-        const lab = f.lav || f.label || f.nome || f.reparto || f.repartoNome || '';
-        if (lab) return String(lab).trim();
-      }
-    }catch(_){}
-
-    // 3) Fasi standard da appSettings (stesso indice)
+    // 3) Fasi standard da appSettings (stesso indice), anche se non troviamo la commessa
     try{
       const app = (typeof lsGet === 'function')
         ? lsGet('appSettings', {})
@@ -7048,8 +7066,11 @@ function DashboardView(){
     const isGeneric = /^fase\s+\d+$/i.test(storedRaw);
     if (storedRaw && !isGeneric) return `${op} – ${storedRaw}`;
 
-    // 2) Se non c’è fase → Extra
-    if (idx === '' || idx == null) return `${op} – Extra`;
+    // 2) Se non c’è fase → gestisco extra "Cambio bombola gas" oppure "Intera commessa"
+    const isGas = /cambio\s*bombola\s*gas/i.test(String(row && row.note || ''));
+    if (idx === '' || idx == null){
+      return isGas ? `${op} – EXTRA: Cambio Bombola Gas` : `${op} – Intera commessa`;
+    }
 
     // 3) Prova a inferire il nome fase usando commessa + riga + appSettings
     const inferred = inferFaseLabelRow(row);
