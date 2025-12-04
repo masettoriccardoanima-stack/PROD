@@ -6868,6 +6868,50 @@ function DashboardView(){
       .reduce((s,o)=> s + (Number(o.oreMin)||toMin(o.oreHHMM)||0), 0);
   }
 
+    // Produzione calcolata come in Commesse: da oreRows, con fallback legacy
+  function producedPiecesFromOreRows(c, oreRows){
+    if (!c) return 0;
+    try{
+      const totComm = Math.max(1, Number(c.qtaPezzi || 1));
+      const ev = (Array.isArray(oreRows) ? oreRows : [])
+        .filter(o => String(o.commessaId || '') === String(c.id || ''));
+
+      // Nessuna timbratura locale: fallback come in CommesseView
+      if (!ev.length){
+        // 1) Se esiste helper core, prova quello
+        if (typeof window !== 'undefined'
+          && typeof window.producedPiecesCore === 'function') {
+          const vCore = Number(window.producedPiecesCore(c, oreRows) || 0);
+          if (Number.isFinite(vCore)) {
+            return Math.max(0, Math.min(totComm, vCore));
+          }
+        }
+
+        // 2) Se esiste window.producedPieces legacy, prova quello
+        if (typeof window !== 'undefined'
+          && typeof window.producedPieces === 'function') {
+          const vLegacy = Number(window.producedPieces(c) || 0);
+          if (Number.isFinite(vLegacy)) {
+            return Math.max(0, Math.min(totComm, vLegacy));
+          }
+        }
+
+        // 3) Ultimo fallback: c.qtaProdotta clampata
+        const prodLegacy = Math.max(0, Number(c.qtaProdotta || 0));
+        return Math.max(0, Math.min(totComm, prodLegacy));
+      }
+
+      // Ho timbrature: sommo le qtaPezzi come fa CommesseView
+      const sum = ev.reduce(
+        (s, o) => s + Math.max(0, Number(o.qtaPezzi || 0)),
+        0
+      );
+      return Math.max(0, Math.min(totComm, sum));
+    }catch(_){
+      return 0;
+    }
+  }
+
   // ---- Dati ----
   const commesse = lsGet('commesseRows', []);
   const oreRows  = lsGet('oreRows', []);
@@ -6879,23 +6923,16 @@ function DashboardView(){
     .map(c => {
       const tot = Math.max(1, Number(c.qtaPezzi||1));
 
-      // Usa sempre la logica centralizzata basata sulle timbrature (oreRows)
-      let prod = 0;
-      try{
-        if (typeof window !== 'undefined' && typeof window.producedPiecesCore === 'function') {
-          prod = Number(window.producedPiecesCore(c, oreRows) || 0);
-        } else if (typeof producedPieces === 'function') {
-          prod = Number(producedPieces(c, oreRows) || 0);
-        }
-      }catch(_){
-        prod = 0;
-      }
+      // Produzione calcolata come in vista Commesse (da oreRows)
+      const prod = producedPiecesFromOreRows(c, oreRows);
+      const residuo = Math.max(0, Math.min(tot, tot - prod));
 
-      const residuo = (typeof residualPieces === 'function')
-        ? Number(residualPieces(c, oreRows) || 0)
-        : Math.max(0, tot - prod);
-
-      return { c, tot, prod, residuo };
+      return {
+        c,
+        tot,
+        prod,
+        residuo
+      };
     })
     .filter(x => x.residuo === 0)
 
