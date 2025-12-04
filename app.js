@@ -7009,6 +7009,14 @@ function DashboardView(){
 
   function opFaseLabel(row){
     const op = row && row.operatore ? row.operatore : '—';
+
+    // 0) Se esiste il helper centrale, usiamolo per il nome fase
+    if (typeof window !== 'undefined'
+      && typeof window.faseLabelFromRow === 'function') {
+      const lab = window.faseLabelFromRow(row) || 'Intera commessa';
+      return `${op} – ${lab}`;
+    }
+
     const idx = row ? row.faseIdx : null;
 
     // 1) Se abbiamo salvato il nome fase nel record ore, ma NON è "Fase N", usiamo quello
@@ -19006,7 +19014,14 @@ function _saveImportedCloudIds(set){
     const body = rowsFiltrateLocal.map(r => {
       const c = commesse.find(x=>x.id===r.commessaId);
       const faseLab = (function(){
-        if (r.faseIdx==null) return '';
+        // 1) Usa helper centrale se disponibile (stessa logica di Report Tempi)
+        if (typeof window !== 'undefined'
+          && typeof window.faseLabelFromRow === 'function') {
+          return window.faseLabelFromRow(r);
+        }
+
+        // 2) Fallback: logica legacy
+        if (r.faseIdx == null) return '';
         if (typeof window.faseLabel === 'function') return window.faseLabel(c, Number(r.faseIdx));
         const f = c && Array.isArray(c?.fasi) ? c.fasi[r.faseIdx|0] : null;
         return (f && f.lav) ? f.lav : `Fase ${(r.faseIdx|0)+1}`;
@@ -19779,6 +19794,10 @@ function faseLabelFromRow(row){
     return 'Intera commessa';
   }
 }
+
+  if (typeof window !== 'undefined') {
+    window.faseLabelFromRow = window.faseLabelFromRow || faseLabelFromRow;
+  }
 
   // Helper tempo
     const toMin = (hhmm) => {
