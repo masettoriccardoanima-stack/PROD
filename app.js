@@ -18357,6 +18357,28 @@ function RegistrazioniOreView({ query = '' }) {
   const isAdmin = !!(u && u.role === 'admin');
   const currentUserLabel = u ? (u.email || u.username || u.user || '') : '';
 
+    // --- Helpers LS sicuri (riusano i globali se presenti) ---
+  const lsGet = (typeof window !== 'undefined' && window.lsGet)
+    ? window.lsGet
+    : ((k, d) => {
+        try {
+          const v = JSON.parse(localStorage.getItem(k));
+          return (v ?? d);
+        } catch {
+          return d;
+        }
+      });
+
+  const lsSet = (typeof window !== 'undefined' && window.lsSet)
+    ? window.lsSet
+    : ((k, v) => {
+        try {
+          localStorage.setItem(k, JSON.stringify(v));
+        } catch {
+          /* ignore */
+        }
+      });
+
   // --- Helper tempo ---
   const toMin = (s) => {
     if (s == null) return 0;
@@ -18735,8 +18757,15 @@ function renderOperatoreField_Local(value, onChange){
         ? rows.filter(x => x.id !== r.id)
         : [];
 
-      // Aggiorna stato (e, tramite useEffect, anche localStorage.oreRows)
+      // Aggiorna stato + salva SUBITO in localStorage (così non "tornano" dopo un refresh veloce)
       setRows(oreRowsAfter);
+      try{
+        if (typeof lsSet === 'function') {
+          lsSet('oreRows', oreRowsAfter);
+        } else {
+          localStorage.setItem('oreRows', JSON.stringify(oreRowsAfter));
+        }
+      }catch(_){}
 
       const jobId = String(r.commessaId || '');
       if (jobId) {
@@ -19252,7 +19281,18 @@ function _saveImportedCloudIds(set){
                   e('td', null, r.operatore || '—'),
                   e('td', {className:'right'}, String(r.minutes||0)),
                   e('td', {className:'right'}, fmtHHMMfromMin(r.minutes||0)),
-                  e('td', {className:'right'}, parseQtyFromNoteCloud(r.note)),
+                  e('td', {className:'right'}, (function(){
+                    // 1) Se il record cloud ha un campo strutturato (es. qta_pezzi o qtaPezzi), usalo
+                    const raw = (r.qta_pezzi ?? r.qtaPezzi);
+                    const n = Number(raw);
+                    if (Number.isFinite(n) && n > 0) return String(n);
+
+                    // 2) Fallback compatibilità: prova a leggerla dalla nota ("Qta: X", "Quantità prodotta: X")
+                    const parsed = (typeof parseQtyFromNoteCloud === 'function')
+                      ? parseQtyFromNoteCloud(r.note)
+                      : '';
+                    return parsed || '';
+                  })()),
                   e('td', null, r.note || ' ')
                 ))
               )
