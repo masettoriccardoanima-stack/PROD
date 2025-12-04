@@ -23834,87 +23834,41 @@ var TimbraturaMobileView = function(){
     let mins = Math.round((Date.now() - startMs)/60000);
     mins = Math.max(1, mins) * Math.min(3, Math.max(1, Number(active.opsCount)||1));
 
-    // === Suggerimento Q.tà pezzi (solo flusso standard, non extra gas) ===
-    let suggestedQty = 0;
-    try{
-      if (!(gasChange || (active && active.isGasChange)) && commessa){
+// === Suggerimento Q.tà pezzi (solo flusso standard, non extra gas) ===
+let suggestedQty = 0;
+try{
+  if (!(gasChange || (active && active.isGasChange)) && commessa){
 
-        const totComm = Math.max(1, Number(commessa.qtaPezzi || 0));
-        const jobIdStr = String(commessa.id || '');
+    const totComm = Math.max(1, Number(commessa.qtaPezzi || 0));
+    const idxNum =
+      (rigaIdx === '' || rigaIdx == null) ? null : Number(rigaIdx);
 
-        // Leggo le timbrature locali
-        let arr = [];
-        try {
-          const oreRowsAll = lsGet('oreRows', []);
-          arr = Array.isArray(oreRowsAll) ? oreRowsAll : [];
-        } catch {
-          arr = [];
-        }
+    // Usa la stessa fonte di verità di Commesse (oreRows via residualPiecesUI)
+    const resid = residualPiecesUI(commessa, idxNum);
 
-        const evJob = arr.filter(o =>
-          String(o?.commessaId || '') === jobIdStr
-        );
+    if (Number.isFinite(idxNum) &&
+        Array.isArray(commessa.righeArticolo) &&
+        commessa.righeArticolo[idxNum]) {
 
-        // Normalizzo indice riga (come altrove)
-        const idxNum =
-          (rigaIdx === '' || rigaIdx == null) ? null : Number(rigaIdx);
+      // Caso per-riga
+      const r = commessa.righeArticolo[idxNum] || {};
+      const totRiga = Math.max(1, Number(r.qta || totComm));
+      const residSafe = Math.max(0, Math.min(totRiga, Number(resid) || 0));
+      suggestedQty = residSafe;
 
-        if (Number.isFinite(idxNum) &&
-            Array.isArray(commessa.righeArticolo) &&
-            commessa.righeArticolo[idxNum]) {
+    } else {
+      // Caso commessa intera
+      const residSafe = Math.max(0, Math.min(totComm, Number(resid) || 0));
+      suggestedQty = residSafe;
+    }
 
-          // === Caso per-riga ===
-          const r = commessa.righeArticolo[idxNum] || {};
-          const totRiga = Math.max(1, Number(r.qta || totComm));
-
-          const evRow = evJob.filter(o => Number(o?.rigaIdx) === idxNum);
-
-          if (evRow.length){
-            const sumRow = evRow.reduce(
-              (s,o)=> s + Math.max(0, Number(o.qtaPezzi || 0)),
-              0
-            );
-            const prodRiga = Math.max(0, Math.min(totRiga, sumRow));
-            suggestedQty = Math.max(0, totRiga - prodRiga);
-          } else {
-            // Nessuna timbratura per questa riga → tutto residuo
-            suggestedQty = totRiga;
-          }
-
-        } else {
-          // === Caso commessa intera ===
-          if (evJob.length){
-            const sum = evJob.reduce(
-              (s,o)=> s + Math.max(0, Number(o.qtaPezzi || 0)),
-              0
-            );
-            const prodComm = Math.max(0, Math.min(totComm, sum));
-            suggestedQty = Math.max(0, totComm - prodComm);
-          } else {
-            // Nessuna timbratura ancora registrata → fallback legacy
-            if (typeof window.producedPieces === 'function') {
-              const v = window.producedPieces(commessa);
-              if (Number.isFinite(v) && v >= 0) {
-                const prodLegacy = Math.max(0, Math.min(totComm, v));
-                suggestedQty = Math.max(0, totComm - prodLegacy);
-              } else {
-                suggestedQty = totComm;
-              }
-            } else {
-              const prodLegacy = Math.max(0, Number(commessa.qtaProdotta || 0));
-              const prodClamped = Math.max(0, Math.min(totComm, prodLegacy));
-              suggestedQty = Math.max(0, totComm - prodClamped);
-            }
-          }
-        }
-
-        if (!Number.isFinite(suggestedQty) || suggestedQty < 0) {
-          suggestedQty = 0;
-        }
-      }
-    }catch{
+    if (!Number.isFinite(suggestedQty) || suggestedQty < 0) {
       suggestedQty = 0;
     }
+  }
+}catch{
+  suggestedQty = 0;
+}
 
     // Pre-compila il campo quantità nel popup
     setQtyVal(String(suggestedQty));
@@ -24256,9 +24210,14 @@ var TimbraturaMobileView = function(){
         const hasRow  = Number.isFinite(rIdxNum) && Array.isArray(commessa?.righeArticolo) && commessa.righeArticolo[rIdxNum];
 
         const rSel = hasRow ? commessa.righeArticolo[rIdxNum] : null;
-        const totUI   = hasRow ? Math.max(1, Number(rSel?.qta || totComm)) : totComm;
-        const prodUI  = producedPiecesUI(commessa, rIdxNum);
-        const residUI = Math.max(0, totUI - prodUI);
+        const totUI = hasRow ? Math.max(1, Number(rSel?.qta || totComm)) : totComm;
+
+        // Residuo calcolato come in Commesse (da oreRows, tramite residualPiecesUI)
+        const residUIraw = residualPiecesUI(commessa, rIdxNum);
+        const residUI = Math.max(0, Math.min(totUI, Number(residUIraw) || 0));
+
+        // Prodotto = totale teorico - residuo
+        const prodUI = Math.max(0, totUI - residUI);
 
         // Card riepilogo timbratura: full-width + niente overflow orizzontale
         return e('div',{className:'card timbratura-summary', style:{marginBottom:8}},
