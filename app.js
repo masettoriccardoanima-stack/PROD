@@ -6878,9 +6878,31 @@ function DashboardView(){
   const pronte = (Array.isArray(commesse)?commesse:[])
     .map(c => {
       const tot = Math.max(1, Number(c.qtaPezzi||1));
-      const prod = producedPieces(c);
-      const residuo = Math.max(0, tot - prod);
-      return { c, tot, prod, residuo };
+
+      // Usa la stessa logica di Commesse: produzione da oreRows locali
+      let prod = 0;
+      try{
+        if (typeof window !== 'undefined'
+          && typeof window.producedPiecesCore === 'function') {
+          prod = Number(window.producedPiecesCore(c, oreRows) || 0);
+        } else if (typeof producedPieces === 'function') {
+          prod = Number(producedPieces(c, oreRows) || 0);
+        }
+      }catch(e){
+        console.warn('DashboardView: producedPiecesCore error', e);
+        prod = 0;
+      }
+
+      const residuo = (typeof residualPieces === 'function')
+        ? residualPieces(c, oreRows)
+        : Math.max(0, tot - prod);
+
+      return {
+        c,
+        tot,
+        prod: Math.max(0, Math.min(tot, prod)),
+        residuo: Math.max(0, Math.min(tot, residuo))
+      };
     })
     .filter(x => x.residuo === 0)
     .sort((a,b)=>{
@@ -23652,8 +23674,24 @@ var TimbraturaMobileView = function(){
 
   const app        = React.useMemo(()=> lsGet('appSettings', {}) || {}, [refresh]);
   const operators  = React.useMemo(() => {
-    const arr = Array.isArray(app.operators) ? app.operators : [];
-    return arr
+    // Prima scelta: lista operatori dedicata
+    let arr = Array.isArray(app.operators) ? app.operators : [];
+
+    // Fallback: se non hai operatori configurati,
+    // prova a derivarli dagli utenti (worker / operatori)
+    if ((!arr || !arr.length) && Array.isArray(app.users)) {
+      arr = app.users
+        .map(u => {
+          if (!u) return '';
+          if (typeof u === 'string') return u;
+          return String(
+            u.name || u.label || u.email || u.username || ''
+          ).trim();
+        })
+        .filter(Boolean);
+    }
+
+    return (Array.isArray(arr) ? arr : [])
       .map(o => {
         if (typeof o === 'string') return o.trim();
         if (o && typeof o === 'object') {
