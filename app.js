@@ -7182,8 +7182,8 @@ function DashboardView(){
   }
 
   // ---- Render ----
-  return e('div', {className:'grid', style:{gap:16}},
-    e('div', {className:'muted'}, 'Vista PC: avanzamento commesse e scorciatoie utili.'),
+  return e('div', {className:'grid dashboard-grid', style:{gap:16}},
+    e('div', {className:'muted dashboard-intro'}, 'Vista PC: avanzamento commesse e scorciatoie utili.'),
 
     // Widget 1: Commesse pronte
     e('div', {className:'card'},
