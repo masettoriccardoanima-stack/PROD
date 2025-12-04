@@ -18698,7 +18698,73 @@ function renderOperatoreField_Local(value, onChange){
       console.error('appendOreAudit delete failed', err);
     }
 
-    setRows(prev=> prev.filter(x=>x.id!==r.id));
+    // --- Allinea oreRows + commesseRows dopo eliminazione locale ---
+    try{
+      // 1) Nuovo array oreRows dopo delete
+      const oreRowsAfter = Array.isArray(rows)
+        ? rows.filter(x => x.id !== r.id)
+        : [];
+
+      // Aggiorna stato (e, tramite useEffect, anche localStorage.oreRows)
+      setRows(oreRowsAfter);
+
+      const jobId = String(r.commessaId || '');
+      if (jobId) {
+        const allRaw = (typeof lsGet === 'function')
+          ? lsGet('commesseRows', [])
+          : JSON.parse(localStorage.getItem('commesseRows') || '[]') || [];
+
+        const all = Array.isArray(allRaw) ? allRaw : [];
+        const ix = all.findIndex(c => String(c.id || '') === jobId);
+
+        if (ix >= 0) {
+          const c = { ...all[ix] };
+
+          // Timbrature residue per quella commessa DOPO l'eliminazione
+          const evAfter = oreRowsAfter.filter(o => String(o.commessaId || '') === jobId);
+
+          if (!evAfter.length) {
+            // Nessuna timbratura residua: azzero produzione legacy
+            c.qtaProdotta = 0;
+
+            if (Array.isArray(c.fasi)) {
+              c.fasi = c.fasi.map(f => ({ ...f, qtaProdotta: 0 }));
+            }
+
+            if (Array.isArray(c.righeArticolo)) {
+              c.righeArticolo = c.righeArticolo.map(riga => ({
+                ...riga,
+                qtaProdotta: 0,
+                fasi: Array.isArray(riga.fasi)
+                  ? riga.fasi.map(f => ({ ...f, qtaProdotta: 0 }))
+                  : riga.fasi
+              }));
+            }
+          } else if (typeof window !== 'undefined'
+              && typeof window.producedPiecesCore === 'function') {
+            // Restano timbrature: riallineo qtaProdotta alla produzione effettiva
+            const totComm = Math.max(1, Number(c.qtaPezzi || 0));
+            const newProd = Number(window.producedPiecesCore(c, oreRowsAfter) || 0);
+            c.qtaProdotta = Math.max(0, Math.min(totComm, newProd));
+            // Le qtaProdotta per-fase restano inalterate: con eventi attivi
+            // la logica producedPiecesCore ignora i campi legacy e usa solo le timbrature.
+          }
+
+          const nextAll = all.slice();
+          nextAll[ix] = c;
+          if (typeof lsSet === 'function') {
+            lsSet('commesseRows', nextAll);
+          } else {
+            localStorage.setItem('commesseRows', JSON.stringify(nextAll));
+          }
+          if (typeof window !== 'undefined') {
+            window.__anima_dirty = true;
+          }
+        }
+      }
+    }catch(e){
+      console.warn('delLocal: errore sync commesseRows dopo delete', e);
+    }
   }
 
   // ===================== MODALITÀ CLOUD (SUPABASE) =====================
