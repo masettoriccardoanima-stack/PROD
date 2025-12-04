@@ -23422,91 +23422,87 @@ var TimbraturaMobileView = function(){
 
   function residualPiecesUI(c, rigaIdx){
     if (!c) return 0;
-    const totComm = Math.max(1, Number(c.qtaPezzi || 1));
+
+    // Totale pezzi della commessa (stessa logica di base di Commesse)
+    const totComm = Math.max(1, Number(c.qtaPezzi || 0));
     const idxNum =
       (rigaIdx === '' || rigaIdx == null) ? null : Number(rigaIdx);
+    const jobIdStr = String(c.id || '');
 
-  // 1) Caso con riga articolo selezionata: mantengo la logica attuale per-riga
-  if (Number.isFinite(idxNum) &&
-      Array.isArray(c.righeArticolo) &&
-      c.righeArticolo[idxNum]) {
-
-    const r = c.righeArticolo[idxNum] || {};
-    const totRiga = Math.max(1, Number(r.qta || totComm));
-    const prodRiga = producedPiecesUI(c, idxNum);
-
-    console.log('[TIMB][dbg] residualPiecesUI:row', {
-      cid: String(c.id || ''),
-      idxNum,
-      totRiga,
-      prodRiga,
-      resid: Math.max(0, totRiga - prodRiga)
-    });
-
-    return Math.max(0, totRiga - prodRiga);
-  }
-
-    // 2) Residuo a livello di commessa: uso le timbrature locali (oreRows)
-    let prodComm = 0;
+    // Leggo una volta sola le ore dal LS
+    let arr = [];
     try {
       const oreRows = lsGet('oreRows', []);
-      const arr = Array.isArray(oreRows) ? oreRows : [];
-
-      const evForJob = arr.filter(o =>
-        String(o?.commessaId || '') === String(c.id || '')
-      );
-
-      console.log('[TIMB][dbg] residualPiecesUI:start', {
-        cid: String(c.id || ''),
-        rigaIdx,
-        idxNum,
-        totComm,
-        oreRowsLen: arr.length,
-        evForJob: evForJob.length,
-        hasCore: typeof window.producedPiecesCore === 'function'
-      });
-
-      if (typeof window.producedPiecesCore === 'function') {
-        prodComm = window.producedPiecesCore(c, arr);
-      } else if (typeof window.producedPieces === 'function') {
-        // vecchia logica globale, se ancora presente
-        prodComm = window.producedPieces(c);
-      } else {
-        // fallback locale (solo su stato commessa)
-        prodComm = producedPieces(c, arr);
-      }
-
-      if (!Number.isFinite(prodComm) || prodComm < 0) prodComm = 0;
-
-      console.log('[TIMB][dbg] residualPiecesUI:afterCore', {
-        cid: String(c.id || ''),
-        prodComm
-      });
-
+      arr = Array.isArray(oreRows) ? oreRows : [];
     } catch {
-      try {
-        prodComm = producedPieces(c);
-        if (!Number.isFinite(prodComm) || prodComm < 0) prodComm = 0;
-
-        console.log('[TIMB][dbg] residualPiecesUI:catchProduced', {
-          cid: String(c.id || ''),
-          prodComm
-        });
-      } catch {
-        prodComm = 0;
-        console.log('[TIMB][dbg] residualPiecesUI:catchFallback', {
-          cid: String(c.id || ''),
-          prodComm
-        });
-      }
+      arr = [];
     }
 
-    const resid = Math.max(0, totComm - prodComm);
-    console.log('[TIMB][dbg] residualPiecesUI:result', {
-      cid: String(c.id || ''),
-      resid
-    });
-    return resid;
+    // Tutte le timbrature per questa commessa
+    const evJob = arr.filter(o =>
+      String(o?.commessaId || '') === jobIdStr
+    );
+
+    // 1) Caso per-riga: stessa fonte di verità di Commesse ma filtrata sulla riga
+    if (Number.isFinite(idxNum) &&
+        Array.isArray(c.righeArticolo) &&
+        c.righeArticolo[idxNum]) {
+
+      const r = c.righeArticolo[idxNum] || {};
+      const totRiga = Math.max(1, Number(r.qta || totComm));
+
+      // Eventi ore per quella riga specifica
+      const evRow = evJob.filter(o => Number(o?.rigaIdx) === idxNum);
+
+      if (evRow.length) {
+        const sumRow = evRow.reduce(
+          (s, o) => s + Math.max(0, Number(o.qtaPezzi || 0)),
+          0
+        );
+        const prodRiga = Math.max(0, Math.min(totRiga, sumRow));
+        return Math.max(0, totRiga - prodRiga);
+      }
+
+      // Fallback 1: nessuna timbratura per questa riga → uso le fasi della riga
+      const fasiR = Array.isArray(r.fasi) ? r.fasi : [];
+      if (fasiR.length){
+        const arrQ = fasiR
+          .filter(f => !(f?.unaTantum || f?.once))
+          .map(f => Math.max(0, Number(f.qtaProdotta || 0)));
+        if (arrQ.length){
+          const prodRiga = Math.max(0, Math.min(totRiga, Math.min(...arrQ)));
+          return Math.max(0, totRiga - prodRiga);
+        }
+      }
+
+      // Fallback 2: legacy su riga.qtaProdotta
+      const prodLegacyRow = Math.max(
+        0,
+        Math.min(totRiga, Number(r.qtaProdotta || 0) || 0)
+      );
+      return Math.max(0, totRiga - prodLegacyRow);
+    }
+
+    // 2) Caso commessa intera: uso SOLO le timbrature (come CommesseView)
+    if (evJob.length) {
+      const sum = evJob.reduce(
+        (s, o) => s + Math.max(0, Number(o.qtaPezzi || 0)),
+        0
+      );
+      const prodComm = Math.max(0, Math.min(totComm, sum));
+      return Math.max(0, totComm - prodComm);
+    }
+
+    // 3) Nessuna timbratura: fallback legacy (producedPieces / c.qtaProdotta)
+    let prodLegacy = 0;
+    if (typeof window.producedPieces === 'function') {
+      const v = window.producedPieces(c);
+      if (Number.isFinite(v)) prodLegacy = v;
+    } else {
+      prodLegacy = Math.max(0, Number(c.qtaProdotta || 0));
+    }
+    const prodClamped = Math.max(0, Math.min(totComm, prodLegacy));
+    return Math.max(0, totComm - prodClamped);
   }
 
   // ---- fine G1-UI helpers ----
