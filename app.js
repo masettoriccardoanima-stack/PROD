@@ -7125,28 +7125,6 @@ function DashboardView(){
   const e = React.createElement;
   const c = x?.c || x || {};
 
-  // Calcolo "Rif. cliente" (multi = ordine/DDT, singola = codice)
-  const rifCol = (() => {
-    if (typeof window.previewDescrAndRef === 'function') {
-      const p = window.previewDescrAndRef(c);
-      return p.rifCol || '-';
-    }
-    const righe = Array.isArray(c.righeArticolo) ? c.righeArticolo
-               : (Array.isArray(c.righe) ? c.righe : []);
-    if (Array.isArray(righe) && righe.length > 1) {
-      const ref = c.ordineCliente || c.nrOrdineCliente || c.rifCliente || c.ddtCliente || c.ordine || c.ordineId || '';
-      const txt = (window.refClienteToText ? window.refClienteToText(ref) : String(ref||''));
-      return txt || `Multi (${righe.length})`;
-    } else {
-      const r0 = (Array.isArray(righe) && righe[0]) ? righe[0] : null;
-      const code = c.articoloCodice || r0?.articoloCodice || r0?.codice || '';
-      if (code) return code;
-      const ref = c.ordineCliente || c.nrOrdineCliente || c.rifCliente || c.ddtCliente || c.ordine || c.ordineId || '';
-      const txt = (window.refClienteToText ? window.refClienteToText(ref) : String(ref||''));
-      return txt || '-';
-    }
-  })();
-
   return e('tr', null,
     e('td', null, c.id || '-'),
     e('td', null, c.cliente || '-'),
@@ -7179,11 +7157,10 @@ function DashboardView(){
         return (c.descrizione || '-');
       }
     })()),
-    e('td', null, rifCol),                // Nuova colonna: Rif. cliente
     e('td', { className:'right' }, String(c.qtaPezzi || 1)),
     e('td', { className:'right' }, '100%')
-    );
-  }
+  );
+}
 
   function RowToday(o){
     return e('tr', {key:o.id},
