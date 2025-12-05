@@ -4706,6 +4706,24 @@ if (typeof window !== 'undefined') {
   window.residualPiecesCore    = window.residualPiecesCore    || residualPieces;
 }
 
+// Compat: assegna window.producedPieces a un wrapper che usa sempre la logica "core"
+// basata sulle ore correnti salvate in locale. In questo modo anche le viste
+// legacy che chiamano window.producedPieces(c) vedono la stessa definizione
+// di "pezzi prodotti" usata da Commesse / Timbratura / Dashboard.
+if (typeof window !== 'undefined') {
+  window.producedPieces = function(c){
+    try{
+      const ore = (typeof lsGet === 'function') ? lsGet('oreRows', []) : [];
+      const fn  = window.producedPiecesCore || producedPieces;
+      return fn(c, ore);
+    } catch(err){
+      console.error('producedPieces wrapper error', err);
+      // Fallback conservativo: se ho c.qtaProdotta uso quella, altrimenti 0
+      return Math.max(0, Number(c && (c.qtaProdotta || 0)));
+    }
+  };
+}
+
 // ================== Backup / Restore ==================
 function makeBackupBlob(){
   const payload = { version: 1, ts: new Date().toISOString(), data: {} };
@@ -24324,7 +24342,7 @@ try{
   }
 
     // Pre-compila il campo quantità nel popup
-    setQtyVal(String(suggestedQty));
+    setQtyVal('');
 
     const snap = { ...active };
     // NON rimuoviamo più qui timbraturaActive: aspettiamo la conferma
