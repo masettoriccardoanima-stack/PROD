@@ -731,7 +731,10 @@ html, body { height: calc(100 * var(--vh)); }
     margin: 0 !important;
     padding: 12px 12px 80px !important;
     min-height: 100dvh !important;
-    overflow: auto !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
   }
   html, body, #root, #root > *{
     min-height: 100dvh !important;
