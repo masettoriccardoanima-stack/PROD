@@ -30,6 +30,15 @@ body { margin:0; font-family:system-ui, Arial, sans-serif; background:#f5f6f8; }
   }
 }
 .btn { padding:8px 12px; border:0; background:#111827; color:#fff; border-radius:10px; cursor:pointer; }
+.btn { padding:8px 12px; border:0; background:#111827; color:#fff; border-radius:10px; cursor:pointer; }
+
+/* Su smartphone i pulsanti sono leggermente più compatti, per non riempire tutto lo schermo */
+@media (max-width: 640px){
+  .btn{
+    padding:6px 10px;
+    font-size:14px;
+  }
+}
 .btn-outline { background:#fff; color:#111827; border:1px solid #111827; }
 .grid { display:grid; }
 
@@ -173,6 +182,13 @@ body { margin:0; font-family:system-ui, Arial, sans-serif; background:#f5f6f8; }
 /* Card in Timbratura: distacco uniforme tra i blocchi */
 .timbratura .card{
   margin-bottom:8px;
+}
+
+/* Su smartphone leggero aggiustamento del padding interno delle card di Timbratura */
+@media (max-width: 640px){
+  .timbratura .card{
+    padding:10px;
+  }
 }
 
 /* Toolbar standard: prima riga con filtri + azioni */
