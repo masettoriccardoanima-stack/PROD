@@ -15152,6 +15152,65 @@ function FattureView(){
       if (ix>=0) all[ix]=rec; else all.push(rec);
       try { localStorage.setItem('fattureRows', JSON.stringify(all)); } catch {}
 
+            // --- Marca i DDT coinvolti come fatturati (singolo + multiplo) ---
+      try {
+        // 1) raccogli tutti gli ID DDT coinvolti
+        const ddtIdSet = new Set();
+
+        // a) caso fatturazione multipla: __fromDDTs è un array di id
+        if (Array.isArray(rec.__fromDDTs)) {
+          rec.__fromDDTs.forEach(id => {
+            if (id !== null && id !== undefined && String(id).trim() !== '') {
+              ddtIdSet.add(String(id));
+            }
+          });
+        }
+
+        // b) caso fattura da DDT singolo: le righe portano ddtId / ddtData
+        (rec.righe || []).forEach(r => {
+          const rid = (r && r.ddtId) ? String(r.ddtId).trim() : '';
+          if (rid) ddtIdSet.add(rid);
+        });
+
+        if (ddtIdSet.size > 0) {
+          // 2) leggi i DDT dal LS
+          let allDDT = [];
+          try { allDDT = JSON.parse(localStorage.getItem('ddtRows') || '[]') || []; } catch {}
+
+          if (Array.isArray(allDDT) && allDDT.length > 0) {
+            const nowISO = new Date().toISOString();
+            let changed = false;
+
+            allDDT = allDDT.map(d => {
+              if (!d) return d;
+              const id = String(d.id || '').trim();
+              if (!id || !ddtIdSet.has(id)) return d;
+              if (d.__fatturato) return d; // già marcato
+
+              changed = true;
+              return {
+                ...d,
+                __fatturato: true,
+                __fatturatoAt: nowISO,
+                updatedAt: nowISO
+              };
+            });
+
+            if (changed) {
+              // 3) scrivi LS e prova a riflettere a server (best-effort)
+              try { localStorage.setItem('ddtRows', JSON.stringify(allDDT)); } catch {}
+              try {
+                if (window.mirrorToServer) window.mirrorToServer('ddtRows', allDDT);
+                if (window.persistKV) await window.persistKV('ddtRows', allDDT);
+                if (window.api?.kv?.set) await window.api.kv.set('ddtRows', allDDT);
+              } catch {}
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[Fatture] mark DDT as fatturati failed', e);
+      }
+
       // UI
       setRows(all);
       setShowForm(false);
