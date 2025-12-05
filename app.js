@@ -8759,6 +8759,50 @@ function CommesseView({ query = '' }) {
 
 
   // --- qta spedita derivata dai DDT collegati ---
+
+  // Upgrade 1-shot DDT: assicura __createdAt / updatedAt per avere soft-delete robusti
+  // anche dopo sync / merge tra PC diversi.
+  (function upgradeDDTRowsOnce(){
+    try{
+      const key = 'ddtRows';
+      const lsGetLocal = (typeof lsGet === 'function')
+        ? lsGet
+        : ((k,d)=>{ try{ const v = JSON.parse(localStorage.getItem(k)); return (v ?? d); }catch{return d;} });
+      const lsSetLocal = (typeof lsSet === 'function')
+        ? lsSet
+        : ((k,v)=>{ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} });
+
+      let arr = lsGetLocal(key, []);
+      if (!Array.isArray(arr) || !arr.length) return;
+
+      let changed = false;
+      arr = arr.map((d, i) => {
+        if (!d || typeof d !== 'object') return d;
+        const out = { ...d };
+
+        // __createdAt per ordinare cronologicamente i DDT vecchi
+        if (!out.__createdAt){
+          const base = out.data ? (String(out.data) + 'T00:00:00') : new Date().toISOString();
+          const t = (Date.parse(base) || Date.now()) + (i * 1000);
+          out.__createdAt = new Date(t).toISOString();
+          changed = true;
+        }
+        // updatedAt almeno uguale a __createdAt (serve a mergeById per capire chi è "più nuovo")
+        if (!out.updatedAt && out.__createdAt){
+          out.updatedAt = out.__createdAt;
+          changed = true;
+        }
+        return out;
+      });
+
+      if (changed){
+        lsSetLocal(key, arr);
+      }
+    }catch{
+      // se qualcosa va storto, non blocco l'app
+    }
+  })();
+
   const shippedPieces = window.shippedPieces || function(c){
     try{
       const ddtRows = lsGet('ddtRows', []);
