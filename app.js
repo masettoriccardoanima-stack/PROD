@@ -24106,6 +24106,26 @@ var TimbraturaMobileView = function(){
 
   const [askQty, setAskQty] = React.useState(null);
   const [qtyVal, setQtyVal] = React.useState('');
+
+  // Helper locale per riconoscere le fasi "una tantum" / "Preparazione attività"
+  const isOncePhaseLocal = (f) => {
+    if (!f) return false;
+    // Caso esplicito: flag salvato nella fase
+    if (f.once === true || f.unaTantum === true) return true;
+
+    // Caso legacy: riconosco il nome "preparazione attività" anche senza flag
+    try{
+      const name = String(f.lav || '')
+        .normalize('NFD')
+        .replace(/\p{Diacritic}/gu,'')
+        .toLowerCase()
+        .trim();
+      return /(^|[^a-z])preparazione\s+attivita([^a-z]|$)/.test(name);
+    }catch{
+      return false;
+    }
+  };
+
   function stop(){
     if (!active) return;
     const startMs = new Date(active.startISO).getTime();
@@ -24157,7 +24177,7 @@ try{
 
     if (Number.isFinite(faseIdxNumRaw) && faseIdxNumRaw >= 0 && Array.isArray(fasi)) {
       const faseCorrente = fasi[faseIdxNumRaw] || null;
-      if (faseCorrente && (faseCorrente.unaTantum || faseCorrente.once)) {
+      if (faseCorrente && isOncePhaseLocal(faseCorrente)) {
         // attività da fare una volta per commessa: default = 1
         suggestedQty = 1;
       }
