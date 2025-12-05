@@ -21,6 +21,14 @@ body { margin:0; font-family:system-ui, Arial, sans-serif; background:#f5f6f8; }
 .input { padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; }
 .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:12px; }
 .actions { display:flex; gap:8px; align-items:center; }
+@media (max-width: 640px){
+  /* Su smartphone i gruppi di pulsanti possono andare a capo, senza schiacciare tutto in una sola riga */
+  .actions{
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    row-gap: 8px;
+  }
+}
 .btn { padding:8px 12px; border:0; background:#111827; color:#fff; border-radius:10px; cursor:pointer; }
 .btn-outline { background:#fff; color:#111827; border:1px solid #111827; }
 .grid { display:grid; }
@@ -152,6 +160,14 @@ body { margin:0; font-family:system-ui, Arial, sans-serif; background:#f5f6f8; }
 /* Vista Timbratura: padding base come le altre pagine */
 .timbratura{
   padding:8px;
+}
+
+/* Su smartphone centra il blocco Timbratura e limita la larghezza per dare proporzioni più “app” */
+@media (max-width: 640px){
+  .timbratura{
+    max-width: 640px;
+    margin: 0 auto;
+  }
 }
 
 /* Card in Timbratura: distacco uniforme tra i blocchi */
