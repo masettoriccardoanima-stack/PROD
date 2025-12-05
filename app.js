@@ -2193,28 +2193,86 @@ window.navigateTo = window.navigateTo || function(label){
     'Report materiali':'#/report-materiali','OrdiniFornitori':'#/ordini','Dashboard':'#/dashboard',
     'TIMBRATURA':'#/timbratura','Timbratura':'#/timbratura'
   };
+
   const target = map[label] || '#/dashboard';
-  const u     = window.__USER || null;
-  const role  = u && u.role;
-  const isAdmin  = role === 'admin';
-  const isViewer = (role === 'viewer' || role === 'mobile');
+
+  const u = window.__USER || null;
+  const rawRole = (u && u.role) ? String(u.role).toLowerCase() : '';
+
+  const isAdmin      = (rawRole === 'admin');
+  const isAccountant = (rawRole === 'accountant');
+  const isViewerLike = (rawRole === 'viewer' || rawRole === 'mobile');
+  const isWorker     = (rawRole === 'worker');
 
   if (!isAdmin) {
-    const allowed = isViewer
-      // Utente viewer/mobile: solo consultazione (timbratura, commesse, DDT, login)
-      ? new Set(['#/timbratura', '#/commesse', '#/ddt', '#/login'])
-      // Worker / altri non-admin: comportamento attuale (incluso accesso a impostazioni)
-      : new Set(['#/timbratura', '#/commesse', '#/impostazioni', '#/login', '#/ddt']);
+    let allowed;
+
+    // Viewer / mobile: pura consultazione
+    allowed = null;
+    if (isViewerLike) {
+      allowed = new Set([
+        '#/timbratura',
+        '#/commesse',
+        '#/ddt',
+        '#/dashboard',
+        '#/report',
+        '#/report-tempi',
+        '#/saturazione',
+        '#/report-materiali',
+        '#/login'
+      ]);
+    } else if (isAccountant) {
+      // Accountant: documenti + report, NO impostazioni
+      allowed = new Set([
+        '#/dashboard',
+        '#/commesse',
+        '#/ddt',
+        '#/fatture',
+        '#/magazzino',
+        '#/ore',
+        '#/ordini',
+        '#/report',
+        '#/report-tempi',
+        '#/saturazione',
+        '#/report-materiali',
+        '#/timbratura',
+        '#/login'
+      ]);
+    } else if (isWorker) {
+      // Worker: solo timbratura + commesse + ddt
+      allowed = new Set([
+        '#/timbratura',
+        '#/commesse',
+        '#/ddt',
+        '#/login'
+      ]);
+    } else {
+      // Altri ruoli non-admin (se mai esistono): come accountant ma senza impostazioni
+      allowed = new Set([
+        '#/dashboard',
+        '#/commesse',
+        '#/ddt',
+        '#/fatture',
+        '#/magazzino',
+        '#/ore',
+        '#/ordini',
+        '#/report',
+        '#/report-tempi',
+        '#/saturazione',
+        '#/report-materiali',
+        '#/timbratura',
+        '#/login'
+      ]);
+    }
 
     if (!allowed.has(target)) {
-      return (location.hash = '#/timbratura');
+      location.hash = '#/timbratura';
+      return;
     }
   }
 
   location.hash = target;
-
 };
-
 
 // === PATCH E5: salvataggi sicuri per Magazzino (saveKey/safeSetJSON) ===
 window.safeSetJSON = window.safeSetJSON || function(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} };
