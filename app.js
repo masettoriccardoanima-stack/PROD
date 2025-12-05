@@ -8580,38 +8580,47 @@ function CommesseView({ query = '' }) {
   const fmtHHMM = (mins) => { const t=Math.max(0,Math.round(+mins||0)), h=Math.floor(t/60), m=t%60; return `${h}:${String(m).padStart(2,'0')}`; };
   const todayISO = () => new Date().toISOString().slice(0,10);
 
-  // --- producedPieces coerente ovunque: usa sempre l'helper core (min per fase, esclude "una tantum") ---
+  // --- producedPieces coerente ovunque: core "pezzi completati" + fallback legacy ---
   const producedPieces = (c) => {
     if (!c) return 0;
 
     try {
-      // Totale teorico pezzi della commessa
-      const totComm = Math.max(1, Number(c.qtaPezzi || c.qta || 0));
+      // Totale teorico pezzi della commessa (per clamp)
+      const totComm = Math.max(1, Number(c.qtaPezzi || 0));
 
       // Timbrature locali
       const oreRows = lsGet('oreRows', []);
+      const ev = (Array.isArray(oreRows) ? oreRows : [])
+        .filter(o => String(o?.commessaId || '') === String(c.id || ''));
 
-      let v = 0;
+      let v = NaN;
 
-      // 1) Preferisco sempre l'helper core: producedPiecesCore(c, oreRows)
+      // 1) Provo SEMPRE prima la logica core: "pezzi completati"
       if (typeof window !== 'undefined'
         && typeof window.producedPiecesCore === 'function') {
-
         v = Number(window.producedPiecesCore(c, oreRows) || 0);
-
-      } else if (typeof window !== 'undefined'
-        && typeof window.producedPieces === 'function') {
-        // 2) Fallback legacy: vecchia producedPieces(c) senza oreRows
-        v = Number(window.producedPieces(c) || 0);
-
-      } else {
-        // 3) Ultimo fallback: uso c.qtaProdotta clampata al totale
-        v = Number(c.qtaProdotta || 0);
       }
 
-      if (!Number.isFinite(v)) v = 0;
+      // 2) Fallback di sicurezza:
+      // se la core dice 0 ma dai dati vedo che c'è stata produzione
+      // (timbrature presenti o qtaProdotta > 0), uso la logica legacy.
+      if ((!Number.isFinite(v) || v <= 0) &&
+          (ev.length || Number(c.qtaProdotta || 0) > 0)) {
 
-      // Clamp a totale commessa (niente sovrapproduzione oltre qtaPezzi)
+        if (typeof window !== 'undefined'
+          && typeof window.producedPieces === 'function') {
+
+          const vLegacy = Number(window.producedPieces(c) || 0);
+          if (Number.isFinite(vLegacy) && vLegacy > 0) {
+            v = vLegacy;
+          }
+        }
+      }
+
+      // Se ancora non ho un numero valido, metto 0
+      if (!Number.isFinite(v) || v < 0) v = 0;
+
+      // Clamp a totale commessa (no > qtaPezzi)
       return Math.max(0, Math.min(totComm, v));
 
     } catch {
