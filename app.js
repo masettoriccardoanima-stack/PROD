@@ -8580,39 +8580,40 @@ function CommesseView({ query = '' }) {
   const fmtHHMM = (mins) => { const t=Math.max(0,Math.round(+mins||0)), h=Math.floor(t/60), m=t%60; return `${h}:${String(m).padStart(2,'0')}`; };
   const todayISO = () => new Date().toISOString().slice(0,10);
 
-  // --- producedPieces coerente ovunque: calcolata dalle timbrature locali (oreRows) ---
+  // --- producedPieces coerente ovunque: usa sempre l'helper core (min per fase, esclude "una tantum") ---
   const producedPieces = (c) => {
     if (!c) return 0;
+
     try {
-      // Totale pezzi teorici della commessa
-      const totComm = Math.max(1, Number(c.qtaPezzi || 0));
+      // Totale teorico pezzi della commessa
+      const totComm = Math.max(1, Number(c.qtaPezzi || c.qta || 0));
 
-      // Leggo le timbrature locali
+      // Timbrature locali
       const oreRows = lsGet('oreRows', []);
-      const ev = (Array.isArray(oreRows) ? oreRows : [])
-        .filter(o => String(o?.commessaId || '') === String(c.id || ''));
 
-      // Se NON ho timbrature locali per quella commessa → fallback legacy
-      if (!ev.length) {
-        // 1) Se esiste window.producedPieces globale, la uso (vecchia logica su fasi / qtaProdotta)
-        if (typeof window.producedPieces === 'function') {
-          const v = window.producedPieces(c);
-          return Number.isFinite(v) ? v : 0;
-        }
+      let v = 0;
 
-        // 2) Ultimo fallback: uso c.qtaProdotta clampata al totale
-        const prodLegacy = Math.max(0, Number(c.qtaProdotta || 0));
-        return Math.max(0, Math.min(totComm, prodLegacy));
+      // 1) Preferisco sempre l'helper core: producedPiecesCore(c, oreRows)
+      if (typeof window !== 'undefined'
+        && typeof window.producedPiecesCore === 'function') {
+
+        v = Number(window.producedPiecesCore(c, oreRows) || 0);
+
+      } else if (typeof window !== 'undefined'
+        && typeof window.producedPieces === 'function') {
+        // 2) Fallback legacy: vecchia producedPieces(c) senza oreRows
+        v = Number(window.producedPieces(c) || 0);
+
+      } else {
+        // 3) Ultimo fallback: uso c.qtaProdotta clampata al totale
+        v = Number(c.qtaProdotta || 0);
       }
 
-      // Se ho timbrature: sommo le quantità pezzi registrate
-      const sum = ev.reduce(
-        (s, o) => s + Math.max(0, Number(o.qtaPezzi || 0)),
-        0
-      );
+      if (!Number.isFinite(v)) v = 0;
 
-      // Clamp a totale commessa (non voglio sovraprodurre oltre qtaPezzi)
-      return Math.max(0, Math.min(totComm, sum));
+      // Clamp a totale commessa (niente sovrapproduzione oltre qtaPezzi)
+      return Math.max(0, Math.min(totComm, v));
+
     } catch {
       return 0;
     }
