@@ -14795,9 +14795,18 @@ window.printDDT = function(state){
         return Math.max(0, sum);
       }
 
-  // read-only: accountant
-  const readOnly = (global.isReadOnlyUser ? !!global.isReadOnlyUser() : !!(global.__currentUser && global.__currentUser.role==='accountant'));
-  const roProps  = () => (readOnly ? { disabled:true, title:'Sola lettura' } : {});
+  // read-only: accountant / viewer / mobile
+  const readOnly = (
+    typeof window.isReadOnlyUser === 'function'
+      ? !!window.isReadOnlyUser()
+      : !!(window.__USER && window.__USER.role === 'accountant')
+  );
+
+  const roProps = () =>
+    (window.roProps ? window.roProps() : (readOnly ? {
+      disabled: true,
+      title: 'Sola lettura'
+    } : {}));
 
   // mirror al server (se disponibile)
   const mirrorToServer = global.mirrorToServer || ((k,v)=>{});
