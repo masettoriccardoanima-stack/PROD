@@ -154,6 +154,11 @@ body { margin:0; font-family:system-ui, Arial, sans-serif; background:#f5f6f8; }
   padding:8px;
 }
 
+/* Card in Timbratura: distacco uniforme tra i blocchi */
+.timbratura .card{
+  margin-bottom:8px;
+}
+
 /* Toolbar standard: prima riga con filtri + azioni */
 .toolbar{
   display:flex;
