@@ -24320,6 +24320,7 @@ function residualPiecesUI(c, rigaIdx){
 
 // === Suggerimento Q.tà pezzi (solo flusso standard, non extra gas) ===
 let suggestedQty = 0;
+let isOncePhaseCurrent = false;  // fase una-tantum per questo stop?
 try{
   if (!(gasChange || (active && active.isGasChange)) && commessa){
 
@@ -24366,14 +24367,21 @@ try{
       if (faseCorrente && isOncePhaseLocal(faseCorrente)) {
         // attività da fare una volta per commessa: default = 1
         suggestedQty = 1;
+        isOncePhaseCurrent = true;
       }
     }
   }catch{
     // se qualcosa va storto, teniamo suggestedQty com'era
   }
 
-    // Pre-compila il campo quantità nel popup
-    setQtyVal('');
+    // Pre-compila il campo quantità nel popup:
+    // - vuoto per le fasi "normali"
+    // - 1 per le fasi "una tantum" (es. Preparazione attività)
+    if (isOncePhaseCurrent && suggestedQty > 0) {
+      setQtyVal(String(suggestedQty));
+    } else {
+      setQtyVal('');
+    }
 
     const snap = { ...active };
     // NON rimuoviamo più qui timbraturaActive: aspettiamo la conferma
@@ -24407,21 +24415,78 @@ try{
           ? Number(act.rigaIdx)
           : ((rigaIdx===''||rigaIdx==null) ? null : Number(rigaIdx));
 
-        if (cNow && Number.isFinite(rIdxNow) && Array.isArray(cNow.righeArticolo) && cNow.righeArticolo[rIdxNow]) {
+        // Limita la quantità alla "fase" tenendo conto delle timbrature già inserite.
+        // Per le fasi di processo: max = q.tà riga (o commessa intera).
+        // Per le fasi una-tantum (es. "Preparazione attività"): max = 1.
+        const oreRowsArr = Array.isArray(oreRows) ? oreRows : [];
+
+        if (cNow && Number.isFinite(rIdxNow) &&
+            Array.isArray(cNow.righeArticolo) &&
+            cNow.righeArticolo[rIdxNow]) {
+
           const rNow = cNow.righeArticolo[rIdxNow];
           const totRiga = Math.max(1, Number(rNow?.qta || totComm));
-          const curProd = Math.max(0, Number(rNow?.fasi?.[fIdxNow]?.qtaProdotta || 0));
-          const residFase = Math.max(0, totRiga - curProd);
-          if (qty > residFase) {
-            qty = residFase;
-            (window.toast||alert)(`Quantità ridotta a residuo riga (${residFase}).`);
+          const fasiRiga = Array.isArray(rNow.fasi) ? rNow.fasi : [];
+          const faseNow = fasiRiga[fIdxNow] || null;
+
+          const isOnce =
+            !!(faseNow && typeof isOncePhaseLocal === 'function'
+              ? isOncePhaseLocal(faseNow)
+              : (faseNow && (faseNow.unaTantum || faseNow.once)));
+
+          // Somma q.tà pezzi già timbrata su quella commessa + riga + fase
+          let curProd = oreRowsArr
+            .filter(o =>
+              o &&
+              String(o.commessaId || '') === String(cNow.id || '') &&
+              Number(o.rigaIdx) === rIdxNow &&
+              Number(o.faseIdx) === fIdxNow
+            )
+            .reduce((s, o) => s + Math.max(0, Number(o.qtaPezzi || 0)), 0);
+
+          // Fallback legacy se non ci sono timbrature ma esiste qtaProdotta sulla fase
+          if (!curProd && faseNow && faseNow.qtaProdotta != null) {
+            curProd = Math.max(0, Number(faseNow.qtaProdotta || 0));
           }
-        } else if (cNow && Array.isArray(cNow.fasi) && cNow.fasi[fIdxNow]) {
-          const curProd = Math.max(0, Number(cNow.fasi[fIdxNow].qtaProdotta || 0));
-          const residFase = Math.max(0, totComm - curProd);
+
+          const maxPhase = isOnce ? 1 : totRiga;
+          const residFase = Math.max(0, maxPhase - curProd);
+
           if (qty > residFase) {
             qty = residFase;
-            (window.toast||alert)(`Quantità ridotta a residuo commessa (${residFase}).`);
+            (window.toast || alert)(`Quantità ridotta a residuo per questa fase (${residFase}).`);
+          }
+
+        } else if (cNow && Array.isArray(cNow.fasi) && cNow.fasi[fIdxNow]) {
+
+          const faseNow = cNow.fasi[fIdxNow] || null;
+
+          const isOnce =
+            !!(faseNow && typeof isOncePhaseLocal === 'function'
+              ? isOncePhaseLocal(faseNow)
+              : (faseNow && (faseNow.unaTantum || faseNow.once)));
+
+          // Somma q.tà pezzi già timbrata su quella commessa + fase (senza riga)
+          let curProd = oreRowsArr
+            .filter(o =>
+              o &&
+              String(o.commessaId || '') === String(cNow.id || '') &&
+              (o.rigaIdx == null || o.rigaIdx === '' || Number.isNaN(Number(o.rigaIdx))) &&
+              Number(o.faseIdx) === fIdxNow
+            )
+            .reduce((s, o) => s + Math.max(0, Number(o.qtaPezzi || 0)), 0);
+
+          // Fallback legacy se non ci sono timbrature ma esiste qtaProdotta sulla fase
+          if (!curProd && faseNow && faseNow.qtaProdotta != null) {
+            curProd = Math.max(0, Number(faseNow.qtaProdotta || 0));
+          }
+
+          const maxPhase = isOnce ? 1 : totComm;
+          const residFase = Math.max(0, maxPhase - curProd);
+
+          if (qty > residFase) {
+            qty = residFase;
+            (window.toast || alert)(`Quantità ridotta a residuo per questa fase (${residFase}).`);
           }
         }
       }
