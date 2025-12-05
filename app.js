@@ -4518,7 +4518,10 @@ function producedPiecesRowCore(c, rigaIdx, oreRows){
     processIdx.push(j);
   }
 
-  const all = Array.isArray(oreRows) ? oreRows : [];
+  // Considero solo timbrature non cancellate
+  const all = Array.isArray(oreRows)
+    ? oreRows.filter(o => !o || !o.deletedAt)
+    : [];
   const jobIdStr = String(c.id || '');
 
   const evRow = all.filter(o =>
@@ -4576,9 +4579,13 @@ function producedPieces(c, oreRows){
     ? c.righeArticolo
     : (Array.isArray(c.righe) ? c.righe : []);
 
-  const hasRowFasi = righe.some(r => Array.isArray(r && r.fasi) && r.fasi.length);
+  const hasRowFasi = righe.some(r =>
+    Array.isArray(r && r.fasi) && r.fasi.length);
 
-  const all = Array.isArray(oreRows) ? oreRows : [];
+  // Considero solo timbrature non cancellate
+  const all = Array.isArray(oreRows)
+    ? oreRows.filter(o => !o || !o.deletedAt)
+    : [];
   const jobIdStr = String(c.id || '');
   const evJob = all.filter(o =>
     String(((o && o.commessaId) || '')) === jobIdStr
@@ -7014,7 +7021,9 @@ function producedPiecesFromOreRows(c, oreRows){
     if (!c) return 0;
     try{
       const totComm = Math.max(1, Number(c.qtaPezzi || 1));
-      const all = Array.isArray(oreRows) ? oreRows : [];
+      const all = Array.isArray(oreRows)
+        ? oreRows.filter(o => !o || !o.deletedAt)
+        : [];
 
       // 1) Logica ufficiale: usa sempre il core commessa+oreRows
       if (typeof window !== 'undefined'
@@ -23986,11 +23995,14 @@ var TimbraturaMobileView = function(){
       (rigaIdx === '' || rigaIdx == null) ? null : Number(rigaIdx);
     const jobIdStr = String(c.id || '');
 
-    // Leggo una volta sola le ore dal LS (stesso approccio di residualPiecesUI)
+    // Leggo una volta sola le ore dal LS (stessa logica di residualPiecesUI):
+    // considero solo timbrature non cancellate
     let oreRowsArr = [];
     try{
       const oreRowsLS = lsGet('oreRows', []);
-      oreRowsArr = Array.isArray(oreRowsLS) ? oreRowsLS : [];
+      oreRowsArr = Array.isArray(oreRowsLS)
+        ? oreRowsLS.filter(o => !o || !o.deletedAt)
+        : [];
     } catch {
       oreRowsArr = [];
     }
