@@ -23754,30 +23754,61 @@ var TimbraturaMobileView = function(){
     const totComm = Math.max(1, Number(c.qtaPezzi || 1));
     const idxNum =
       (rigaIdx === '' || rigaIdx == null) ? null : Number(rigaIdx);
+    const jobIdStr = String(c.id || '');
 
-    // 1) Se ho una riga selezionata e ha fasi per-riga → usa quelle
+    // Leggo una volta sola le ore dal LS (stesso approccio di residualPiecesUI)
+    let oreRowsArr = [];
+    try{
+      const oreRowsLS = lsGet('oreRows', []);
+      oreRowsArr = Array.isArray(oreRowsLS) ? oreRowsLS : [];
+    } catch {
+      oreRowsArr = [];
+    }
+
+    // 1) Caso per-riga: stessa fonte di verità di Commesse ma filtrata sulla riga
     if (Number.isFinite(idxNum) &&
         Array.isArray(c.righeArticolo) &&
         c.righeArticolo[idxNum]) {
 
       const r = c.righeArticolo[idxNum] || {};
       const totRiga = Math.max(1, Number(r.qta || totComm));
-      const fasiR = Array.isArray(r.fasi) ? r.fasi : [];
 
-      if (fasiR.length){
-        const arr = fasiR
-          .filter(f => !(f?.unaTantum || f?.once))
-          .map(f => Math.max(0, Number(f.qtaProdotta || 0)));
-        if (arr.length){
-          return Math.max(0, Math.min(totRiga, Math.min(...arr)));
-        }
+      // 1a) Se esiste l'helper core per riga, usiamo quello
+      if (typeof window !== 'undefined'
+        && typeof window.producedPiecesRowCore === 'function') {
+
+        let prodRiga = Number(window.producedPiecesRowCore(c, idxNum, oreRowsArr) || 0);
+        if (!Number.isFinite(prodRiga) || prodRiga < 0) prodRiga = 0;
+        return Math.max(0, Math.min(totRiga, prodRiga));
       }
 
-      // fallback riga senza fasi quantitative
+      // 1b) Fallback: nessun helper core -> sommo qtaPezzi delle timbrature della riga
+      const evRow = oreRowsArr.filter(o =>
+        String(o?.commessaId || '') === jobIdStr &&
+        Number(o?.rigaIdx) === idxNum
+      );
+      if (evRow.length){
+        const sumRow = evRow.reduce(
+          (s, o) => s + Math.max(0, Number(o.qtaPezzi || 0)),
+          0
+        );
+        return Math.max(0, Math.min(totRiga, sumRow));
+      }
+
+      // 1c) Ultimo fallback legacy: usa eventuale r.qtaProdotta
       return Math.max(0, Math.min(totRiga, Number(r.qtaProdotta || 0) || 0));
     }
 
-    // 2) Fallback legacy globale
+    // 2) Nessuna riga selezionata -> usa prodotto commessa "core"
+    if (typeof window !== 'undefined'
+      && typeof window.producedPiecesCore === 'function') {
+
+      let prodComm = Number(window.producedPiecesCore(c, oreRowsArr) || 0);
+      if (!Number.isFinite(prodComm) || prodComm < 0) prodComm = 0;
+      return Math.max(0, Math.min(totComm, prodComm));
+    }
+
+    // 3) Fallback finale legacy
     return producedPieces(c);
   }
 
