@@ -18345,31 +18345,62 @@ function isCommessaCompleta(c){
 
   const deaccent = s => String(s||'')
     .normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase().trim();
+
   const isOncePhase = (f) => {
-    if (f && (f.once === true || f.unaTantum === true)) return true;
-    const name = deaccent(f?.lav||'');
+    if (!f) return false;
+    if (f.once === true || f.unaTantum === true) return true;
+    const name = deaccent(f.lav || '');
     return /(^|[^a-z])preparazione\s+attivita([^a-z]|$)/.test(name);
   };
 
   const righe = Array.isArray(c.righeArticolo) ? c.righeArticolo : [];
   const hasRowFasi = righe.some(r => Array.isArray(r?.fasi) && r.fasi.length);
+  const totComm = Math.max(1, Number(c.qtaPezzi || c.qta || 0));
 
-  // === NUOVO: commessa completa se tutte le righe sono complete
+  // ---- Leggo una sola volta le ore locali (solo NON cancellate) ----
+  let oreRowsAll = [];
+  try{
+    const tmp = (typeof lsGet === 'function')
+      ? lsGet('oreRows', [])
+      : JSON.parse(localStorage.getItem('oreRows') || '[]') || [];
+    oreRowsAll = Array.isArray(tmp)
+      ? tmp.filter(o => !o || !o.deletedAt)
+      : [];
+  }catch{
+    oreRowsAll = [];
+  }
+
+  // === Caso 1: commessa con righe + fasi per riga ===
+  // Commessa completa se TUTTE le righe quantitative sono complete
   if (righe.length && hasRowFasi){
-    for (const r of righe){
-      const totRiga = Math.max(0, Number(r?.qta || 0));
-      if (totRiga <= 0) continue; // riga vuota/non quantitativa -> ignoro
+    for (let idx = 0; idx < righe.length; idx++){
+      const r = righe[idx];
+      if (!r) continue;
 
-      const fasiR = Array.isArray(r.fasi) ? r.fasi : [];
-      const quant = fasiR
-        .filter(f => !isOncePhase(f))
-        .map(f => Math.max(0, Number(f?.qtaProdotta || 0)));
+      const totRiga = Math.max(0, Number(r.qta || r.qtaPezzi || 0));
+      if (totRiga <= 0) continue; // riga non quantitativa → non blocca la chiusura
 
       let prodRiga = 0;
-      if (quant.length){
-        prodRiga = Math.min(...quant);
+
+      // 1a) Se esiste l'helper core per riga, usiamo quello (timbrature + unaTantum ignorate)
+      if (typeof window !== 'undefined'
+        && typeof window.producedPiecesRowCore === 'function') {
+
+        const v = Number(window.producedPiecesRowCore(c, idx, oreRowsAll) || 0);
+        prodRiga = (Number.isFinite(v) && v >= 0) ? v : 0;
+
       } else {
-        prodRiga = Math.max(0, Number(r?.qtaProdotta || 0));
+        // 1b) Fallback legacy: uso qtaProdotta per-fase non unaTantum
+        const fasiR = Array.isArray(r.fasi) ? r.fasi : [];
+        const quant = fasiR
+          .filter(f => !isOncePhase(f))
+          .map(f => Math.max(0, Number(f && f.qtaProdotta || 0)));
+
+        if (quant.length){
+          prodRiga = Math.min(...quant);
+        } else {
+          prodRiga = Math.max(0, Number(r.qtaProdotta || 0));
+        }
       }
 
       if (prodRiga < totRiga) return false;
@@ -18377,12 +18408,23 @@ function isCommessaCompleta(c){
     return true;
   }
 
-  // === LEGACY: vecchia logica globale
-  const tot = Math.max(1, Number(c?.qtaPezzi||1));
-  const prod = Number(c?.qtaProdotta||0);
+  // === Caso 2: nessuna fase per riga → uso logica core di commessa se c'è ===
+  if (typeof window !== 'undefined'
+    && typeof window.producedPiecesCore === 'function') {
+
+    const v = Number(window.producedPiecesCore(c, oreRowsAll) || 0);
+    const prodComm = (Number.isFinite(v) && v >= 0) ? v : 0;
+    return prodComm >= totComm;
+  }
+
+  // === Caso 3: Fallback completamente legacy (qtaProdotta + fasi globali) ===
+  const tot = totComm;
+  const prod = Number(c.qtaProdotta || 0);
 
   const fasiOk = Array.isArray(c?.fasi)
-    ? c.fasi.filter(f => !isOncePhase(f)).every(f => Number(f?.qtaProdotta||0) >= tot)
+    ? c.fasi
+        .filter(f => !isOncePhase(f))
+        .every(f => Number(f && f.qtaProdotta || 0) >= tot)
     : true;
 
   return prod >= tot && fasiOk;
