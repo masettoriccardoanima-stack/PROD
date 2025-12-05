@@ -15030,6 +15030,95 @@ function FattureView(){
         console.warn('[Fatture] sync eliminazione fallita', e);
       }
 
+            // 6) Se la fattura eliminata proveniva da uno o più DDT, rimuovi il flag __fatturato dai DDT
+      try {
+        // fattura che stiamo eliminando (prima della soft-delete)
+        const removed = (Array.isArray(all) ? all : []).find(r => r && String(r.id) === String(id));
+        if (removed) {
+          const ddtIdSet = new Set();
+
+          // a) caso fatturazione multipla: __fromDDTs
+          if (Array.isArray(removed.__fromDDTs)) {
+            removed.__fromDDTs.forEach(x => {
+              if (x !== null && x !== undefined && String(x).trim() !== '') {
+                ddtIdSet.add(String(x).trim());
+              }
+            });
+          }
+
+          // b) caso fattura da DDT singolo: righe con ddtId
+          (removed.righe || []).forEach(r => {
+            const rid = (r && r.ddtId) ? String(r.ddtId).trim() : '';
+            if (rid) ddtIdSet.add(rid);
+          });
+
+          if (ddtIdSet.size > 0) {
+            // Costruisci l’insieme di DDT ancora referenziati da ALTRE fatture non eliminate
+            const stillLinked = new Set();
+            const activeFatture = (Array.isArray(next) ? next : []).filter(r => r && !r.deletedAt);
+
+            activeFatture.forEach(fa => {
+              if (!fa) return;
+
+              if (Array.isArray(fa.__fromDDTs)) {
+                fa.__fromDDTs.forEach(x => {
+                  if (x !== null && x !== undefined && String(x).trim() !== '') {
+                    stillLinked.add(String(x).trim());
+                  }
+                });
+              }
+
+              (fa.righe || []).forEach(r => {
+                const rid = (r && r.ddtId) ? String(r.ddtId).trim() : '';
+                if (rid) stillLinked.add(rid);
+              });
+            });
+
+            // I DDT da sbloccare sono quelli legati SOLO a questa fattura appena eliminata
+            const idsToUnflag = new Set(
+              Array.from(ddtIdSet).filter(idStr => !stillLinked.has(idStr))
+            );
+
+            if (idsToUnflag.size > 0) {
+              let allDDT = [];
+              try { allDDT = JSON.parse(localStorage.getItem('ddtRows') || '[]') || []; } catch {}
+
+              if (Array.isArray(allDDT) && allDDT.length > 0) {
+                const nowISO2 = new Date().toISOString();
+                let changedDDT = false;
+
+                allDDT = allDDT.map(d => {
+                  if (!d) return d;
+                  const idStr = String(d.id || '').trim();
+                  if (!idStr || !idsToUnflag.has(idStr)) return d;
+
+                  // rimuovi solo il flag, non tocchiamo altre proprietà
+                  const clone = { ...d };
+                  delete clone.__fatturato;
+                  delete clone.__fatturatoAt;
+                  clone.updatedAt = nowISO2;
+                  changedDDT = true;
+                  return clone;
+                });
+
+                if (changedDDT) {
+                  try { localStorage.setItem('ddtRows', JSON.stringify(allDDT)); } catch {}
+                  try {
+                    if (window.mirrorToServer) window.mirrorToServer('ddtRows', allDDT);
+                    if (window.persistKV) await window.persistKV('ddtRows', allDDT);
+                    if (window.api?.kv?.set) await window.api.kv.set('ddtRows', allDDT);
+                  } catch (e2) {
+                    console.warn('[Fatture] sync unflag DDT failed', e2);
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[Fatture] unflag DDT on delete failed', e);
+      }
+
       try { alert('Fattura eliminata ✅'); } catch {}
     }
 
