@@ -4557,8 +4557,18 @@ function producedPiecesRowCore(c, rigaIdx, oreRows){
   }
 
   // Nessuna fase di processo: riga "non tracciata" su oreRows.
-  // Manteniamo come massimo la qtaProdotta legacy, solo se non ci sono timbrature.
+  // Caso particolare:
+  // - se esistono fasi ma sono tutte "una tantum" → NON producono pezzi
+  // - se NON esistono fasi (riga legacy pura) → uso ancora r.qtaProdotta
   if (!evRow.length){
+    const hasAnyFasi = Array.isArray(fasiR) && fasiR.length;
+    if (hasAnyFasi){
+      // Abbiamo fasi ma nessuna di processo (solo una tantum / preparazioni):
+      // per coerenza di modello → 0 pezzi prodotti
+      return 0;
+    }
+
+    // Riga legacy senza nessuna fase collegata → manteniamo compat su qtaProdotta
     const legacy = Math.max(0, Number(r.qtaProdotta || 0));
     return Math.max(0, Math.min(qRiga, legacy));
   }
@@ -4650,8 +4660,9 @@ function producedPieces(c, oreRows){
 
   // Nessuna timbratura per la commessa → fallback legacy
   if (!evJob.length){
-    const fasiLegacy = fasi;
+    const fasiLegacy = Array.isArray(fasi) ? fasi : [];
     if (!fasiLegacy.length){
+      // Commessa legacy senza nessuna fase → compat su c.qtaProdotta
       return Math.max(0, Math.min(totComm, Number(c.qtaProdotta || 0) || 0));
     }
 
@@ -4660,7 +4671,9 @@ function producedPieces(c, oreRows){
       .map(f => Math.max(0, Number((f && f.qtaProdotta) || 0)));
 
     if (!arr.length){
-      return Math.max(0, Math.min(totComm, Number(c.qtaProdotta || 0) || 0));
+      // Abbiamo fasi, ma tutte "una tantum" (preparazioni, setup, ecc.):
+      // per coerenza del modello → 0 pezzi prodotti
+      return 0;
     }
 
     const min = Math.min(...arr);
