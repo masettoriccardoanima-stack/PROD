@@ -7046,7 +7046,10 @@ function producedPiecesFromOreRows(c, oreRows){
 
   // ---- Dati ----
   const commesse = lsGet('commesseRows', []);
-  const oreRows  = lsGet('oreRows', []);
+  const oreAll   = lsGet('oreRows', []);
+  const oreRows  = Array.isArray(oreAll)
+    ? oreAll.filter(o => !o || !o.deletedAt)
+    : [];
   const today    = todayISO();
 
   // ---- Dataset widget ----
@@ -8720,9 +8723,11 @@ function CommesseView({ query = '' }) {
       // Totale teorico pezzi della commessa (per clamp)
       const totComm = Math.max(1, Number(c.qtaPezzi || c.qta || 0));
 
-      // Timbrature locali (oreRows) – se vuoto, il core farà fallback su qtaProdotta/fasi
+      // Timbrature locali (oreRows) – consideriamo solo le NON cancellate
       const oreRowsAll = lsGet('oreRows', []);
-      const oreRows = Array.isArray(oreRowsAll) ? oreRowsAll : [];
+      const oreRows = Array.isArray(oreRowsAll)
+        ? oreRowsAll.filter(o => !o || !o.deletedAt)
+        : [];
 
       let v = 0;
 
@@ -18678,29 +18683,73 @@ function renderOperatoreField_Local(value, onChange){
   const commesse = React.useMemo(()=>{ try{ return JSON.parse(localStorage.getItem('commesseRows')||'[]'); }catch{ return []; } }, []);
 
   // ===================== MODALITÀ LOCALE =====================
-  const [rows, setRows] = React.useState(()=>{ try{ return JSON.parse(localStorage.getItem('oreRows')||'[]'); }catch{ return []; } });
-
-  // Upgrade 1-shot: assegna __createdAt alle righe che non ce l'hanno
-  React.useEffect(()=>{
+  // Stato: timbrature locali (solo righe ATTIVE: le cancellate restano in LS come tombstone)
+  const [rows, setRows] = React.useState(()=>{
     try{
-      const arr = JSON.parse(localStorage.getItem('oreRows') || '[]') || [];
+      let raw = JSON.parse(localStorage.getItem('oreRows') || '[]') || [];
+      if (!Array.isArray(raw)) raw = [];
+
       let changed = false;
-      arr.forEach((r, i) => {
-        if (!r.__createdAt){
-          const base = r.data ? (r.data + 'T00:00:00') : new Date().toISOString();
+      const norm = raw.map((r, i) => {
+        if (!r || typeof r !== 'object') return r;
+        const out = { ...r };
+
+        // __createdAt per ordinare cronologicamente (upgrade vecchi record)
+        if (!out.__createdAt){
+          const base = out.data ? (out.data + 'T00:00:00') : new Date().toISOString();
           const t = (Date.parse(base) || Date.now()) + (i * 1000);
-          r.__createdAt = new Date(t).toISOString();
+          out.__createdAt = new Date(t).toISOString();
           changed = true;
         }
+        // updatedAt allineato almeno a __createdAt (serve a mergeById)
+        if (!out.updatedAt && out.__createdAt){
+          out.updatedAt = out.__createdAt;
+          changed = true;
+        }
+        return out;
       });
-      if (changed){
-        localStorage.setItem('oreRows', JSON.stringify(arr));
-        setRows(arr);
-      }
-    }catch{}
-  }, []);
 
-  React.useEffect(()=>{ try{ localStorage.setItem('oreRows', JSON.stringify(rows)); }catch{} }, [rows]);
+      if (changed){
+        localStorage.setItem('oreRows', JSON.stringify(norm));
+      }
+
+      // Stato React = solo righe NON cancellate
+      return norm.filter(r => !r || !r.deletedAt);
+    }catch{
+      return [];
+    }
+  });
+
+  // Ogni volta che cambiano le righe ATTIVE, riallineo LS mantenendo anche le cancellate
+  React.useEffect(()=>{
+    try{
+      const key = 'oreRows';
+      let raw = JSON.parse(localStorage.getItem(key) || '[]') || [];
+      if (!Array.isArray(raw)) raw = [];
+
+      const map = new Map();
+      // 1) base: quello che è già in LS (incluse le deletedAt)
+      raw.forEach(r => {
+        if (r && r.id) map.set(r.id, r);
+      });
+
+      // 2) override con le righe attive correnti (rows)
+      (Array.isArray(rows) ? rows : []).forEach(r => {
+        if (!r || !r.id) return;
+        const prev = map.get(r.id);
+        if (prev) {
+          map.set(r.id, { ...prev, ...r });
+        } else {
+          map.set(r.id, r);
+        }
+      });
+
+      const combined = Array.from(map.values());
+      localStorage.setItem(key, JSON.stringify(combined));
+    }catch{
+      /* ignore */
+    }
+  }, [rows]);
 
   // --- Filtri condivisi (sia locale che cloud) ---
   const [flt, setFlt] = React.useState({ from:'', to:'', commessa:'', operatore:'', fase:'' });
@@ -18840,6 +18889,7 @@ function renderOperatoreField_Local(value, onChange){
         ore       : +(oreMin/60).toFixed(2),
         qtaPezzi  : Math.max(0, Number(form.qtaPezzi||0)),
         note      : form.note,
+        updatedAt       : nowISO,
         __editedAt      : nowISO,
         __editedBy      : currentUserLabel || null,
         __editedManually: true
@@ -18887,6 +18937,8 @@ function renderOperatoreField_Local(value, onChange){
     const { year, num } = getNextOreProgressivo();
     const recId = `O-${year}-${String(num).padStart(3,'0')}`;
 
+    const nowISO = new Date().toISOString();
+
     const rec = {
       id: recId,
       ...form,
@@ -18894,7 +18946,8 @@ function renderOperatoreField_Local(value, onChange){
       oreMin,
       ore: +(oreMin/60).toFixed(2),
       qtaPezzi: Math.max(0, Number(form.qtaPezzi||0)),
-      __createdAt: new Date().toISOString()
+      __createdAt: nowISO,
+      updatedAt  : nowISO
     };
 
     // metto in testa così lo vedi subito
@@ -18912,7 +18965,7 @@ function renderOperatoreField_Local(value, onChange){
   }
 
 
-    function delLocal(r){
+  function delLocal(r){
     if (!isAdmin){
       alert('Solo un utente ADMIN può eliminare una registrazione ore.');
       return;
@@ -18928,38 +18981,45 @@ function renderOperatoreField_Local(value, onChange){
         commessaId: r.commessaId || '',
         data      : r.data || null,
         operatore : r.operatore || '',
-        minutes   : mins,
-        qtaPezzi  : Number(r.qtaPezzi)||0,
-        note      : r.note || '',
-        user      : currentUserLabel || null,
-        role      : (u && u.role) || null
+        minuti    : mins
       });
-    }catch(err){
-      console.error('appendOreAudit delete failed', err);
-    }
 
-    // --- Allinea oreRows + commesseRows dopo eliminazione locale ---
-    try{
-      // 1) Nuovo array oreRows dopo delete
-      const oreRowsAfter = Array.isArray(rows)
-        ? rows.filter(x => x.id !== r.id)
-        : [];
+      // 1) Soft delete su LS: segno deletedAt/updatedAt sul record con lo stesso id
+      const nowISO = new Date().toISOString();
+      let raw = [];
+      try{
+        raw = lsGet('oreRows', []) || [];
+      }catch{
+        try{ raw = JSON.parse(localStorage.getItem('oreRows') || '[]') || []; }catch{ raw = []; }
+      }
+      if (!Array.isArray(raw)) raw = [];
 
-      // Aggiorna stato + salva SUBITO in localStorage (così non "tornano" dopo un refresh veloce)
+      const rawNext = raw.map(row => {
+        if (row && row.id === r.id && !row.deletedAt) {
+          return { ...row, deletedAt: nowISO, updatedAt: nowISO };
+        }
+        return row;
+      });
+
+      // Righe ATTIVE dopo la cancellazione (usate in UI e per riallineo commessa)
+      const oreRowsAfter = rawNext.filter(o => !o || !o.deletedAt);
+
+      // Aggiorna stato + salva SUBITO in LS (tombstone inclusa)
       setRows(oreRowsAfter);
       try{
         if (typeof lsSet === 'function') {
-          lsSet('oreRows', oreRowsAfter);
+          lsSet('oreRows', rawNext);
         } else {
-          localStorage.setItem('oreRows', JSON.stringify(oreRowsAfter));
+          localStorage.setItem('oreRows', JSON.stringify(rawNext));
         }
-      }catch(_){}
+      }catch{}
 
+      // 2) riallinea commessa.qtaProdotta con le timbrature residue (solo ATTIVE)
       const jobId = String(r.commessaId || '');
       if (jobId) {
-        const allRaw = (typeof lsGet === 'function')
+        const allRaw = (typeof lsGet === 'function'
           ? lsGet('commesseRows', [])
-          : JSON.parse(localStorage.getItem('commesseRows') || '[]') || [];
+          : JSON.parse(localStorage.getItem('commesseRows') || '[]') || []);
 
         const all = Array.isArray(allRaw) ? allRaw : [];
         const ix = all.findIndex(c => String(c.id || '') === jobId);
@@ -18967,7 +19027,7 @@ function renderOperatoreField_Local(value, onChange){
         if (ix >= 0) {
           const c = { ...all[ix] };
 
-          // Timbrature residue per quella commessa DOPO l'eliminazione
+          // Timbrature residue per quella commessa DOPO la cancellazione (solo non-deleted)
           const evAfter = oreRowsAfter.filter(o => String(o.commessaId || '') === jobId);
 
           if (!evAfter.length) {
@@ -18993,24 +19053,22 @@ function renderOperatoreField_Local(value, onChange){
             const totComm = Math.max(1, Number(c.qtaPezzi || 0));
             const newProd = Number(window.producedPiecesCore(c, oreRowsAfter) || 0);
             c.qtaProdotta = Math.max(0, Math.min(totComm, newProd));
-            // Le qtaProdotta per-fase restano inalterate: con eventi attivi
-            // la logica producedPiecesCore ignora i campi legacy e usa solo le timbrature.
           }
 
           const nextAll = all.slice();
           nextAll[ix] = c;
+
           if (typeof lsSet === 'function') {
             lsSet('commesseRows', nextAll);
           } else {
-            localStorage.setItem('commesseRows', JSON.stringify(nextAll));
+            try{ localStorage.setItem('commesseRows', JSON.stringify(nextAll)); }catch{}
           }
-          if (typeof window !== 'undefined') {
-            window.__anima_dirty = true;
-          }
+          window.__anima_dirty = true;
         }
       }
-    }catch(e){
-      console.warn('delLocal: errore sync commesseRows dopo delete', e);
+    }catch(err){
+      console.error('Errore in delLocal', err);
+      alert('Errore durante l\'eliminazione: ' + (err?.message || err));
     }
   }
 
@@ -23821,16 +23879,18 @@ function residualPiecesUI(c, rigaIdx){
       (rigaIdx === '' || rigaIdx == null) ? null : Number(rigaIdx);
     const jobIdStr = String(c.id || '');
 
-    // Leggo una volta sola le ore dal LS
+    // Leggo una volta le ore dal LS (solo NON cancellate)
     let oreRowsArr = [];
     try {
       const oreRowsLS = lsGet('oreRows', []);
-      oreRowsArr = Array.isArray(oreRowsLS) ? oreRowsLS : [];
+      oreRowsArr = Array.isArray(oreRowsLS)
+        ? oreRowsLS.filter(o => !o || !o.deletedAt)
+        : [];
     } catch {
       oreRowsArr = [];
     }
 
-    // Tutte le timbrature per questa commessa
+    // Tutte le timbrature ATTIVE per questa commessa
     const evJob = oreRowsArr.filter(o =>
       String(o?.commessaId || '') === jobIdStr
     );
@@ -24508,6 +24568,8 @@ try{
               return { id: `O-${y}-${String(n).padStart(3,'0')}` };
             })()
         );
+        const nowISO = new Date().toISOString();
+
         const recExtra = {
           id: nid.id, data: todayISO(),
           commessaId: String(jobId),
@@ -24515,7 +24577,9 @@ try{
           operatore: act.operatore || '',
           oreHHMM, oreMin, ore,
           note: 'Cambio Bombola Gas',
-          qtaPezzi: 0
+          qtaPezzi: 0,
+          __createdAt: nowISO,
+          updatedAt  : nowISO
         };
         const arr = lsGet('oreRows', []); arr.push(recExtra); lsSet('oreRows', arr);
       }catch{}
@@ -24570,6 +24634,8 @@ try{
       }
     }catch{}
 
+    const nowISO = new Date().toISOString();
+
     const rec = {
       id: nid.id, data: todayISO(),
       commessaId: String(jobId),
@@ -24578,7 +24644,9 @@ try{
       operatore: act.operatore,
       oreHHMM, oreMin, ore,
       note      : '',
-      qtaPezzi: qty
+      qtaPezzi: qty,
+      __createdAt: nowISO,
+      updatedAt  : nowISO
     };
 
     // — Extra: info riga articolo nel record ore
