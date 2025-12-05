@@ -912,11 +912,14 @@ aside.sidebar + aside.card, aside.sidebar ~ aside.card { display: none !importan
   }
 }
 @media (max-width: 1024px){
-  /* su mobile lascio lo scroll interno */
+  /* su mobile: scroll solo verticale, niente scroll orizzontale */
   .content,
   .app-layout .content,
   body .content{
-    overflow: auto !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
   }
 }
 
