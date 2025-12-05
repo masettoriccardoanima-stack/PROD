@@ -4473,115 +4473,238 @@ function applyCloudQtyToCommessa(commessaId, faseIdx, qty){
   }
 }
 
-// Espongo la funzione core (commessa + oreRows) per usarla altrove
-if (typeof window !== 'undefined') {
-  window.producedPiecesCore = producedPieces;
+// === Core produzione: pezzi COMPLETATI per commessa/righe, da timbrature ===
+
+// helper condiviso: normalizza il nome fase (togli accenti, porta a minuscolo)
+const deaccentPhaseName = s => String(s || '')
+  .normalize('NFD')
+  .replace(/\p{Diacritic}/gu,'')
+  .toLowerCase()
+  .trim();
+
+// helper condiviso: riconosce fasi "una tantum" (flag o nome "preparazione attività")
+const isOncePhaseCore = (f) => {
+  if (!f) return false;
+  if (f.once === true || f.unaTantum === true) return true;
+  const name = deaccentPhaseName(f.lav || f.nome || f.label || '');
+  if (!name) return false;
+  return /(^|[^a-z])preparazione\s+attivita([^a-z]|$)/.test(name);
+};
+
+// Pezzi completati per UNA riga articolo, secondo il modello:
+// Q_completati[R] = min_fase( clamp(sum(qtaPezzi timbrate su F), Q_riga) )
+function producedPiecesRowCore(c, rigaIdx, oreRows){
+  if (!c) return 0;
+
+  const idx = Number(rigaIdx);
+  if (!Number.isFinite(idx) || idx < 0) return 0;
+
+  const righe = Array.isArray(c.righeArticolo)
+    ? c.righeArticolo
+    : (Array.isArray(c.righe) ? c.righe : []);
+
+  const r = righe[idx];
+  if (!r) return 0;
+
+  const qRiga = Math.max(0, Number(r.qta || r.qtaPezzi || 0));
+  if (qRiga <= 0) return 0;
+
+  const fasiR = Array.isArray(r.fasi) ? r.fasi : [];
+  const processIdx = [];
+  for (let j = 0; j < fasiR.length; j++){
+    const f = fasiR[j];
+    if (!f) continue;
+    if (isOncePhaseCore(f)) continue;
+    processIdx.push(j);
+  }
+
+  const all = Array.isArray(oreRows) ? oreRows : [];
+  const jobIdStr = String(c.id || '');
+
+  const evRow = all.filter(o =>
+    String(((o && o.commessaId) || '')) === jobIdStr &&
+    Number(o && o.rigaIdx) === idx
+  );
+
+  // Se ho fasi di processo definite
+  if (processIdx.length){
+    if (evRow.length){
+      const perFase = processIdx.map(phaseIdx => {
+        const sum = evRow
+          .filter(o => Number(o && o.faseIdx) === phaseIdx)
+          .reduce((acc, o) => acc + Math.max(0, Number(o.qtaPezzi || 0)), 0);
+        const clamped = Math.min(qRiga, sum);
+        return clamped;
+      }).filter(v => Number.isFinite(v) && v >= 0);
+
+      if (!perFase.length) return 0;
+      const min = Math.min(...perFase);
+      return Math.max(0, Math.min(qRiga, min));
+    }
+
+    // Nessuna timbratura sulla riga: fallback legacy su qtaProdotta per fase
+    const perFaseLegacy = processIdx.map(phaseIdx => {
+      const f = fasiR[phaseIdx] || {};
+      return Math.max(0, Number(f.qtaProdotta || 0));
+    }).filter(v => Number.isFinite(v) && v >= 0);
+
+    if (!perFaseLegacy.length) return 0;
+    const minLegacy = Math.min(...perFaseLegacy);
+    return Math.max(0, Math.min(qRiga, minLegacy));
+  }
+
+  // Nessuna fase di processo: riga "non tracciata" su oreRows.
+  // Manteniamo come massimo la qtaProdotta legacy, solo se non ci sono timbrature.
+  if (!evRow.length){
+    const legacy = Math.max(0, Number(r.qtaProdotta || 0));
+    return Math.max(0, Math.min(qRiga, legacy));
+  }
+
+  // Ho timbrature ma solo su fasi "una tantum" → non producono pezzi
+  return 0;
 }
 
+// Pezzi completati per COMMESSA:
+// - se ho fasi per-riga + timbrature → somma dei pezzi completati per riga
+// - altrimenti uso le fasi globali / legacy (come prima)
 function producedPieces(c, oreRows){
   if (!c) return 0;
 
-  // helper: riconosce fasi "una tantum" (o preparazione attività)
-  const deaccent = s => String(s||'')
-    .normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase().trim();
-  const isOncePhase = (f) => {
-    if (f && (f.once === true || f.unaTantum === true)) return true;
-    const name = deaccent(f?.lav||'');
-    return /(^|[^a-z])preparazione\s+attivita([^a-z]|$)/.test(name);
-  };
+  const totComm = Math.max(1, Number(c.qtaPezzi || c.qta || 0));
 
-  const righe = Array.isArray(c.righeArticolo) ? c.righeArticolo : [];
-  const hasRowFasi = righe.some(r => Array.isArray(r?.fasi) && r.fasi.length);
+  const righe = Array.isArray(c.righeArticolo)
+    ? c.righeArticolo
+    : (Array.isArray(c.righe) ? c.righe : []);
 
-  // === NUOVO: se ho fasi per-riga sommo il min per riga
+  const hasRowFasi = righe.some(r => Array.isArray(r && r.fasi) && r.fasi.length);
+
+  const all = Array.isArray(oreRows) ? oreRows : [];
+  const jobIdStr = String(c.id || '');
+  const evJob = all.filter(o =>
+    String(((o && o.commessaId) || '')) === jobIdStr
+  );
+
+  // === Caso 1: fasi per-riga ===
   if (righe.length && hasRowFasi){
-    let sum = 0;
+    // 1a) Se ho timbrature → uso il modello "min per fase" per ogni riga
+    if (evJob.length){
+      let sumRows = 0;
+      for (let idx = 0; idx < righe.length; idx++){
+        const r = righe[idx];
+        if (!r) continue;
+        const qRiga = Math.max(0, Number(r.qta || r.qtaPezzi || 0));
+        if (qRiga <= 0) continue;
 
+        const qCompl = producedPiecesRowCore(c, idx, all);
+        sumRows += Math.max(0, Math.min(qRiga, qCompl));
+      }
+
+      const totRighe = righe.reduce(
+        (S, r) => S + Math.max(0, Number(r && (r.qta || r.qtaPezzi) || 0)),
+        0
+      );
+      const totAtteso = totRighe > 0 ? totRighe : totComm;
+      return Math.max(0, Math.min(totAtteso, sumRows));
+    }
+
+    // 1b) Nessuna timbratura: manteniamo la logica legacy basata su fasi.qtaProdotta
+    let sum = 0;
     for (const r of righe){
-      const totRiga = Math.max(0, Number(r?.qta || 0));
+      if (!r) continue;
+      const totRiga = Math.max(0, Number(r.qta || 0));
       if (totRiga <= 0) continue;
 
       const fasiR = Array.isArray(r.fasi) ? r.fasi : [];
       const quant = fasiR
-        .filter(f => !isOncePhase(f))
-        .map(f => Math.max(0, Number(f?.qtaProdotta || 0)));
+        .filter(f => !isOncePhaseCore(f))
+        .map(f => Math.max(0, Number((f && f.qtaProdotta) || 0)));
 
       let prodRiga = 0;
       if (quant.length){
         prodRiga = Math.min(...quant);
       } else {
         // fallback compat (riga senza fasi quantitative)
-        prodRiga = Math.max(0, Number(r?.qtaProdotta || 0));
+        prodRiga = Math.max(0, Number(r.qtaProdotta || 0));
       }
 
       sum += Math.max(0, Math.min(totRiga, prodRiga));
     }
 
-    // clamp a totale atteso (preferisco somma righe, fallback qtaPezzi)
-    const totCommLegacy = Math.max(1, Number(c?.qtaPezzi || 1));
-    const totRighe = righe.reduce((S,r)=> S + Math.max(0, Number(r?.qta||0)), 0);
-    const totAtteso = totRighe > 0 ? totRighe : totCommLegacy;
-
+    const totRighe = righe.reduce(
+      (S, r) => S + Math.max(0, Number(r && r.qta || 0)),
+      0
+    );
+    const totAtteso = totRighe > 0 ? totRighe : totComm;
     return Math.max(0, Math.min(totAtteso, sum));
   }
 
-  // === LEGACY: vecchia logica globale (eventi/oreRows + fasi globali)
-  const tot = Math.max(1, Number(c?.qtaPezzi || 1));
+  // === Caso 2: logica globale (come prima) ===
+  const fasi = Array.isArray(c.fasi) ? c.fasi : [];
 
-  const ev = (Array.isArray(oreRows) ? oreRows : [])
-    .filter(o => String(o?.commessaId||'') === String(c?.id||''));
-
-  if (!ev.length){
-    const fasiLegacy = Array.isArray(c?.fasi) ? c.fasi : [];
-    if (!fasiLegacy.length) return Math.max(0, Math.min(tot, Number(c?.qtaProdotta || 0) || 0));
+  // Nessuna timbratura per la commessa → fallback legacy
+  if (!evJob.length){
+    const fasiLegacy = fasi;
+    if (!fasiLegacy.length){
+      return Math.max(0, Math.min(totComm, Number(c.qtaProdotta || 0) || 0));
+    }
 
     const arr = fasiLegacy
-      .filter(f => !isOncePhase(f))
-      .map(f => Math.max(0, Number(f?.qtaProdotta || 0)));
+      .filter(f => !isOncePhaseCore(f))
+      .map(f => Math.max(0, Number((f && f.qtaProdotta) || 0)));
 
-    if (!arr.length) return Math.max(0, Math.min(tot, Number(c?.qtaProdotta || 0) || 0));
+    if (!arr.length){
+      return Math.max(0, Math.min(totComm, Number(c.qtaProdotta || 0) || 0));
+    }
 
     const min = Math.min(...arr);
-    return Math.max(0, Math.min(tot, min));
+    return Math.max(0, Math.min(totComm, min));
   }
 
-  const fasi = Array.isArray(c?.fasi) ? c.fasi : [];
-
+  // Ho timbrature: uso per-fase (ignorando le una tantum) come prima
   if (fasi.length){
     const perFaseQuant = [];
     fasi.forEach((f, idx) => {
-      if (isOncePhase(f)) return;
-      const s = ev
-        .filter(o => Number(o.faseIdx) === Number(idx))
-        .reduce((acc, o) => acc + Math.max(0, Number(o.qtaPezzi||0)), 0);
+      if (isOncePhaseCore(f)) return;
+      const s = evJob
+        .filter(o => Number(o && o.faseIdx) === Number(idx))
+        .reduce((acc, o) => acc + Math.max(0, Number(o.qtaPezzi || 0)), 0);
       perFaseQuant.push(Math.max(0, s));
     });
 
     if (!perFaseQuant.length){
-      const sumEv = ev.reduce((acc, o) => acc + Math.max(0, Number(o.qtaPezzi||0)), 0);
-      return Math.max(0, Math.min(tot, sumEv));
+      const sumEv = evJob.reduce(
+        (acc, o) => acc + Math.max(0, Number(o.qtaPezzi || 0)),
+        0
+      );
+      return Math.max(0, Math.min(totComm, sumEv));
     }
 
     const min = Math.min(...perFaseQuant);
-    return Math.max(0, Math.min(tot, min));
+    return Math.max(0, Math.min(totComm, min));
   }
 
-  const sumEv = ev.reduce((acc, o) => acc + Math.max(0, Number(o.qtaPezzi||0)), 0);
-  return Math.max(0, Math.min(tot, sumEv));
+  // Nessuna fasi globali: sommo tutte le timbrature (ultimo fallback compat)
+  const sumEv = evJob.reduce(
+    (acc, o) => acc + Math.max(0, Number(o.qtaPezzi || 0)),
+    0
+  );
+  return Math.max(0, Math.min(totComm, sumEv));
 }
 
-// Espone la variante "core" a 2 argomenti (commessa + oreRows)
-// così le viste (es. Commesse) possono leggere la produzione
-// direttamente dalle timbrature locali.
-if (typeof window !== 'undefined') {
-  window.producedPiecesCore = window.producedPiecesCore || producedPieces;
-}
-
+// Residuo = totale commessa − pezzi completati (stessa logica ovunque)
 function residualPieces(c, oreRows){
-  const tot = Math.max(1, Number(c?.qtaPezzi || 1));
+  const tot = Math.max(1, Number((c && (c.qtaPezzi || c.qta)) || 1));
   return Math.max(0, tot - producedPieces(c, oreRows));
 }
 
+// Espone gli helper "core" a 2 argomenti (commessa + oreRows)
+// così le viste (es. Commesse, Dashboard, Timbratura) possono leggere
+// sempre la stessa definizione di "pezzi prodotti" / residuo.
+if (typeof window !== 'undefined') {
+  window.producedPiecesCore    = window.producedPiecesCore    || producedPieces;
+  window.producedPiecesRowCore = window.producedPiecesRowCore || producedPiecesRowCore;
+  window.residualPiecesCore    = window.residualPiecesCore    || residualPieces;
+}
 
 // ================== Backup / Restore ==================
 function makeBackupBlob(){
@@ -6869,44 +6992,35 @@ function DashboardView(){
   }
 
     // Produzione calcolata come in Commesse: da oreRows, con fallback legacy
-  function producedPiecesFromOreRows(c, oreRows){
+function producedPiecesFromOreRows(c, oreRows){
     if (!c) return 0;
     try{
       const totComm = Math.max(1, Number(c.qtaPezzi || 1));
-      const ev = (Array.isArray(oreRows) ? oreRows : [])
-        .filter(o => String(o.commessaId || '') === String(c.id || ''));
+      const all = Array.isArray(oreRows) ? oreRows : [];
 
-      // Nessuna timbratura locale: fallback come in CommesseView
-      if (!ev.length){
-        // 1) Se esiste helper core, prova quello
-        if (typeof window !== 'undefined'
-          && typeof window.producedPiecesCore === 'function') {
-          const vCore = Number(window.producedPiecesCore(c, oreRows) || 0);
-          if (Number.isFinite(vCore)) {
-            return Math.max(0, Math.min(totComm, vCore));
-          }
+      // 1) Logica ufficiale: usa sempre il core commessa+oreRows
+      if (typeof window !== 'undefined'
+        && typeof window.producedPiecesCore === 'function') {
+
+        const vCore = Number(window.producedPiecesCore(c, all) || 0);
+        if (Number.isFinite(vCore)) {
+          return Math.max(0, Math.min(totComm, vCore));
         }
-
-        // 2) Se esiste window.producedPieces legacy, prova quello
-        if (typeof window !== 'undefined'
-          && typeof window.producedPieces === 'function') {
-          const vLegacy = Number(window.producedPieces(c) || 0);
-          if (Number.isFinite(vLegacy)) {
-            return Math.max(0, Math.min(totComm, vLegacy));
-          }
-        }
-
-        // 3) Ultimo fallback: c.qtaProdotta clampata
-        const prodLegacy = Math.max(0, Number(c.qtaProdotta || 0));
-        return Math.max(0, Math.min(totComm, prodLegacy));
       }
 
-      // Ho timbrature: sommo le qtaPezzi come fa CommesseView
-      const sum = ev.reduce(
-        (s, o) => s + Math.max(0, Number(o.qtaPezzi || 0)),
-        0
-      );
-      return Math.max(0, Math.min(totComm, sum));
+      // 2) Fallback: producedPieces(c) legacy (basata su fasi.qtaProdotta)
+      if (typeof window !== 'undefined'
+        && typeof window.producedPieces === 'function') {
+
+        const vLegacy = Number(window.producedPieces(c) || 0);
+        if (Number.isFinite(vLegacy)) {
+          return Math.max(0, Math.min(totComm, vLegacy));
+        }
+      }
+
+      // 3) Ultimo fallback: c.qtaProdotta clampata
+      const prodLegacy = Math.max(0, Number(c.qtaProdotta || 0));
+      return Math.max(0, Math.min(totComm, prodLegacy));
     }catch(_){
       return 0;
     }
@@ -23649,7 +23763,7 @@ var TimbraturaMobileView = function(){
     return producedPieces(c);
   }
 
-  function residualPiecesUI(c, rigaIdx){
+function residualPiecesUI(c, rigaIdx){
     if (!c) return 0;
 
     // Totale pezzi della commessa (stessa logica di base di Commesse)
@@ -23659,16 +23773,16 @@ var TimbraturaMobileView = function(){
     const jobIdStr = String(c.id || '');
 
     // Leggo una volta sola le ore dal LS
-    let arr = [];
+    let oreRowsArr = [];
     try {
-      const oreRows = lsGet('oreRows', []);
-      arr = Array.isArray(oreRows) ? oreRows : [];
+      const oreRowsLS = lsGet('oreRows', []);
+      oreRowsArr = Array.isArray(oreRowsLS) ? oreRowsLS : [];
     } catch {
-      arr = [];
+      oreRowsArr = [];
     }
 
     // Tutte le timbrature per questa commessa
-    const evJob = arr.filter(o =>
+    const evJob = oreRowsArr.filter(o =>
       String(o?.commessaId || '') === jobIdStr
     );
 
@@ -23680,7 +23794,17 @@ var TimbraturaMobileView = function(){
       const r = c.righeArticolo[idxNum] || {};
       const totRiga = Math.max(1, Number(r.qta || totComm));
 
-      // Eventi ore per quella riga specifica
+      // 1a) Se esiste l'helper core per riga, usiamo quello
+      if (typeof window !== 'undefined'
+        && typeof window.producedPiecesRowCore === 'function') {
+
+        let prodRiga = Number(window.producedPiecesRowCore(c, idxNum, oreRowsArr) || 0);
+        if (!Number.isFinite(prodRiga) || prodRiga < 0) prodRiga = 0;
+        prodRiga = Math.min(totRiga, prodRiga);
+        return Math.max(0, totRiga - prodRiga);
+      }
+
+      // 1b) Fallback: logica attuale (somma qtaPezzi per riga)
       const evRow = evJob.filter(o => Number(o?.rigaIdx) === idxNum);
 
       if (evRow.length) {
@@ -23696,7 +23820,7 @@ var TimbraturaMobileView = function(){
       const fasiR = Array.isArray(r.fasi) ? r.fasi : [];
       if (fasiR.length){
         const arrQ = fasiR
-          .filter(f => !(f?.unaTantum || f?.once))
+          .filter(f => !isOncePhaseCore(f))
           .map(f => Math.max(0, Number(f.qtaProdotta || 0)));
         if (arrQ.length){
           const prodRiga = Math.max(0, Math.min(totRiga, Math.min(...arrQ)));
@@ -23712,7 +23836,17 @@ var TimbraturaMobileView = function(){
       return Math.max(0, totRiga - prodLegacyRow);
     }
 
-    // 2) Caso commessa intera: uso SOLO le timbrature (come CommesseView)
+    // 2) Caso commessa intera
+    // Proviamo prima la logica core (residualPiecesCore = tot - producedPiecesCore)
+    if (typeof window !== 'undefined'
+      && typeof window.residualPiecesCore === 'function') {
+
+      let resComm = Number(window.residualPiecesCore(c, oreRowsArr) || 0);
+      if (!Number.isFinite(resComm) || resComm < 0) resComm = 0;
+      return Math.max(0, Math.min(totComm, resComm));
+    }
+
+    // 3) Fallback: logica attuale (somma grezza qtaPezzi)
     if (evJob.length) {
       const sum = evJob.reduce(
         (s, o) => s + Math.max(0, Number(o.qtaPezzi || 0)),
@@ -23722,7 +23856,7 @@ var TimbraturaMobileView = function(){
       return Math.max(0, totComm - prodComm);
     }
 
-    // 3) Nessuna timbratura: fallback legacy (producedPieces / c.qtaProdotta)
+    // 4) Nessuna timbratura: fallback legacy (producedPieces / c.qtaProdotta)
     let prodLegacy = 0;
     if (typeof window.producedPieces === 'function') {
       const v = window.producedPieces(c);
