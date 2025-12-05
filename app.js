@@ -18340,6 +18340,92 @@ const _fmtIT = d => d ? new Date(d).toLocaleDateString('it-IT') : '';
 const _todayISO = () => new Date().toISOString().slice(0,10);
 function _s(v){ return String(v||'').replace(/[<>&]/g, ch => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[ch])); }
 
+// Upgrade 1-shot commesse: normalizza righe articolo legacy
+// - assegna rowId dove manca (riusando rowID/id se presenti)
+// - riempie qta se manca ma esiste qtaPezzi
+// - assicura updatedAt sulle commesse (serve a mergeById)
+(function upgradeCommesseRowsOnce(){
+  try{
+    const key = 'commesseRows';
+
+    const lsGetLocal = (typeof lsGet === 'function')
+      ? lsGet
+      : (function(k, defVal){
+          try{
+            const v = localStorage.getItem(k);
+            return v ? JSON.parse(v) : defVal;
+          }catch{
+            return defVal;
+          }
+        });
+
+    const lsSetLocal = (typeof lsSet === 'function')
+      ? lsSet
+      : (function(k, val){
+          try{
+            localStorage.setItem(k, JSON.stringify(val));
+          }catch{}
+        });
+
+    let arr = lsGetLocal(key, []);
+    if (!Array.isArray(arr) || !arr.length) return;
+
+    let changed = false;
+
+    arr = arr.map((c, idxC) => {
+      if (!c || typeof c !== 'object') return c;
+      const out = { ...c };
+
+      // updatedAt minimo per tutte le commesse (usato da mergeById)
+      if (!out.updatedAt){
+        const base =
+          out.createdAt ||
+          out.created_at ||
+          out.data ||
+          out.dataCommessa ||
+          new Date().toISOString();
+        const t = (Date.parse(base) || Date.now()) + (idxC * 1000);
+        out.updatedAt = new Date(t).toISOString();
+        changed = true;
+      }
+
+      // righe articolo: rowId + qta
+      if (Array.isArray(out.righeArticolo)) {
+        out.righeArticolo = out.righeArticolo.map((r, idxR) => {
+          if (!r || typeof r !== 'object') return r;
+          const rr = { ...r };
+
+          // Assegna rowId se manca: riusa rowId/rowID/id se c'erano già
+          if (!rr.rowId) {
+            const rid = rr.rowId || rr.rowID || rr.id || `r-${idxC}-${idxR}`;
+            rr.rowId = String(rid);
+            changed = true;
+          }
+
+          // Se qta è vuota ma c'è qtaPezzi, usa quella come qta riga
+          if ((rr.qta === undefined || rr.qta === null || rr.qta === '') && rr.qtaPezzi != null) {
+            const v = Number(rr.qtaPezzi);
+            if (!Number.isNaN(v) && v > 0) {
+              rr.qta = v;
+              changed = true;
+            }
+          }
+
+          return rr;
+        });
+      }
+
+      return out;
+    });
+
+    if (changed) {
+      lsSetLocal(key, arr);
+    }
+  }catch{
+    // Non blocco l'app se qualcosa va storto
+  }
+})();
+
 function isCommessaCompleta(c){
   if (!c) return false;
 
