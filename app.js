@@ -18710,10 +18710,19 @@ function renderOperatoreField_Local(value, onChange){
         __editedManually: true
       };
 
-      setRows(prev => prev.map(r => {
+      // Applica la modifica all'array corrente e persiste SUBITO via lsSet
+      const nextRows = (Array.isArray(rows) ? rows : []).map(r => {
         if (r.id !== form.id) return r;
         return { ...r, ...updatedFields };
-      }));
+      });
+      setRows(nextRows);
+      try{
+        if (typeof lsSet === 'function') {
+          lsSet('oreRows', nextRows); // segna anche __anima_dirty
+        } else {
+          localStorage.setItem('oreRows', JSON.stringify(nextRows));
+        }
+      }catch{}
 
       // audit "update"
       try{
@@ -18754,10 +18763,19 @@ function renderOperatoreField_Local(value, onChange){
     };
 
     // metto in testa così lo vedi subito
-    setRows(prev => [rec, ...prev]);
+    const nextRows = [rec, ...(Array.isArray(rows) ? rows : [])];
+    setRows(nextRows);
+    try{
+      if (typeof lsSet === 'function') {
+        lsSet('oreRows', nextRows); // segna dirty per l'auto-sync
+      } else {
+        localStorage.setItem('oreRows', JSON.stringify(nextRows));
+      }
+    }catch{}
     alert('Registrazione salvata in locale ✅');
     resetLocalForm();
   }
+
 
     function delLocal(r){
     if (!isAdmin){
