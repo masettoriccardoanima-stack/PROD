@@ -902,7 +902,7 @@ aside.sidebar + aside.card, aside.sidebar ~ aside.card { display: none !importan
 }
 
 
-/* ===== FINALISSIMO: dropdown liberi su DESKTOP (vince su HOTFIX) ===== */
+/* === DESKTOP OVERRIDE (vince su HOTFIX) ===== */
 @media (min-width: 1025px){
   .content,
   .app-layout .content,
@@ -911,19 +911,9 @@ aside.sidebar + aside.card, aside.sidebar ~ aside.card { display: none !importan
     overflow: visible !important;
   }
 }
-@media (max-width: 1024px){
-  /* su mobile: scroll solo verticale, niente scroll orizzontale */
-  .content,
-  .app-layout .content,
-  body .content{
-    max-width: 100% !important;
-    box-sizing: border-box;
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
-  }
-}
 
 /* === Timbratura mobile: riepilogo commessa (Descrizione / Q.tà / Prodotta / Residua) === */
+
 .table.two-cols{
   width:100% !important;
   max-width:100% !important;
