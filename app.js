@@ -8580,91 +8580,46 @@ function CommesseView({ query = '' }) {
   const fmtHHMM = (mins) => { const t=Math.max(0,Math.round(+mins||0)), h=Math.floor(t/60), m=t%60; return `${h}:${String(m).padStart(2,'0')}`; };
   const todayISO = () => new Date().toISOString().slice(0,10);
 
-  // --- producedPieces: somma timbrature NON "una tantum" (Preparazione attività esclusa) ---
+  // --- producedPieces: pezzi COMPLETATI (min tra le fasi non "una tantum") ---
   const producedPieces = (c) => {
     if (!c) return 0;
+
     try {
-      const totComm = Math.max(1, Number(c.qtaPezzi || 0));
+      // Totale teorico pezzi della commessa (per clamp)
+      const totComm = Math.max(1, Number(c.qtaPezzi || c.qta || 0));
 
-      // Timbrature locali
-      const oreRows = lsGet('oreRows', []);
-      const allEv = (Array.isArray(oreRows) ? oreRows : [])
-        .filter(o => String(o?.commessaId || '') === String(c.id || ''));
+      // Timbrature locali (oreRows) – se vuoto, il core farà fallback su qtaProdotta/fasi
+      const oreRowsAll = lsGet('oreRows', []);
+      const oreRows = Array.isArray(oreRowsAll) ? oreRowsAll : [];
 
-      // Helper per riconoscere fasi "una tantum" (stessa logica del core)
-      const deaccent = s => String(s||'')
-        .normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase().trim();
-      const isOncePhaseLocal = (f) => {
-        if (!f) return false;
-        if (f.once === true || f.unaTantum === true) return true;
-        const name = deaccent(f.lav || '');
-        return /(^|[^a-z])preparazione\s+attivita([^a-z]|$)/.test(name);
-      };
+      let v = 0;
 
-      const findPhaseForEvent = (ev) => {
-        const rIdx = Number(ev.rigaIdx);
-        const fIdx = Number(ev.faseIdx);
+      // 1) Logica ufficiale: core "commessa + oreRows"
+      if (typeof window !== 'undefined'
+        && typeof window.producedPiecesCore === 'function') {
 
-        // 1) Caso fasi per-riga
-        if (Number.isFinite(rIdx) && rIdx >= 0 &&
-            Array.isArray(c.righeArticolo) &&
-            c.righeArticolo[rIdx] &&
-            Array.isArray(c.righeArticolo[rIdx].fasi)) {
+        v = Number(window.producedPiecesCore(c, oreRows) || 0);
 
-          const arr = c.righeArticolo[rIdx].fasi;
-          return (Number.isFinite(fIdx) && fIdx >= 0 && arr[fIdx]) ? arr[fIdx] : null;
-        }
+      } else if (typeof window !== 'undefined'
+        && typeof window.producedPieces === 'function') {
+        // 2) Fallback legacy: vecchia producedPieces(c) basata su c.fasi[].qtaProdotta
+        v = Number(window.producedPieces(c) || 0);
 
-        // 2) Caso fasi globali
-        if (Number.isFinite(fIdx) && fIdx >= 0 && Array.isArray(c.fasi) && c.fasi[fIdx]) {
-          return c.fasi[fIdx];
-        }
-
-        return null;
-      };
-
-      // Filtra via le timbrature delle fasi una tantum (Preparazione attività, ecc.)
-      const ev = allEv.filter(ev => {
-        const fase = findPhaseForEvent(ev);
-        if (!fase) return true;       // se non riesco a mappare la fase, la considero "normale"
-        return !isOncePhaseLocal(fase);
-      });
-
-      // Se, dopo il filtro, non ho eventi → fallback (core/legacy)
-      if (!ev.length) {
-        // 1) Provo il core se esiste
-        if (typeof window !== 'undefined'
-          && typeof window.producedPiecesCore === 'function') {
-          const vCore = Number(window.producedPiecesCore(c, oreRows) || 0);
-          if (Number.isFinite(vCore) && vCore > 0) {
-            return Math.max(0, Math.min(totComm, vCore));
-          }
-        }
-
-        // 2) Vecchia logica window.producedPieces (su c.fasi / c.qtaProdotta)
-        if (typeof window.producedPieces === 'function') {
-          const v = Number(window.producedPieces(c) || 0);
-          if (Number.isFinite(v) && v > 0) {
-            return Math.max(0, Math.min(totComm, v));
-          }
-        }
-
-        // 3) Ultimo fallback: c.qtaProdotta clampata
-        const prodLegacy = Math.max(0, Number(c.qtaProdotta || 0));
-        return Math.max(0, Math.min(totComm, prodLegacy));
+      } else {
+        // 3) Ultimo fallback: uso c.qtaProdotta così com'è
+        v = Number(c.qtaProdotta || 0);
       }
 
-      // Sommo solo le timbrature delle fasi NON una tantum
-      const sum = ev.reduce(
-        (s, o) => s + Math.max(0, Number(o.qtaPezzi || 0)),
-        0
-      );
+      if (!Number.isFinite(v) || v < 0) v = 0;
 
-      return Math.max(0, Math.min(totComm, sum));
+      // Clamp a totale commessa (no sovrapproduzione)
+      return Math.max(0, Math.min(totComm, v));
+
     } catch {
       return 0;
     }
   };
+
 
   // --- qta spedita derivata dai DDT collegati ---
   const shippedPieces = window.shippedPieces || function(c){
