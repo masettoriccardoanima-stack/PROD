@@ -1707,8 +1707,50 @@ window.autoSyncMagazzinoDaRighe = window.autoSyncMagazzinoDaRighe || function(ri
   g.restoreFromFile = g.restoreFromFile || async function(file){
     const txt = await file.text();
     const dump = JSON.parse(txt);
+
+    // 1) Ripristina tutte le chiavi esattamente come nel backup
     Object.keys(dump||{}).forEach(k => localStorage.setItem(k, dump[k]));
-    alert('Ripristino completato. L’app verrà ricaricata.'); location.reload();
+
+    // 2) Bump degli updatedAt per tutte le entità principali,
+    //    così il backup diventa la "versione più recente" per il merge by id.
+    try{
+      const nowISO = new Date().toISOString();
+      const KEYS = [
+        'commesseRows','oreRows',
+        'magArticoli','magazzinoArticoli','magMovimenti',
+        'fattureRows','ddtRows',
+        'clientiRows','fornitoriRows','ordiniFornitoriRows',
+        'appSettings'
+      ];
+
+      for (const k of KEYS){
+        const raw = localStorage.getItem(k);
+        if (!raw) continue;
+        try{
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            const next = parsed.map(row => {
+              if (row && typeof row === 'object') {
+                return Object.assign({}, row, { updatedAt: nowISO });
+              }
+              return row;
+            });
+            localStorage.setItem(k, JSON.stringify(next));
+          } else if (parsed && typeof parsed === 'object' && k === 'appSettings') {
+            const nextApp = Object.assign({}, parsed, { updatedAt: nowISO });
+            localStorage.setItem(k, JSON.stringify(nextApp));
+          }
+        }catch{/* ignora chiavi non-JSON */}
+      }
+
+      // Segnala che abbiamo fatto modifiche locali "forti"
+      window.__anima_dirty = true;
+    }catch{
+      // in caso di problemi, non bloccare il ripristino
+    }
+
+    alert('Ripristino completato. L’app verrà ricaricata.');
+    location.reload();
   };
 
   // goBackSmart fallback
@@ -6257,7 +6299,16 @@ global.requireLogin = async function () {
 };
 
   // --- props comodi per disabilitare bottoni in sola lettura ---
-  global.roProps = function (title='Sola lettura') { return global.isReadOnlyUser() ? { disabled:true, title } : {}; };
+  global.roProps = function (title = 'Sola lettura') {
+    return global.isReadOnlyUser() ? { disabled: true, title } : {};
+  };
+
+  // Alias globali su window per compatibilità con il codice esistente
+  // Tutto il codice che usa window.isReadOnlyUser / window.roProps
+  // d’ora in poi passa sempre da global.isReadOnlyUser (fonte unica).
+  window.isReadOnlyUser = global.isReadOnlyUser;
+  window.roProps = global.roProps;
+
 
   // --- bootstrap: obbliga login all’avvio ---
   addEventListener('load', async ()=>{
@@ -19933,8 +19984,12 @@ window.RegistrazioniOreView = RegistrazioniOreView;
   // === Aggregatore per ReportTempi (per riga o per fase) ===
 window.__rpt_groupBy = window.__rpt_groupBy || function(oreRows, { byRiga=false, onlyCommessaId=null } = {}) {
   try {
-    const arr = Array.isArray(oreRows) ? oreRows : [];
-    const rows = onlyCommessaId ? arr.filter(r => String(r.commessaId) === String(onlyCommessaId)) : arr;
+    // Normalizzo l'input e ignoro sempre le timbrature cancellate
+    const arrRaw = Array.isArray(oreRows) ? oreRows : [];
+    const arrAlive = arrRaw.filter(r => !r || !r.deletedAt);
+    const rows = onlyCommessaId
+      ? arrAlive.filter(r => String(r.commessaId) === String(onlyCommessaId))
+      : arrAlive;
     const map = new Map();
 
     const toMin = (s) => {
@@ -20217,7 +20272,14 @@ function ReportTempiView({ query = '' }) {
   const [commessaFilter, setCommessaFilter] = React.useState('');
 
   const oreRowsAll = React.useMemo(() => {
-    try { return JSON.parse(localStorage.getItem('oreRows') || '[]'); } catch { return []; }
+    try {
+      const raw = JSON.parse(localStorage.getItem('oreRows') || '[]') || [];
+      if (!Array.isArray(raw)) return [];
+      // Considero solo timbrature NON cancellate (coerenza con producedPieces/residuo)
+      return raw.filter(r => !r || !r.deletedAt);
+    } catch {
+      return [];
+    }
   }, []);
 
   const aggRows = React.useMemo(() => (
@@ -20337,7 +20399,17 @@ function faseLabelFromRow(row){
 
   // Dati
   const commesse = React.useMemo(()=>{ try{ return JSON.parse(localStorage.getItem('commesseRows')||'[]'); }catch{ return []; } },[]);
-  const oreRows  = React.useMemo(()=>{ try{ return JSON.parse(localStorage.getItem('oreRows')||'[]'); }catch{ return []; } },[]);
+  const oreRows  = React.useMemo(()=>{
+    try{
+      const raw = JSON.parse(localStorage.getItem('oreRows')||'[]') || [];
+      if (!Array.isArray(raw)) return [];
+      // Anche qui: escludo timbrature soft-delete
+      return raw.filter(r => !r || !r.deletedAt);
+    }catch{
+      return [];
+    }
+  },[]);
+
 
   // ---- Report 1: Pianificate vs Effettive (fix + % scostamento) ----
   // Helper robusto: minuti pianificati di una fase (supporta campi legacy e per-riga)
@@ -24612,7 +24684,10 @@ try{
   suggestedQty = 0;
 }
   // Override per fasi "una tantum" (es. preparazione attività):
-  // se la fase selezionata è unaTantum/once, proponiamo 1 pezzo invece del residuo commessa.
+  // se la fase selezionata è unaTantum/once:
+  //   - se NON è mai stata timbrata → proponiamo 1 pezzo
+  //   - se è già stata timbrata almeno una volta → NON proponiamo 1 (campo vuoto)
+  let onceAlreadyDone = false;
   try{
     // prendiamo l'indice di fase dalla timbratura attiva se presente, altrimenti dallo stato corrente
     const faseIdxNumRaw = (active && Number.isFinite(Number(active.faseIdx)))
@@ -24622,9 +24697,31 @@ try{
     if (Number.isFinite(faseIdxNumRaw) && faseIdxNumRaw >= 0 && Array.isArray(fasi)) {
       const faseCorrente = fasi[faseIdxNumRaw] || null;
       if (faseCorrente && isOncePhaseLocal(faseCorrente)) {
-        // attività da fare una volta per commessa: default = 1
-        suggestedQty = 1;
         isOncePhaseCurrent = true;
+
+        // Verifico se esiste già almeno una timbratura "viva" per questa commessa+fase
+        try{
+          const oreRowsLS = lsGet('oreRows', []) || [];
+          const oreAlive = Array.isArray(oreRowsLS)
+            ? oreRowsLS.filter(o => !o || !o.deletedAt)
+            : [];
+          const jobIdStr = String(commessa?.id || jobId || '');
+
+          onceAlreadyDone = oreAlive.some(o =>
+            o &&
+            String(o.commessaId || '') === jobIdStr &&
+            Number(o.faseIdx) === faseIdxNumRaw
+          );
+        }catch{
+          onceAlreadyDone = false;
+        }
+
+        if (!onceAlreadyDone) {
+          // attività da fare una volta per commessa: default = 1 se non ancora timbrata
+          suggestedQty = 1;
+        }
+        // Se onceAlreadyDone === true, lasciamo suggestedQty com'era (tipicamente residuo commessa),
+        // ma nel prefill finale NON useremo quel valore per la quantità.
       }
     }
   }catch{
@@ -24633,8 +24730,8 @@ try{
 
     // Pre-compila il campo quantità nel popup:
     // - vuoto per le fasi "normali"
-    // - 1 per le fasi "una tantum" (es. Preparazione attività)
-    if (isOncePhaseCurrent && suggestedQty > 0) {
+    // - 1 per le fasi "una tantum" SOLO se non ancora timbrate
+    if (isOncePhaseCurrent && !onceAlreadyDone && suggestedQty > 0) {
       setQtyVal(String(suggestedQty));
     } else {
       setQtyVal('');
@@ -24675,7 +24772,10 @@ try{
         // Limita la quantità alla "fase" tenendo conto delle timbrature già inserite.
         // Per le fasi di processo: max = q.tà riga (o commessa intera).
         // Per le fasi una-tantum (es. "Preparazione attività"): max = 1.
-        const oreRowsArr = Array.isArray(oreRows) ? oreRows : [];
+        // ATTENZIONE: consideriamo solo timbrature NON cancellate (coerenza con producedPieces/residualPieces)
+        const oreRowsArr = Array.isArray(oreRows)
+          ? oreRows.filter(o => !o || !o.deletedAt)
+          : [];
 
         if (cNow && Number.isFinite(rIdxNow) &&
             Array.isArray(cNow.righeArticolo) &&
