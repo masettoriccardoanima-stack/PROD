@@ -24147,6 +24147,24 @@ try{
 }catch{
   suggestedQty = 0;
 }
+  // Override per fasi "una tantum" (es. preparazione attività):
+  // se la fase selezionata è unaTantum/once, proponiamo 1 pezzo invece del residuo commessa.
+  try{
+    // prendiamo l'indice di fase dalla timbratura attiva se presente, altrimenti dallo stato corrente
+    const faseIdxNumRaw = (active && Number.isFinite(Number(active.faseIdx)))
+      ? Number(active.faseIdx)
+      : Number(faseIdx);
+
+    if (Number.isFinite(faseIdxNumRaw) && faseIdxNumRaw >= 0 && Array.isArray(fasi)) {
+      const faseCorrente = fasi[faseIdxNumRaw] || null;
+      if (faseCorrente && (faseCorrente.unaTantum || faseCorrente.once)) {
+        // attività da fare una volta per commessa: default = 1
+        suggestedQty = 1;
+      }
+    }
+  }catch{
+    // se qualcosa va storto, teniamo suggestedQty com'era
+  }
 
     // Pre-compila il campo quantità nel popup
     setQtyVal(String(suggestedQty));
