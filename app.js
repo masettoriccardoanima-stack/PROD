@@ -18786,6 +18786,22 @@ function RegistrazioniOreView({ query = '' }) {
   const isAdmin = !!(u && u.role === 'admin');
   const currentUserLabel = u ? (u.email || u.username || u.user || '') : '';
 
+    // RBAC sola lettura (accountant / viewer / mobile)
+  const readOnly = (
+    typeof window !== 'undefined' &&
+    typeof window.isReadOnlyUser === 'function'
+      ? !!window.isReadOnlyUser()
+      : !!(u && u.role === 'accountant')
+  );
+
+  const roBtnProps = () =>
+    (typeof window !== 'undefined' && window.roProps
+      ? window.roProps()
+      : (readOnly ? {
+          disabled: true,
+          title: 'Sola lettura'
+        } : {}));
+
     // --- Helpers LS sicuri (riusano i globali se presenti) ---
   const lsGet = (typeof window !== 'undefined' && window.lsGet)
     ? window.lsGet
@@ -19850,7 +19866,13 @@ function _saveImportedCloudIds(set){
             e('button', {
               className:'btn',
               type:'submit'
+            }, form.id ? 'Aggiorna registrazione' : 'Salva registrazione (locale)'),
+            e('button', {
+              className:'btn',
+              type:'submit',
+              ...roBtnProps()
             }, form.id ? 'Aggiorna registrazione' : 'Salva registrazione (locale)')
+
           )
         )
       ),
@@ -19978,7 +20000,14 @@ function _saveImportedCloudIds(set){
                         className:'btn btn-outline',
                         type:'button',
                         onClick:()=>delLocal(r)
+                      }, '🗑'),
+                      e('button', {
+                        className:'btn btn-outline',
+                        type:'button',
+                        onClick:()=>delLocal(r),
+                        ...roBtnProps()
                       }, '🗑')
+
                     )
                   );
                 })
