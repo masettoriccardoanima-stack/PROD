@@ -13700,6 +13700,14 @@ async function delRec(id){
 
   // fattura singola da DDT
   function faiFatturaDaDDT (ddt) {
+        // Se il DDT risulta già fatturato, blocca il flusso
+    if (ddt && ddt.__fatturato) {
+      alert(
+        'Questo DDT risulta già fatturato.\n' +
+        'Non è possibile generare una nuova fattura da questo documento.'
+      );
+      return;
+    }
     const cli        = clienti.find(c => c.id === (ddt.clienteId || '')) || null;
     const defaultIva = Number(app.defaultIva) || 22;
     const isPlafond  = !!(cli && cli.plafond);
