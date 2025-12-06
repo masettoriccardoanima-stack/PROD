@@ -22461,15 +22461,25 @@ function MagazzinoView(props){
     persistMovimenti(next);
     setNewMov({ ...newMov, codice:'', qta:0, note:'' });
   }
-  function delMov(ix){
+  function delMov(idOrIndex){
     const list = Array.isArray(movimenti) ? [...movimenti] : [];
-    if (ix < 0 || ix >= list.length) return;
+    if (!list.length) return;
 
     const nowISO = new Date().toISOString();
-    const cur    = list[ix] || {};
 
-    // Soft-delete: tengo il record ma lo marchio come eliminato
-    list[ix] = {
+    // 1) Se arriva una stringa, la tratto come id
+    let idx = -1;
+    if (typeof idOrIndex === 'string') {
+      idx = list.findIndex(m => m && m.id === idOrIndex);
+    } else if (typeof idOrIndex === 'number') {
+      // retrocompatibilità: vecchio comportamento per eventuali chiamate per indice
+      idx = idOrIndex;
+    }
+
+    if (idx < 0 || idx >= list.length) return;
+
+    const cur = list[idx] || {};
+    list[idx] = {
       ...cur,
       deletedAt: cur.deletedAt || nowISO,
       updatedAt: nowISO
@@ -22690,7 +22700,8 @@ function MagazzinoView(props){
           e('th', null, '')
         ))),
         // mostra solo movimenti non soft-deleted
-        e('tbody', null, (movimenti||[]).filter(m => !m?.deletedAt).map((m,ix)=> e('tr', {key:ix},
+        e('tbody', null, (movimenti||[]).filter(m => !m?.deletedAt).map((m,ix)=> 
+          e('tr', {key: m.id || ix},
           e('td', null, m.data||''),
           e('td', null, m.codice||''),
           e('td', {style:{textAlign:'right'}}, m.qta||''),
@@ -22698,7 +22709,7 @@ function MagazzinoView(props){
           e('td', {style:{textAlign:'right'}},
             e('button', {
               className:'btn btn-outline',
-              onClick:()=>delMov(ix),
+              onClick:()=>delMov(m.id || ix),
               ...roBtnProps()
             }, '🗑️')
           )
