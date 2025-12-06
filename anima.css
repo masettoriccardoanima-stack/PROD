@@ -787,20 +787,20 @@ html, body { height: calc(100 * var(--vh)); }
 
 @media (max-width: 640px){
   /* Su smartphone le card non devono creare scroll orizzontale:
-     la pagina scorre solo in verticale */
+     la pagina scorre solo in verticale e le tabelle si adattano */
   .card{
     overflow-x: visible !important;
   }
 
-  /* Le tabelle si adattano alla larghezza dello schermo,
-     evitando l’effetto “foglio da 860px” spostato a sinistra */
+  /* Le tabelle su smartphone si restringono allo schermo,
+     niente più "foglio da 860px" tagliato e non scrollabile */
   .table{
     min-width: 0 !important;
     width: 100% !important;
     table-layout: auto !important;
   }
 
-  /* Anche le two-cols (Timbratura summary / riepiloghi) NON devono forzare larghezze extra */
+  /* Anche le two-cols (riepiloghi compatti) non forzano larghezze extra */
   .table.two-cols{
     min-width: 0 !important;
   }
