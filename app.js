@@ -25903,7 +25903,7 @@ try{
     children
   );
 
-    return e('div', {className:'timbratura'},
+     return e('div', {className:'page timbratura'},
       orphanActive && card([
       e('h4',{style:{fontSize:14, fontWeight:600, marginBottom:4}}, 'Timbratura attiva trovata'),
       e('div',{className:'muted', style:{marginBottom:6}},
