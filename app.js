@@ -464,7 +464,9 @@ window.runAnimaSmokeTest = window.runAnimaSmokeTest || function(limit){
     const commesse  = lsGetLocal('commesseRows', []) || [];
     const ids = new Set(commesse.map(c => c && c.id).filter(Boolean));
 
-    const orfane = oreRows.filter(o => o && o.commessaId && !ids.has(o.commessaId));
+    const orfane = oreRows.filter(o =>
+      o && o.commessaId && !o.deletedAt && !ids.has(o.commessaId)
+    );
 
     report.ore.totali = oreRows.length;
     report.ore.orfane = orfane.length;
@@ -489,6 +491,72 @@ window.runAnimaSmokeTest = window.runAnimaSmokeTest || function(limit){
 
   console.log('SmokeTest ANIMA completato:', report);
   return report;
+};
+
+// Soft-delete massivo delle ore orfane (commessaId senza commessa)
+// Uso:
+//   softDeleteOreOrfane()                    → ANTEPRIMA (dry-run, non scrive nulla)
+//   softDeleteOreOrfane({ dryRun: false })   → APPLICA davvero deletedAt/updatedAt
+window.softDeleteOreOrfane = window.softDeleteOreOrfane || function(options){
+  const opts   = options || {};
+  const dryRun = (opts.dryRun !== false);  // default: true
+
+  const lsGetLocal = window.lsGet || ((k,d)=>{
+    try { return JSON.parse(localStorage.getItem(k) || 'null') ?? d; }
+    catch { return d; }
+  });
+  const lsSetLocal = window.lsSet || ((k,v)=>{
+    try { localStorage.setItem(k, JSON.stringify(v)); }
+    catch(e){ console.error('softDeleteOreOrfane: errore setItem', e); }
+  });
+
+  const oreRows  = lsGetLocal('oreRows', []) || [];
+  const commesse = lsGetLocal('commesseRows', []) || [];
+  const ids = new Set(commesse.map(c => c && c.id).filter(Boolean));
+
+  const nowISO = new Date().toISOString();
+  const orfane = [];
+  const next = oreRows.map(o => {
+    if (!o || !o.commessaId) return o;
+    if (o.deletedAt) return o;
+    if (!ids.has(o.commessaId)) {
+      orfane.push(o);
+      if (!dryRun) {
+        return {
+          ...o,
+          deletedAt: o.deletedAt || nowISO,
+          updatedAt: nowISO
+        };
+      }
+    }
+    return o;
+  });
+
+  console.group(dryRun ? 'softDeleteOreOrfane (ANTEPRIMA)' : 'softDeleteOreOrfane (APPLICATO)');
+  console.log('Ore totali:', oreRows.length);
+  console.log('Ore orfane individuate:', orfane.length);
+  if (orfane.length){
+    console.table(orfane.map(o => ({
+      id        : o.id,
+      commessaId: o.commessaId,
+      data      : o.data,
+      faseIdx   : o.faseIdx,
+      qtaPezzi  : o.qtaPezzi
+    })));
+  } else {
+    console.info('Nessuna ora orfana trovata (commessaId senza commessa).');
+  }
+  console.groupEnd();
+
+  if (!dryRun && orfane.length){
+    lsSetLocal('oreRows', next);
+  }
+
+  return {
+    dryRun,
+    totalOre  : oreRows.length,
+    oreOrfane : orfane.length
+  };
 };
 
 // Stampa etichette centrale (non rimuove la tua funzione se già esiste)
