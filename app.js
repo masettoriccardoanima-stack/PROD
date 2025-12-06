@@ -25935,10 +25935,42 @@ try{
       e('h3',{style:{fontSize:18, fontWeight:700, marginBottom:4}}, 'Timbratura'),
       headerUser && e('div',{className:'muted', style:{marginBottom:2, fontSize:12}}, headerUser),
       e('div',{className:'muted', style:{marginBottom:8}}, header),
-      e('div', {className:'row', style:{gap:8, margin:'6px 0 8px 0', alignItems:'center'}},
-        e('button', { className:'btn btn-outline', onClick: ()=> { if (history.length > 1) history.back(); else location.hash = '#/impostazioni'; } }, '⬅️ Indietro'),
-        e('span', {className:'badge',style:{marginLeft:6, padding:'4px 8px', borderRadius:8, background:isOnline?'#16a34a':'#dc2626', color:'#fff', fontWeight:700}}, isOnline ? '● ONLINE' : '● OFFLINE'),
-        commessa && e('button', {className:'btn btn-outline',onClick:()=> commessa && ((window.openEtichetteColliDialog && window.openEtichetteColliDialog(commessa)) ||(window.triggerEtichetteFor && window.triggerEtichetteFor(commessa, {})))}, 'Stampa etichette'),
+      // Header azioni principali: riga 1 (indietro + stato linea),
+      // riga 2 (etichette + sync), ottimizzato per mobile
+      e('div', {
+        className:'row',
+        style:{gap:8, margin:'6px 0 4px 0', alignItems:'center', flexWrap:'wrap'}
+      },
+        e('button', {
+          className:'btn btn-outline',
+          onClick: ()=> { 
+            if (history.length > 1) history.back(); 
+            else location.hash = '#/impostazioni'; 
+          }
+        }, '⬅️ Indietro'),
+        e('span', {
+          className:'badge',
+          style:{
+            marginLeft:6,
+            padding:'4px 8px',
+            borderRadius:999,
+            background:isOnline ? '#16a34a' : '#dc2626',
+            color:'#fff',
+            fontWeight:700
+          }
+        }, isOnline ? '● ONLINE' : '● OFFLINE')
+      ),
+
+      e('div', {
+        className:'row',
+        style:{gap:8, margin:'0 0 8px 0', alignItems:'center', flexWrap:'wrap'}
+      },
+        commessa && e('button', {
+          className:'btn btn-outline',
+          onClick:()=> commessa && (
+            window.triggerEtichetteFor && window.triggerEtichetteFor(commessa, {})
+          )
+        }, 'Stampa etichette'),
         e('div', {className:'row', style:{gap:6, marginLeft:'auto'}},
           e('button', {
             className:'btn btn-outline',
