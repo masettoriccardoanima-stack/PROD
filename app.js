@@ -26033,13 +26033,14 @@ try{
               )
             : '';
 
-        const titolo =
+        const titoloRaw =
           hasRow && rowLabel
             ? (commessa.descrizione
                 ? `${commessa.descrizione} — ${rowLabel}`
                 : rowLabel)
-            : (commessa.descrizione || '-');
+            : (commessa.descrizione || '');
 
+        const titolo = (titoloRaw && String(titoloRaw).trim()) || null;
         return e('div',{className:'card timbratura-summary', style:{marginBottom:8}},
           e('div',{className:'timbratura-summary-inner'},
             e('div',{
@@ -26053,8 +26054,8 @@ try{
               e('div',null,
                 e('div',{className:'muted', style:{marginBottom:2}},
                   `Commessa ${String(commessa.id || '')}`),
-                e('div',{style:{fontWeight:600, fontSize:14}},
-                  titolo)
+                  titolo && e('div',{style:{fontWeight:600, fontSize:14}},
+                    titolo)
               ),
               // Tre “pillole” numeriche: Totale / Prodotta / Residua
               e('div',{
