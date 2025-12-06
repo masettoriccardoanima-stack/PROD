@@ -784,6 +784,28 @@ html, body { height: calc(100 * var(--vh)); }
     height: auto !important;
   }
 }
+
+@media (max-width: 640px){
+  /* Su smartphone le card non devono creare scroll orizzontale:
+     la pagina scorre solo in verticale */
+  .card{
+    overflow-x: visible !important;
+  }
+
+  /* Le tabelle si adattano alla larghezza dello schermo,
+     evitando l’effetto “foglio da 860px” spostato a sinistra */
+  .table{
+    min-width: 0 !important;
+    width: 100% !important;
+    table-layout: auto !important;
+  }
+
+  /* Anche le two-cols (Timbratura summary / riepiloghi) NON devono forzare larghezze extra */
+  .table.two-cols{
+    min-width: 0 !important;
+  }
+}
+
 /* === Restore link visibili (vince su tutto) === */
 .sidebar a[href="#/dashboard"],
 .sidebar a[href="#/sistema"]{
