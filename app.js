@@ -26318,13 +26318,12 @@ if (typeof window !== 'undefined') { window.TimbraturaMobileView = TimbraturaMob
       a.addEventListener('click', function(ev){
         ev.preventDefault();
         try {
-          if (window.navigateTo) {
-            window.navigateTo(it.label);
-          } else {
-            location.hash = it.hash;
-          }
-        } catch (e) {
+          // Navigazione diretta usando l'hash corretto
           location.hash = it.hash;
+        } catch (e) {
+          try {
+            location.href = it.hash;
+          } catch {}
         }
         nav.classList.remove('open');
       });
