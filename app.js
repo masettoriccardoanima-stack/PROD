@@ -333,6 +333,164 @@ window.logCommessaQtaMismatch = window.logCommessaQtaMismatch || function(limit)
   return rows;
 };
 
+// Smoke test globale (solo lettura, niente scritture LS)
+window.runAnimaSmokeTest = window.runAnimaSmokeTest || function(limit){
+  const lsGetLocal = window.lsGet || ((k,d)=>{
+    try { return JSON.parse(localStorage.getItem(k) || 'null') ?? d; }
+    catch { return d; }
+  });
+  const maxRows = (typeof limit === 'number' && limit > 0) ? limit : 10;
+
+  const report = {
+    startedAt: new Date().toISOString(),
+    magazzino: {},
+    commesse : {},
+    ore      : {}
+  };
+
+  // --- MAGAZZINO / MOVIMENTI ---
+  try {
+    const movs = lsGetLocal('magMovimenti', []) || [];
+    const total = movs.length;
+    const withId       = movs.filter(m => m && m.id);
+    const withoutId    = movs.filter(m => !m || !m.id);
+    const withUpd      = withId.filter(m => m && m.updatedAt);
+    const withoutUpd   = withId.filter(m => m && !m.updatedAt);
+    const alive        = movs.filter(m => m && !m.deletedAt);
+    const deleted      = movs.filter(m => m && m.deletedAt);
+
+    report.magazzino = {
+      totalMovimenti          : total,
+      senzaId                 : withoutId.length,
+      conIdSenzaUpdatedAt     : withoutUpd.length,
+      vivi                    : alive.length,
+      softDeleted             : deleted.length
+    };
+
+    console.group('SmokeTest – Magazzino / movimenti');
+    console.log('Totali movimenti:', total);
+    console.log('Vivi:', alive.length, 'Soft-deleted:', deleted.length);
+
+    if (withoutId.length){
+      console.warn(`${withoutId.length} movimenti senza id (dati legacy, non sincronizzabili):`);
+      console.table(withoutId.slice(0, maxRows).map(m => ({
+        codice : m && m.codice,
+        qta    : m && m.qta,
+        data   : m && m.data
+      })));
+    }
+    if (withoutUpd.length){
+      console.warn(`${withoutUpd.length} movimenti con id ma senza updatedAt (da controllare):`);
+      console.table(withoutUpd.slice(0, maxRows).map(m => ({
+        id      : m.id,
+        codice  : m.codice,
+        qta     : m.qta,
+        data    : m.data
+      })));
+    }
+    console.groupEnd();
+  } catch (e){
+    console.error('SmokeTest – errore sezione MAGAZZINO:', e);
+  }
+
+  // --- COMMESSE / PEZZI PROD / RESIDUO ---
+  try {
+    const commesse = lsGetLocal('commesseRows', []) || [];
+    const oreRows  = lsGetLocal('oreRows', []) || [];
+    const ppFn = window.producedPiecesCore || window.producedPieces;
+    const rpFn = window.residualPiecesCore || window.residualPieces;
+
+    report.commesse.totali = commesse.length;
+
+    console.group('SmokeTest – Commesse / pezzi prodotti & residuo');
+    console.log('Totali commesse:', commesse.length);
+
+    if (!ppFn || !rpFn){
+      console.warn('producedPiecesCore / residualPiecesCore non disponibili, salto controllo pezzi.');
+    } else {
+      const rows = [];
+      const anomalie = [];
+
+      commesse.forEach(c => {
+        if (!c) return;
+        const tot = Number(c.qtaPezzi || 0) || 0;
+        let prod = null, res = null;
+        try {
+          prod = ppFn(c, oreRows);
+          res  = rpFn(c, oreRows);
+        } catch (e) {
+          console.warn('Errore calcolo pezzi per commessa', c.id, e);
+        }
+        const row = {
+          id       : String(c.id || ''),
+          cliente  : String(c.cliente || ''),
+          qtaPezzi : tot,
+          prodotti : prod,
+          residuo  : res
+        };
+        rows.push(row);
+
+        if (typeof prod === 'number' && typeof tot === 'number' && tot > 0 && prod > tot){
+          anomalie.push({ ...row, tipo:'prod>tot' });
+        }
+        if (typeof res === 'number' && res < 0){
+          anomalie.push({ ...row, tipo:'res<0' });
+        }
+        if (typeof prod === 'number' && prod < 0){
+          anomalie.push({ ...row, tipo:'prod<0' });
+        }
+      });
+
+      report.commesse.anomalie = (anomalie || []).length;
+
+      console.log('Prime commesse (max', maxRows, 'righe):');
+      console.table(rows.slice(0, maxRows));
+
+      if (anomalie.length){
+        console.warn(`Trovate ${anomalie.length} possibili anomalie (prod>tot, res<0 o prod<0):`);
+        console.table(anomalie.slice(0, maxRows));
+      } else {
+        console.info('Nessuna anomalia evidente su prodotti/residuo (prod>tot o residuo<0).');
+      }
+    }
+    console.groupEnd();
+  } catch (e){
+    console.error('SmokeTest – errore sezione COMMESSE:', e);
+  }
+
+  // --- ORE ORFANE ---
+  try {
+    const oreRows   = lsGetLocal('oreRows', []) || [];
+    const commesse  = lsGetLocal('commesseRows', []) || [];
+    const ids = new Set(commesse.map(c => c && c.id).filter(Boolean));
+
+    const orfane = oreRows.filter(o => o && o.commessaId && !ids.has(o.commessaId));
+
+    report.ore.totali = oreRows.length;
+    report.ore.orfane = orfane.length;
+
+    console.group('SmokeTest – Ore orfane');
+    console.log('Totali ore:', oreRows.length);
+    console.log('Ore orfane (commessaId senza commessa):', orfane.length);
+
+    if (orfane.length){
+      console.table(orfane.slice(0, maxRows).map(o => ({
+        id         : o.id,
+        commessaId : o.commessaId,
+        data       : o.data,
+        faseIdx    : o.faseIdx,
+        qtaPezzi   : o.qtaPezzi
+      })));
+    }
+    console.groupEnd();
+  } catch (e){
+    console.error('SmokeTest – errore sezione ORE:', e);
+  }
+
+  console.log('SmokeTest ANIMA completato:', report);
+  return report;
+};
+
 // Stampa etichette centrale (non rimuove la tua funzione se già esiste)
 window.triggerEtichetteFor = window.triggerEtichetteFor || function(commessa, opts = {}){
   try{
