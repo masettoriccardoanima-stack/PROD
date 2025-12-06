@@ -26024,15 +26024,110 @@ try{
         // Prodotto = totale teorico - residuo
         const prodUI = Math.max(0, totUI - residUI);
 
-        // Card riepilogo timbratura: full-width + niente overflow orizzontale
+        // Card riepilogo timbratura: numeri chiari per mobile (full-width, niente overflow)
+        const rowLabel =
+          hasRow
+            ? (
+                (rSel && (rSel.dettaglio || rSel.descrizione || rSel.descrizioneArticolo || rSel.codice))
+                || (`Riga ${rIdxNum + 1}`)
+              )
+            : '';
+
+        const titolo =
+          hasRow && rowLabel
+            ? (commessa.descrizione
+                ? `${commessa.descrizione} — ${rowLabel}`
+                : rowLabel)
+            : (commessa.descrizione || '-');
+
         return e('div',{className:'card timbratura-summary', style:{marginBottom:8}},
           e('div',{className:'timbratura-summary-inner'},
-            e('table',{className:'table two-cols'},
-              e('tbody',null,
-                e('tr',null, e('th',null,'Descrizione'), e('td',null, commessa.descrizione || '-')),
-                e('tr',null, e('th',null, hasRow ? 'Q.tà riga' : 'Q.tà totale'), e('td',null, String(totUI))),
-                e('tr',null, e('th',null, hasRow ? 'Prodotta riga' : 'Prodotta finora'), e('td',null, String(prodUI))),
-                e('tr',null, e('th',null, hasRow ? 'Residua riga' : 'Residua'), e('td',null, String(residUI)))
+            e('div',{
+              style:{
+                display:'flex',
+                flexDirection:'column',
+                gap:6
+              }
+            },
+              // Testata: id commessa + descrizione / riga
+              e('div',null,
+                e('div',{className:'muted', style:{marginBottom:2}},
+                  `Commessa ${String(commessa.id || '')}`),
+                e('div',{style:{fontWeight:600, fontSize:14}},
+                  titolo)
+              ),
+              // Tre “pillole” numeriche: Totale / Prodotta / Residua
+              e('div',{
+                style:{
+                  display:'flex',
+                  flexWrap:'wrap',
+                  gap:8,
+                  marginTop:4
+                }
+              },
+                // Totale
+                e('div',{
+                  style:{
+                    flex:'1 1 80px',
+                    minWidth:80,
+                    padding:'6px 8px',
+                    borderRadius:8,
+                    border:'1px solid #e5e7eb',
+                    background:'#f9fafb'
+                  }
+                },
+                  e('div',{style:{
+                    fontSize:11,
+                    textTransform:'uppercase',
+                    letterSpacing:'0.03em',
+                    color:'#6b7280',
+                    marginBottom:2
+                  }}, hasRow ? 'Q.tà riga' : 'Q.tà totale'),
+                  e('div',{style:{fontSize:20, fontWeight:700}},
+                    String(totUI))
+                ),
+                // Prodotta
+                e('div',{
+                  style:{
+                    flex:'1 1 80px',
+                    minWidth:80,
+                    padding:'6px 8px',
+                    borderRadius:8,
+                    border:'1px solid #e5e7eb',
+                    background:'#f9fafb'
+                  }
+                },
+                  e('div',{style:{
+                    fontSize:11,
+                    textTransform:'uppercase',
+                    letterSpacing:'0.03em',
+                    color:'#6b7280',
+                    marginBottom:2
+                  }}, hasRow ? 'Prodotta riga' : 'Prodotta finora'),
+                  e('div',{style:{fontSize:20, fontWeight:700}},
+                    String(prodUI))
+                ),
+                // Residua (leggermente evidenziata)
+                e('div',{
+                  style:{
+                    flex:'1 1 80px',
+                    minWidth:80,
+                    padding:'6px 8px',
+                    borderRadius:8,
+                    border:'1px solid #e5e7eb',
+                    background:'#fef2f2'
+                  }
+                },
+                  e('div',{style:{
+                    fontSize:11,
+                    textTransform:'uppercase',
+                    letterSpacing:'0.03em',
+                    color:'#b91c1c',
+                    marginBottom:2
+                  }}, hasRow ? 'Residua riga' : 'Residua'),
+                  e('div',{style:{fontSize:20, fontWeight:700}},
+                    String(residUI))
+                )
               )
             )
           )
