@@ -7511,6 +7511,17 @@ window.DashboardView = DashboardView;
 function ClientiView(){
   const e = React.createElement;
 
+  // RBAC sola lettura (accountant / viewer / mobile)
+  const readOnly = (typeof window.isReadOnlyUser === 'function'
+    ? !!window.isReadOnlyUser()
+    : !!(window.__USER && window.__USER.role === 'accountant'));
+
+  const roBtnProps = () =>
+    (window.roProps ? window.roProps() : (readOnly ? {
+      disabled: true,
+      title: 'Sola lettura'
+    } : {}));
+
     const blank = {
     id:'', ragione:'', piva:'', email:'',
     sedeLegale:'', sedeOperativa:'',
@@ -7734,8 +7745,8 @@ function ClientiView(){
   return e('div', {className:'page'},
     e('div',{className:'toolbar'},
       e('input',{placeholder:'Cerca...',value:q,onChange:ev=>setQ(ev.target.value)}),
-      e('button', {className:'btn', onClick:openNew}, '➕ Nuovo cliente'),
-      e('button', { className:'btn btn-outline', type:'button', onClick:onImportCliClick }, '⬆️ Importa (.csv)'),
+      e('button', {className:'btn', onClick:openNew, ...roBtnProps()}, '➕ Nuovo cliente'),
+      e('button', { className:'btn btn-outline', type:'button', onClick:onImportCliClick, ...roBtnProps() }, '⬆️ Importa (.csv)'),
       e('input', { type:'file', accept:'.csv', ref:fileCliRef, style:{display:'none'}, onChange:handleClientiImportFile })
     ),
     showForm && e('form',{
@@ -7921,10 +7932,9 @@ function ClientiView(){
           className:'btn btn-outline',
           onClick:()=>{ setShowForm(false); setEditingId(null); }
         }, 'Annulla'),
-        e('button',{className:'btn', type:'submit'}, 'Salva')
+        e('button',{className:'btn', type:'submit', ...roBtnProps()}, 'Salva')
       )
     ),
-
     e('div',{className:'card',style:{marginTop:8,overflowX:'auto'}},
       e('table',{className:'table'},
         e('thead', null, e('tr', null,
@@ -7945,7 +7955,8 @@ function ClientiView(){
         e('button', {
            className:'btn btn-outline',
           disabled: Object.keys(sel).filter(k=>sel[k]).length===0,
-          onClick: delSelected
+          onClick: delSelected,
+          ...roBtnProps()
         }, '🗑 Elimina selezionati')
       )
     )
@@ -7977,6 +7988,17 @@ window.ClientiView = ClientiView;
 /* ================== FORNITORI ================== */
 function FornitoriView(){
   const e = React.createElement;
+
+  // RBAC sola lettura (accountant / viewer / mobile)
+  const readOnly = (typeof window.isReadOnlyUser === 'function'
+    ? !!window.isReadOnlyUser()
+    : !!(window.__USER && window.__USER.role === 'accountant'));
+
+  const roBtnProps = () =>
+    (window.roProps ? window.roProps() : (readOnly ? {
+      disabled: true,
+      title: 'Sola lettura'
+    } : {}));
   const lsGet = window.lsGet, lsSet = window.lsSet;
 
   // aggiunti: cf, pec, telefono, fax, codiceUnivoco, banca, iban, intestatario
@@ -8113,7 +8135,7 @@ function FornitoriView(){
     // toolbar
     e('div',{className:'toolbar'},
       e('input',{placeholder:'Cerca...', value:q, onChange:ev=>setQ(ev.target.value)}),
-      e('button',{className:'btn', onClick:openNew}, '➕ Nuovo fornitore')
+      e('button',{className:'btn', onClick:openNew, ...roBtnProps()}, '➕ Nuovo fornitore')
     ),
 
         // TABELLONE: elenco fornitori (stile Clienti)
@@ -8143,7 +8165,8 @@ function FornitoriView(){
                 e('button', {
                   className:'btn btn-outline',
                   disabled: Object.keys(sel).filter(k=>sel[k]).length===0,
-                  onClick: delSelected
+                  onClick: delSelected,
+                  ...roBtnProps()
                 }, '🗑 Elimina selezionati')
               )
             )
@@ -8332,14 +8355,13 @@ function FornitoriView(){
           className:'btn btn-outline',
           onClick:()=>{ setShowForm(false); setEditingId(null); setForm(blank); }
         }, 'Annulla'),
-        e('button',{className:'btn', type:'submit'}, 'Salva')
+        e('button',{className:'btn', type:'submit', ...roBtnProps()}, 'Salva')
       )
     ),
   );
 }
 
 window.FornitoriView = FornitoriView;
-
 
 // ================== QR + STAMPA COMMESSA (definitivo) ==================
 
@@ -25633,12 +25655,24 @@ if (typeof window !== 'undefined') { window.TimbraturaMobileView = TimbraturaMob
       const lowerRole = String(role).toLowerCase();
       const isAdmin  = (lowerRole === 'admin');
       const isViewer = (lowerRole === 'viewer' || lowerRole === 'mobile');
+      const isWorker = (lowerRole === 'worker');
 
       if (!isAdmin) {
         // 1) viewer/mobile → SOLO timbratura, commesse, DDT, login
         if (isViewer) {
           const allowed = new Set(['#/timbratura', '#/commesse', '#/ddt', '#/login']);
           if (!allowed.has(h)) {
+            h = '#/timbratura';
+            if (location.hash !== h) {
+              try { location.replace(h); } catch {}
+            }
+          }
+        }
+
+        // 1-bis) worker → stesse route limitate del sidebar (timbratura, commesse, DDT, login)
+        if (isWorker) {
+          const allowedWorker = new Set(['#/timbratura', '#/commesse', '#/ddt', '#/login']);
+          if (!allowedWorker.has(h)) {
             h = '#/timbratura';
             if (location.hash !== h) {
               try { location.replace(h); } catch {}
