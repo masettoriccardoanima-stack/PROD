@@ -227,6 +227,112 @@ window.matchFase = window.matchFase || function(o, idx, label){
   return sameIdx || sameLabel;
 };
 
+// Diagnostica: qtaPezzi testata vs somma righeArticolo / righe
+window.scanCommessaQtaMismatch = window.scanCommessaQtaMismatch || function(){
+  try {
+    const lsGetLocal = window.lsGet || ((k,d)=>{
+      try { return JSON.parse(localStorage.getItem(k) || 'null') ?? d; }
+      catch { return d; }
+    });
+
+    const rows = lsGetLocal('commesseRows', []) || [];
+    const arr  = Array.isArray(rows) ? rows : [];
+    const out  = [];
+
+    arr.forEach(c => {
+      if (!c) return;
+
+      // qta di testata
+      const qHeaderRaw = Number(c.qtaPezzi);
+      const qHeader = Number.isFinite(qHeaderRaw) ? qHeaderRaw : 0;
+
+      // Preferisco righeArticolo moderne; se mancano, fallback righe legacy
+      const righeArt   = Array.isArray(c.righeArticolo) ? c.righeArticolo : null;
+      const righeLegacy = (!righeArt || !righeArt.length) && Array.isArray(c.righe)
+        ? c.righe
+        : null;
+
+      const righeBase = (righeArt && righeArt.length) ? righeArt : (righeLegacy || []);
+      if (!righeBase || !righeBase.length) return; // nessuna riga → niente confronto
+
+      // tengo solo righe "vive" / significative
+      const righeVive = righeBase.filter(r => {
+        if (!r) return false;
+        if (r.deletedAt) return false;
+        const codice = String(r.codice || r.articoloCodice || '').trim();
+        const descr  = String(r.descrizione || r.articoloDescr || '').trim();
+        const q      = Number(r.qta || r.quantita || r.qtaPezzi || 0) || 0;
+        return (codice || descr || q);
+      });
+
+      if (!righeVive.length) return;
+
+      const qSum = righeVive.reduce((s,r) =>
+        s + (Number(r.qta || r.quantita || r.qtaPezzi || 0) || 0),
+        0
+      );
+
+      // se entrambi 0 → non mi interessa
+      if (!qSum && !qHeader) return;
+
+      // Coerenza perfetta → ok
+      if (qHeader === qSum) return;
+
+      out.push({
+        id         : String(c.id || ''),
+        cliente    : String(c.cliente || ''),
+        descrizione: String(c.descrizione || ''),
+        qtaPezzi   : qHeader,
+        qtaRighe   : qSum,
+        delta      : qSum - qHeader,
+        nRighe     : righeVive.length
+      });
+    });
+
+    out.sort((a,b) => {
+      const d = Math.abs(b.delta) - Math.abs(a.delta);
+      if (d !== 0) return d;
+      return String(a.id || '').localeCompare(String(b.id || ''));
+    });
+
+    return out;
+  } catch (e) {
+    console.error('scanCommessaQtaMismatch error', e);
+    return [];
+  }
+};
+
+// Helper comodo: stampa una tabella in console
+window.logCommessaQtaMismatch = window.logCommessaQtaMismatch || function(limit){
+  const rows = (typeof window.scanCommessaQtaMismatch === 'function')
+    ? window.scanCommessaQtaMismatch()
+    : [];
+
+  if (!rows || !rows.length) {
+    console.info('Nessuna commessa con qtaPezzi diversa dalla somma righe.');
+    return rows;
+  }
+
+  const max = (typeof limit === 'number' && limit > 0) ? limit : rows.length;
+  const subset = rows.slice(0, max);
+
+  console.table(subset.map(r => ({
+    id       : r.id,
+    cliente  : r.cliente,
+    descr    : r.descrizione,
+    qtaPezzi : r.qtaPezzi,
+    qtaRighe : r.qtaRighe,
+    delta    : r.delta,
+    nRighe   : r.nRighe
+  })));
+
+  if (rows.length > max) {
+    console.info(`… altre ${rows.length - max} commesse con mismatch (usa logCommessaQtaMismatch(${rows.length}) o scanCommessaQtaMismatch()).`);
+  }
+
+  return rows;
+};
+
 // Stampa etichette centrale (non rimuove la tua funzione se già esiste)
 window.triggerEtichetteFor = window.triggerEtichetteFor || function(commessa, opts = {}){
   try{
@@ -22392,6 +22498,11 @@ function MagazzinoView(props){
   // ================== Articoli: CRUD minimale ==================
   function newArt(){ return { codice:'', descrizione:'', um:'PZ', prezzo:0, costo:0 }; }
   function openNewArt(){ setEditArt(newArt()); }
+  function openNewArtFromCodice(codice){
+    const base = newArt();
+    base.codice = String(codice||'').trim();
+    setEditArt(base);
+  }
   function openEditArt(a){ setEditArt({ ...a }); }
   function cancelEditArt(){ setEditArt(null); }
     function saveArt(){
@@ -22499,6 +22610,43 @@ function MagazzinoView(props){
     });
     return map; // key: codice lower, value: qta
   }, [movimenti]);
+
+    // Codici presenti nei movimenti ma non in anagrafica articoli
+  const phantomArticoli = React.useMemo(()=>{
+    const artByCode = new Map();
+    (articoli || []).forEach(a => {
+      const k = String(a.codice || '').trim().toLowerCase();
+      if (!k) return;
+      artByCode.set(k, a);
+    });
+
+    const seen = new Map();
+    (movimenti || []).forEach(m => {
+      if (!m || m.deletedAt) return; // ignora soft-deleted
+      const rawCod = m.codice || '';
+      const k = String(rawCod).trim().toLowerCase();
+      if (!k) return;
+      if (artByCode.has(k)) return;
+
+      const cur = seen.get(k) || {
+        codice: rawCod,
+        totale: 0,
+        movCount: 0,
+        lastData: null
+      };
+      cur.totale += Number(m.qta || 0) || 0;
+      cur.movCount += 1;
+      const d = m.data || '';
+      if (!cur.lastData || String(d) > String(cur.lastData)) {
+        cur.lastData = d;
+      }
+      seen.set(k, cur);
+    });
+
+    return Array.from(seen.values()).sort((a,b)=>
+      String(a.codice || '').localeCompare(String(b.codice || ''))
+    );
+  }, [articoli, movimenti]);
 
   // ================== UI ==================
   const tabsUI = e('div', {className:'tabs'},
@@ -22663,20 +22811,35 @@ function MagazzinoView(props){
 
   // ---- MOVIMENTI ----
   const movUI = e('div', null,
+    // Nuovo movimento
     e('div', {className:'card'},
       e('div', {className:'card-title'}, 'Nuovo movimento'),
       e('div', {className:'grid grid-4'},
         e('label', null, 'Data',
-          e('input', {type:'date', value:newMov.data, onChange:ev=>setNewMov({ ...newMov, data:ev.target.value })})
+          e('input', {
+            type:'date',
+            value:newMov.data,
+            onChange:ev=>setNewMov({ ...newMov, data:ev.target.value })
+          })
         ),
         e('label', null, 'Codice',
-          e('input', {value:newMov.codice, onChange:ev=>setNewMov({ ...newMov, codice:ev.target.value })})
+          e('input', {
+            value:newMov.codice,
+            onChange:ev=>setNewMov({ ...newMov, codice:ev.target.value })
+          })
         ),
         e('label', null, 'Q.tà (+ carico / - scarico)',
-          e('input', {type:'number', value:newMov.qta, onChange:ev=>setNewMov({ ...newMov, qta:ev.target.value })})
+          e('input', {
+            type:'number',
+            value:newMov.qta,
+            onChange:ev=>setNewMov({ ...newMov, qta:ev.target.value })
+          })
         ),
         e('label', null, 'Note',
-          e('input', {value:newMov.note, onChange:ev=>setNewMov({ ...newMov, note:ev.target.value })})
+          e('input', {
+            value:newMov.note,
+            onChange:ev=>setNewMov({ ...newMov, note:ev.target.value })
+          })
         )
       ),
       e('div', {className:'actions', style:{justifyContent:'flex-end'}},
@@ -22689,8 +22852,11 @@ function MagazzinoView(props){
       )
     ),
 
+    // Lista movimenti (solo non eliminati)
     e('div', {className:'card', style:{marginTop:8}},
-      e('div', {className:'card-title'}, `Movimenti (${(movimenti||[]).filter(m => !m?.deletedAt).length})`),
+      e('div', {className:'card-title'},
+        `Movimenti (${(movimenti||[]).filter(m => !m?.deletedAt).length})`
+      ),
       e('table', {className:'table'},
         e('thead', null, e('tr', null,
           e('th', null, 'Data'),
@@ -22698,25 +22864,64 @@ function MagazzinoView(props){
           e('th', {style:{textAlign:'right'}}, 'Q.tà'),
           e('th', null, 'Note'),
           e('th', null, '')
-        ))),
-        // mostra solo movimenti non soft-deleted
-        e('tbody', null, (movimenti||[]).filter(m => !m?.deletedAt).map((m,ix)=> 
-          e('tr', {key: m.id || ix},
-          e('td', null, m.data||''),
-          e('td', null, m.codice||''),
-          e('td', {style:{textAlign:'right'}}, m.qta||''),
-          e('td', null, m.note||''),
-          e('td', {style:{textAlign:'right'}},
-            e('button', {
-              className:'btn btn-outline',
-              onClick:()=>delMov(m.id || ix),
-              ...roBtnProps()
-            }, '🗑️')
-          )
-        ))
+        )),
+        e('tbody', null,
+          (movimenti||[])
+            .filter(m => !m?.deletedAt)
+            .map((m,ix)=> e('tr', {key: m.id || ix},
+              e('td', null, m.data||''),
+              e('td', null, m.codice||''),
+              e('td', {style:{textAlign:'right'}}, m.qta||''),
+              e('td', null, m.note||''),
+              e('td', {style:{textAlign:'right'}},
+                e('button', {
+                  className:'btn btn-outline',
+                  onClick:()=>delMov(m.id || ix),
+                  ...roBtnProps()
+                }, '🗑️')
+              )
+            ))
+        )
+      )
+    ),
+
+    // Articoli fantasma (presenti nei movimenti ma non in anagrafica)
+    !phantomArticoli.length ? null : e('div', {className:'card', style:{marginTop:8}},
+      e('div', {className:'card-title'},
+        `Articoli senza anagrafica (${phantomArticoli.length})`
+      ),
+      e('p', {
+        className:'muted',
+        style:{fontSize:12, marginTop:0}
+      }, 'Codici presenti nei movimenti ma non in Magazzino → da valutare e creare come articoli.'),
+      e('table', {className:'table two-cols'},
+        e('thead', null, e('tr', null,
+          e('th', null, 'Codice'),
+          e('th', {style:{textAlign:'right'}}, 'Totale q.tà'),
+          e('th', {style:{textAlign:'right'}}, '# movimenti'),
+          e('th', null, 'Ultima data'),
+          e('th', null, '')
+        )),
+        e('tbody', null,
+          phantomArticoli.map(p => e('tr', {key:p.codice || p.lastData || Math.random()},
+            e('td', null, p.codice || ''),
+            e('td', {style:{textAlign:'right'}}, p.totale || 0),
+            e('td', {style:{textAlign:'right'}}, p.movCount || 0),
+            e('td', null, p.lastData || ''),
+            e('td', {style:{textAlign:'right'}},
+              e('button', {
+                className:'btn btn-outline',
+                type:'button',
+                onClick:()=>openNewArtFromCodice(p.codice),
+                ...roBtnProps()
+              }, 'Crea articolo')
+            )
+          ))
+        )
       )
     )
   );
+
 
   return e('div', null,
     tabsUI,
