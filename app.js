@@ -13091,6 +13091,25 @@ const counters0 = lsGet('counters', {}) || {};
           ev.target.value = '';
             if (!f) return;
 
+                        const ok = window.confirm(
+              "ATTENZIONE: questo comando ripristina un backup COMPLETO.\n\n" +
+              "- Sostituirà commesse, DDT, fatture, ore, magazzino e anagrafiche con quelle presenti nel file.\n" +
+              "- Usalo solo per ripristinare un backup completo, NON come merge tra dispositivi.\n\n" +
+              "Vuoi davvero procedere con il ripristino dal file selezionato?"
+            );
+            if (!ok) {
+              console.info('[backup] Ripristino annullato dall\'utente.', {
+                fileName: f && f.name,
+                ts: new Date().toISOString()
+              });
+              return;
+            }
+
+            console.info('[backup] Ripristino COMPLETO avviato da file.', {
+              fileName: f && f.name,
+              ts: new Date().toISOString()
+            });
+
             const fnSmart = window.importBackupSmartFromFile;
             const fnLegacy = window.restoreFromFile;
 

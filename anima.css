@@ -251,8 +251,10 @@ body { margin:0; font-family:system-ui, Arial, sans-serif; background:#f5f6f8; }
 
 .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 
-.card { overflow:hidden; }
-.content { overflow:auto; }
+/* overflow di .card e .content è gestito nella sezione
+   "CANONICO FINALE: TABELLE & AZIONI" in fondo al file.
+   Le vecchie regole .card{overflow:hidden;} e .content{overflow:auto;}
+   sono state rimosse per evitare conflitti. */
 
 .sidebar .nav { display:flex; flex-direction:column; gap:6px; }
 .sidebar a.nav-link { display:block; padding:8px 10px; line-height:1.2; }
