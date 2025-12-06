@@ -151,6 +151,15 @@ body { margin:0; font-family:system-ui, Arial, sans-serif; background:#f5f6f8; }
     flex-wrap:wrap;
   }
 
+    /* Anche i gruppi di bottoni di conferma / azioni possono andare a capo,
+     allineati a sinistra e senza buttare i pulsanti fuori schermo */
+  .timbratura .actions{
+    display:flex;
+    flex-wrap:wrap;
+    justify-content:flex-start;
+    gap:8px;
+  }
+
   /* Pulsanti un filo più compatti e leggibili su 360–400px */
   .timbratura .btn{
     font-size:14px;
