@@ -559,17 +559,41 @@ window.softDeleteOreOrfane = window.softDeleteOreOrfane || function(options){
   };
 };
 
-// Stampa etichette centrale (non rimuove la tua funzione se già esiste)
+// Stampa etichette centrale (manuale, senza vincolo di commessa completa)
 window.triggerEtichetteFor = window.triggerEtichetteFor || function(commessa, opts = {}){
   try{
-    const defaultColli = Math.max(1, Number(opts.colli || 1));
-    const colli = Number(prompt('Numero colli da etichettare?', String(defaultColli))) || defaultColli;
+    if (!commessa) {
+      alert('Nessuna commessa selezionata');
+      return;
+    }
+
+    const defaultColli = Math.max(
+      1,
+      Number(opts.colli || commessa.colli || 1)
+    );
+    const colli = Number(
+      prompt('Numero colli da etichettare?', String(defaultColli))
+    ) || defaultColli;
+
+    // Preferisco la stampa etichette “diretta”
+    if (typeof window.printEtichetteColli === 'function') {
+      window.printEtichetteColli(commessa, colli);
+      return;
+    }
+
+    // Fallback: se per qualche motivo non esiste la funzione globale,
+    // provo comunque la pipeline auto-scarico+etichette (comportamento attuale)
     if (typeof window._maybeAutoScaricoAndLabels === 'function') {
       window._maybeAutoScaricoAndLabels(commessa.id, { colli });
-    } else {
-      alert('Funzione etichette non configurata (_maybeAutoScaricoAndLabels)');
+      return;
     }
-  }catch(e){ console.warn('triggerEtichetteFor:', e); }
+
+    alert('Funzione etichette non configurata');
+
+  } catch(e){
+    console.warn('triggerEtichetteFor:', e);
+    alert('Errore in stampa etichette');
+  }
 };
 
 // ---- AppSettings defaults (AUTO su ogni device) ----
