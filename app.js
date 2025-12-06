@@ -3360,9 +3360,12 @@ window.creaMovimentoCaricoDaOrdine = function(ordine, righeCarico, opts = {}){
   const MOV_KEY = (window.__MAG_KEYS__ && window.__MAG_KEYS__.MAG_MOV_KEY) || 'magMovimenti';
   const ART_KEY = (window.__MAG_KEYS__ && window.__MAG_KEYS__.ART_KEY)     || 'magazzinoArticoli';
 
-  const movs = lsGet(MOV_KEY, []);
-  const map = new Map();
+  const movsRaw = lsGet(MOV_KEY, []);
+  const movs = Array.isArray(movsRaw)
+    ? movsRaw.filter(m => !m?.deletedAt)   // ignora soft-deleted
+    : [];
 
+  const map = new Map();
   const getLines = (r) => {
     if (Array.isArray(r?.righe)) return r.righe;
     if (Array.isArray(r?.rows)) return r.rows;
@@ -6760,6 +6763,7 @@ function MagazzinoMovimentiView({ query = '' }) {
   };
 
   const filtered = (Array.isArray(rows)?rows:[])
+    .filter(r => !r?.deletedAt)                        // soft-delete: ignora
     .filter(r => inRange(r.data) && matches(r))
     .sort((a,b)=>{
       const ta = Date.parse(a.data||0) || 0;
@@ -9489,6 +9493,42 @@ const articoloCodiceFinal =
 
   const righeArt = Array.isArray(form.righeArticolo) ? form.righeArticolo.filter(r => (r.codice||r.descrizione||'').trim()) : [];
   const qtaTotRighe = righeArt.reduce((s,r)=> s + (Number(r.qta)||0), 0);
+
+    // --- Validazione fasi per riga: ogni riga deve avere almeno una fase NON "una tantum" ---
+  // Applichiamo la regola solo se ci sono righe articolo "vive" (non vogliamo bloccare commesse legacy solo testata)
+  if (Array.isArray(righeArt) && righeArt.length > 0) {
+    const invalidIdx = [];
+
+    righeArt.forEach((riga, idx) => {
+      const fasi = Array.isArray(riga.fasi) ? riga.fasi : [];
+
+      // Nessuna fase → riga non valida
+      if (fasi.length === 0) {
+        invalidIdx.push(idx);
+        return;
+      }
+
+      // Almeno una fase NON una tantum?
+      const hasProcessFase = fasi.some(f => {
+        // Se f è mancante o non ha il flag unaTantum, la consideriamo fase "di processo"
+        if (!f || typeof f.unaTantum === 'undefined') return true;
+        return !f.unaTantum;
+      });
+
+      if (!hasProcessFase) {
+        invalidIdx.push(idx);
+      }
+    });
+
+    if (invalidIdx.length > 0) {
+      const righeHuman = invalidIdx.map(i => (i + 1)).join(', ');
+      alert(
+        'Ogni riga articolo deve avere almeno una fase di processo (non "una tantum").\n' +
+        'Controlla le righe: ' + righeHuman
+      );
+      return; // blocca il salvataggio finché non sistemi le fasi
+    }
+  }
 
    const partial = {
     ...form,
@@ -13320,6 +13360,7 @@ React.useEffect(() => {
       .filter(r =>
         r &&
         !r.deletedAt &&                            // 👈 escludo gli eliminati
+        !(r.annullato === true || String(r.stato || '') === 'Annullato') && // escludo annullati
         String(r.clienteId || '') === String(bulkCliId) &&
         !r.__fatturato
       )
@@ -13722,7 +13763,17 @@ async function delRec(id){
 
   // fattura singola da DDT
   function faiFatturaDaDDT (ddt) {
-        // Se il DDT risulta già fatturato, blocca il flusso
+
+    // Se il DDT è annullato o eliminato, blocca il flusso
+    if (ddt && (ddt.deletedAt || ddt.annullato === true || String(ddt.stato || '') === 'Annullato')) {
+      alert(
+        'Questo DDT risulta annullato/eliminato.\n' +
+        'Non è possibile generare una fattura da questo documento.'
+      );
+      return;
+    }
+
+    // Se il DDT risulta già fatturato, blocca il flusso
     if (ddt && ddt.__fatturato) {
       alert(
         'Questo DDT risulta già fatturato.\n' +
@@ -18848,8 +18899,9 @@ function scaricaMaterialiDaCommessa(c){
     }
     } catch {}
 
-    const qTot = Math.max(1, Number(c.qtaPezzi||1));
-    const when = new Date().toISOString().slice(0,10);
+    const nowISO = new Date().toISOString();
+    const qTot   = Math.max(1, Number(c.qtaPezzi||1));
+    const when   = nowISO.slice(0,10);
 
     for (const m of mats){
       const codice = (m?.codice||'').trim(); if (!codice) continue;
@@ -18877,7 +18929,9 @@ function scaricaMaterialiDaCommessa(c){
         um: (m?.um||''),
         qta: -Math.abs(qScarico),
         commessaId: c.id,
-        note: `Scarico commessa ${c.id}`
+        note: `Scarico commessa ${c.id}`,
+        createdAt: nowISO,
+        updatedAt: nowISO
       });
     }
 
@@ -19689,6 +19743,7 @@ function _saveImportedCloudIds(set){
       const oreMin = Number(r.minutes||0);
       const { year, num } = getNextOreProgressivo();
       const qtaPezzi = parseQtyFromNote(r.note);
+      const createdISO = new Date(r.created_at || Date.now()).toISOString();
       const rec = {
         id: `O-${year}-${String(num).padStart(3,'0')}`,
         data: String(r.created_at||'').slice(0,10),
@@ -19700,7 +19755,8 @@ function _saveImportedCloudIds(set){
         note: r.note || '',
         oreMin,
         ore: +((oreMin||0)/60).toFixed(2),
-        __createdAt: new Date(r.created_at || Date.now()).toISOString()
+        __createdAt: createdISO,
+        updatedAt  : createdISO
       };
 
       if (rec.qtaPezzi && rec.commessaId) {
@@ -20101,10 +20157,6 @@ function _saveImportedCloudIds(set){
             }, 'Annulla modifica'),
             e('button', {
               className:'btn',
-              type:'submit'
-            }, form.id ? 'Aggiorna registrazione' : 'Salva registrazione (locale)'),
-            e('button', {
-              className:'btn',
               type:'submit',
               ...roBtnProps()
             }, form.id ? 'Aggiorna registrazione' : 'Salva registrazione (locale)')
@@ -20235,15 +20287,9 @@ function _saveImportedCloudIds(set){
                       e('button', {
                         className:'btn btn-outline',
                         type:'button',
-                        onClick:()=>delLocal(r)
-                      }, '🗑'),
-                      e('button', {
-                        className:'btn btn-outline',
-                        type:'button',
                         onClick:()=>delLocal(r),
                         ...roBtnProps()
                       }, '🗑')
-
                     )
                   );
                 })
@@ -22384,25 +22430,60 @@ function MagazzinoView(props){
 
   // ================== Movimenti ==================
   function addMov(){
-    const m = { ...newMov, qta: Number(newMov.qta||0) };
-    if (!m.codice){ alert('Inserisci CODICE articolo'); return; }
-    if (!m.qta){ alert('Quantità non valida'); return; }
+    // normalizza input
+    const base = { ...newMov, qta: Number(newMov.qta||0) };
+    if (!base.codice){ alert('Inserisci CODICE articolo'); return; }
+    if (!base.qta){ alert('Quantità non valida'); return; }
+
+    // id/timestamps compatibili con mergeById/snapshot
+    const info = (typeof window.nextIdFor === 'function')
+      ? window.nextIdFor({
+          storageKey: 'magMovimenti',
+          prefix: 'MAG',
+          seriesKey: 'mag'
+        })
+      : { id: null, createdAt: null };
+
+    const now    = new Date();
+    const nowISO = now.toISOString();
+    const fallbackId = `MAG-${now.getFullYear()}-${String(now.getTime() % 1000).padStart(3, '0')}`;
+
+    const m = {
+      ...base,
+      data: base.data || nowISO.slice(0,10),
+      id: base.id || info.id || fallbackId,
+      createdAt: base.createdAt || info.createdAt || nowISO,
+      updatedAt: nowISO
+    };
+
     const next = [...(movimenti||[]), m];
     setMovimenti(next);
     persistMovimenti(next);
     setNewMov({ ...newMov, codice:'', qta:0, note:'' });
   }
   function delMov(ix){
-    const next = [...(movimenti||[])];
-    next.splice(ix,1);
-    setMovimenti(next);
-    persistMovimenti(next);
+    const list = Array.isArray(movimenti) ? [...movimenti] : [];
+    if (ix < 0 || ix >= list.length) return;
+
+    const nowISO = new Date().toISOString();
+    const cur    = list[ix] || {};
+
+    // Soft-delete: tengo il record ma lo marchio come eliminato
+    list[ix] = {
+      ...cur,
+      deletedAt: cur.deletedAt || nowISO,
+      updatedAt: nowISO
+    };
+
+    setMovimenti(list);
+    persistMovimenti(list);
   }
 
-  // Giacenze: somma movimenti per codice
+  // Giacenze: somma movimenti per codice (solo non eliminati)
   const giacenze = React.useMemo(()=>{
     const map = new Map();
     (movimenti||[]).forEach(m=>{
+      if (!m || m.deletedAt) return; // soft-delete: ignora
       const k = String(m.codice||'').toLowerCase(); if (!k) return;
       map.set(k, (map.get(k)||0) + Number(m.qta||0));
     });
@@ -22599,7 +22680,7 @@ function MagazzinoView(props){
     ),
 
     e('div', {className:'card', style:{marginTop:8}},
-      e('div', {className:'card-title'}, `Movimenti (${(movimenti||[]).length})`),
+      e('div', {className:'card-title'}, `Movimenti (${(movimenti||[]).filter(m => !m?.deletedAt).length})`),
       e('table', {className:'table'},
         e('thead', null, e('tr', null,
           e('th', null, 'Data'),
@@ -22608,7 +22689,8 @@ function MagazzinoView(props){
           e('th', null, 'Note'),
           e('th', null, '')
         ))),
-        e('tbody', null, (movimenti||[]).map((m,ix)=> e('tr', {key:ix},
+        // mostra solo movimenti non soft-deleted
+        e('tbody', null, (movimenti||[]).filter(m => !m?.deletedAt).map((m,ix)=> e('tr', {key:ix},
           e('td', null, m.data||''),
           e('td', null, m.codice||''),
           e('td', {style:{textAlign:'right'}}, m.qta||''),
