@@ -7845,6 +7845,102 @@ function producedPiecesFromOreRows(c, oreRows){
     })
     .slice(0, 10);
 
+      // 4) Saturazione reparti (ultimi 7 giorni, ore effettive)
+  const satReparti = (function(){
+    const dayMs = 24*60*60*1000;
+
+    let periodEnd = today;
+    let periodStart = today;
+    try{
+      const dt = new Date(today + 'T00:00:00');
+      dt.setDate(dt.getDate() - 6); // ultimi 7 giorni inclusi
+      periodStart = dt.toISOString().slice(0,10);
+    }catch(_){
+      periodStart = today;
+    }
+
+    // Capacità reparti in minuti/settimana (da Impostazioni → Capacità reparti)
+    let capMinByRep = {};
+    try{
+      const app = (typeof lsGet === 'function')
+        ? lsGet('appSettings', {})
+        : JSON.parse(localStorage.getItem('appSettings')||'{}');
+
+      const src = app && app.capacitaReparti && typeof app.capacitaReparti === 'object'
+        ? app.capacitaReparti
+        : {};
+
+      const out = {};
+      Object.keys(src).forEach(name => {
+        const ore = Number(src[name]);
+        if (!Number.isFinite(ore) || ore <= 0) return;
+        const key = String(name).trim();
+        if (!key) return;
+        out[key] = ore * 60; // minuti/settimana
+      });
+      capMinByRep = out;
+    }catch(_){
+      capMinByRep = {};
+    }
+
+    // Aggrego minuti timbrati per reparto/fase nell'intervallo [periodStart, periodEnd]
+    const totMinByRep = {};
+
+    (Array.isArray(oreRows)?oreRows:[]).forEach(row => {
+      if (!row || row.deletedAt) return;
+
+      const dIso = String(row.data || '').slice(0,10);
+      if (!dIso) return;
+      if (dIso < periodStart || dIso > periodEnd) return;
+
+      // Escludo righe "extra gas" se riconosciute
+      try{
+        if ((row.faseIdx == null || row.faseIdx === '') && typeof isGasNote === 'function'){
+          if (isGasNote(row.note)) return;
+        }
+      }catch(_){}
+
+      const mins = Number(row.oreMin) || toMin(row.oreHHMM) || 0;
+      if (!mins) return;
+
+      let rep = '';
+      try{
+        if (typeof faseLabelFromRow === 'function'){
+          rep = faseLabelFromRow(row);
+        } else if (typeof window !== 'undefined' && typeof window.faseLabelFromRow === 'function'){
+          rep = window.faseLabelFromRow(row);
+        }
+      }catch(_){}
+      rep = String(rep || '').trim() || '[Senza fase]';
+
+      totMinByRep[rep] = (totMinByRep[rep] || 0) + mins;
+    });
+
+    const reps = new Set([
+      ...Object.keys(capMinByRep),
+      ...Object.keys(totMinByRep)
+    ]);
+
+    const rows = Array.from(reps)
+      .map(rep => {
+        const minuti = Math.round(totMinByRep[rep] || 0);
+        const capMin = Math.round(capMinByRep[rep] || 0);
+        const satPerc = capMin > 0 ? Math.round((minuti * 100) / capMin) : null;
+        return { reparto: rep, minuti, capMin, saturazionePerc: satPerc };
+      })
+      // mostro solo reparti che hanno capacità o carico
+      .filter(r => r.minuti > 0 || r.capMin > 0)
+      // ordino per saturazione decrescente, poi per minuti
+      .sort((a,b) => {
+        const pa = (typeof a.saturazionePerc === 'number') ? a.saturazionePerc : -1;
+        const pb = (typeof b.saturazionePerc === 'number') ? b.saturazionePerc : -1;
+        if (pb !== pa) return pb - pa;
+        return (b.minuti - a.minuti);
+      });
+
+    return { rows, periodStart, periodEnd, capMinByRep };
+  })();
+
   // ---- UI helper ----
   // Ricostruisce il nome fase usando anche fasi per-riga, commessa e appSettings
   function inferFaseLabelRow(row){
@@ -8164,10 +8260,60 @@ function producedPiecesFromOreRows(c, oreRows){
             e('tbody', null, allarmi.map(RowAllarme))
           )
     ),
+
+    // Widget 4: Saturazione reparti (ultimi 7 giorni, ore effettive)
+    e('div', { className:'card' },
+      e('h3', null, 'Saturazione reparti (ultimi 7 giorni)'),
+      e('p', { className:'muted', style:{ fontSize:11, marginTop:4 } },
+        'Periodo: ', satReparti.periodStart, ' → ', satReparti.periodEnd
+      ),
+      (!satReparti.rows || satReparti.rows.length === 0)
+        ? e('div', { className:'muted', style:{ marginTop:8 } },
+            'Nessuna timbratura negli ultimi 7 giorni o nessuna capacità reparti definita in Impostazioni.'
+          )
+        : e('table', { className:'table', style:{ marginTop:8 } },
+            e('thead', null,
+              e('tr', null,
+                e('th', null, 'Reparto'),
+                e('th', { className:'right' }, 'Ore'),
+                e('th', { className:'right' }, '% capacità')
+              )
+            ),
+            e('tbody', null,
+              satReparti.rows.map(r => {
+                const perc = r.saturazionePerc;
+                let cellStyle = { textAlign:'right', whiteSpace:'nowrap' };
+
+                if (typeof perc === 'number') {
+                  // Stessa logica colori della vista Saturazione:
+                  // <70% verde, 70–100% giallo, >100% rosso
+                  if (perc > 100){
+                    cellStyle.background = '#fee2e2';   // rosso chiaro
+                    cellStyle.fontWeight = 600;
+                  } else if (perc >= 70){
+                    cellStyle.background = '#fef9c3';   // giallino
+                  } else {
+                    cellStyle.background = '#dcfce7';   // verdino
+                  }
+                }
+
+                return e('tr', { key: r.reparto },
+                  e('td', null, r.reparto || '-'),
+                  e('td', { className:'right' }, fmtHHMM(r.minuti)),
+                  e('td', { style: cellStyle },
+                    typeof perc === 'number' ? (perc + '%') : '—'
+                  )
+                );
+              })
+            )
+          )
+    ),
+
     e(CloudStatusWidget, null)
   );
 }
 window.DashboardView = DashboardView;
+
 
 
 /* ================== ANAGRAFICA CLIENTI (con SDI/PEC/pagamento/IBAN/plafond) ================== */
