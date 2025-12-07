@@ -8012,10 +8012,45 @@ function producedPiecesFromOreRows(c, oreRows){
     );
   }
   function RowAllarme(a){
-    return e('tr', {key:a.c.id},
-      e('td', null, a.c.id),
-      e('td', null, a.c.cliente || '-'),
-      e('td', null, a.c.descrizione || '-'),
+    const c = (a && a.c) ? a.c : {};
+
+    return e('tr', {key:c.id},
+      e('td', null, c.id || '-'),
+      e('td', null, c.cliente || '-'),
+      e('td', null, (function(){
+        try{
+          // Stessa logica usata per le commesse pronte / vista commesse
+          if (typeof window.previewDescrAndRef === 'function') {
+            const p = window.previewDescrAndRef(c);
+            const extra = p.rifCol && p.rifCol !== '-' ? ` — ${p.rifCol}` : '';
+            return (p.descr || c.descrizione || '-') + extra;
+          }
+
+          const righe = Array.isArray(c.righeArticolo)
+            ? c.righeArticolo
+            : (Array.isArray(c.righe) ? c.righe : []);
+          const multi = Array.isArray(righe) && righe.length > 1;
+
+          if (multi) {
+            // multi-articolo → Descrizione + n° ordine cliente (se disponibile)
+            const ref = c.ordineCliente || c.nrOrdineCliente || c.rifCliente ||
+                        c.ddtCliente || c.ordine || c.ordineId || '';
+            const txt = (window.refClienteToText
+              ? window.refClienteToText(ref)
+              : String(ref || ''));
+            return (c.descrizione || '-') + (txt ? ` — ${txt}` : '');
+          } else {
+            // singola riga → Descrizione + codice articolo (se disponibile)
+            const r0 = (Array.isArray(righe) && righe[0]) ? righe[0] : null;
+            const code = c.articoloCodice ||
+                         (r0 && (r0.articoloCodice || r0.codice || r0.code)) ||
+                         '';
+            return (c.descrizione || '-') + (code ? ` — ${code}` : '');
+          }
+        } catch {
+          return (c.descrizione || '-');
+        }
+      })()),
       e('td', {className:'right'}, fmtHHMM(a.planTot)),
       e('td', {className:'right'}, fmtHHMM(a.effTot)),
       e('td', null, a.cause)
