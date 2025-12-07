@@ -7690,13 +7690,67 @@ function producedPiecesFromOreRows(c, oreRows){
     })
     .slice(0, 10);
 
-  // 2) Timbrature di oggi (ultime N)
+  // 2) Radar urgenze commesse (scadenze a breve)
+  const dayMs = 24*60*60*1000;
+  const radar = (Array.isArray(commesse)?commesse:[])
+    .map(c => {
+      const tot = Math.max(1, Number(c.qtaPezzi||1));
+
+      let prod = 0;
+      try{
+        prod = producedPiecesFromOreRows(c, oreRows);
+      }catch(_){
+        prod = 0;
+      }
+      const residuo = Math.max(0, Math.min(tot, tot - prod));
+      if (residuo <= 0) return null;
+
+      const scadRaw =
+        (c && (c.scadenza || c.dataScadenza || c.data_scadenza || c.dataConsegna || c.consegnaPrevista || c.consegna_prevista)) ||
+        null;
+      if (!scadRaw) return null;
+
+      const scadISO = String(scadRaw).slice(0,10);
+      if (!scadISO || scadISO.length !== 10) return null;
+
+      const tScad  = Date.parse(scadISO);
+      const tToday = Date.parse(today);
+      if (!tScad || !tToday) return null;
+
+      const diffDays = Math.round((tScad - tToday) / dayMs);
+
+      // Considero solo commesse con scadenza tra 7 giorni fa e 14 giorni avanti
+      if (diffDays < -7 || diffDays > 14) return null;
+
+      let stato = '';
+      if (diffDays < 0) {
+        stato = `IN RITARDO (${Math.abs(diffDays)}g)`;
+      } else if (diffDays === 0) {
+        stato = 'Oggi';
+      } else if (diffDays <= 2) {
+        stato = `Entro ${diffDays}g`;
+      } else if (diffDays <= 7) {
+        stato = 'Entro 7g';
+      } else {
+        stato = 'Entro 14g';
+      }
+
+      return { c, residuo, scadenzaISO: scadISO, diffDays, stato };
+    })
+    .filter(Boolean)
+    .sort((a,b)=>{
+      if (a.diffDays !== b.diffDays) return a.diffDays - b.diffDays;
+      return (b.residuo||0) - (a.residuo||0);
+    })
+    .slice(0, 12);
+
+  // 3) Timbrature di oggi (ultime N)
   const oggiRows = (Array.isArray(oreRows)?oreRows:[])
     .filter(o => (o.data || '').slice(0,10) === today)
     .sort((a,b)=> (Date.parse(b.__createdAt||b.data||0) - Date.parse(a.__createdAt||a.data||0)))
     .slice(0, 12);
 
-  // 3) Allarmi: sforo ore pianificate oppure fermi >24h con residuo >0
+  // 4) Allarmi: sforo ore pianificate oppure fermi >24h con residuo >0
   const now = Date.now();
   const allarmi = (Array.isArray(commesse)?commesse:[])
     .map(c => {
@@ -7921,6 +7975,39 @@ function producedPiecesFromOreRows(c, oreRows){
     );
   }
 
+  function RowRadar({ x }){
+    const e = React.createElement;
+    const c = x && x.c ? x.c : {};
+
+    const days = (x && typeof x.diffDays === 'number') ? x.diffDays : null;
+    let giorniLabel = '';
+    if (days == null) giorniLabel = '-';
+    else if (days === 0) giorniLabel = 'Oggi';
+    else if (days < 0)   giorniLabel = `${days}g`;
+    else                 giorniLabel = `+${days}g`;
+
+    const scad = (function(){
+      try{
+        if (!x || !x.scadenzaISO) return '-';
+        const dt = new Date(x.scadenzaISO);
+        if (isNaN(dt.getTime())) return x.scadenzaISO;
+        return dt.toLocaleDateString('it-IT');
+      }catch{
+        return x.scadenzaISO || '-';
+      }
+    })();
+
+    return e('tr', null,
+      e('td', null, c.id || '-'),
+      e('td', null, c.cliente || '-'),
+      e('td', null, c.descrizione || '-'),
+      e('td', {className:'right'}, scad),
+      e('td', {className:'right'}, giorniLabel),
+      e('td', {className:'right'}, String(x && x.residuo != null ? x.residuo : '')),
+      e('td', null, x && x.stato ? x.stato : '')
+    );
+  }
+
   // ---- Render ----
   return e('div', {className:'grid dashboard-grid', style:{gap:16}},
     e('div', {className:'muted dashboard-intro'}, 'Vista PC: avanzamento commesse e scorciatoie utili.'),
@@ -7942,7 +8029,26 @@ function producedPiecesFromOreRows(c, oreRows){
           )
     ),
 
-    // Widget 2: Timbrature di oggi
+    // Widget 2: Radar urgenze (scadenze a breve)
+    e('div', {className:'card'},
+      e('h3', null, 'Radar urgenze (scadenze a breve)'),
+      radar.length === 0
+        ? e('div', {className:'muted'}, 'Nessuna commessa urgente nelle ultime/ prossime settimane.')
+        : e('table', {className:'table'},
+            e('thead', null, e('tr', null,
+              e('th', null, 'ID'),
+              e('th', null, 'Cliente'),
+              e('th', null, 'Descrizione'),
+              e('th', {className:'right'}, 'Scadenza'),
+              e('th', {className:'right'}, 'Giorni'),
+              e('th', {className:'right'}, 'Residuo'),
+              e('th', null, 'Stato')
+            )),
+            e('tbody', null, radar.map((x,i)=> e(RowRadar, {key:i, x})))
+          )
+    ),
+
+    // Widget 3: Timbrature di oggi
     e('div', {className:'card'},
       e('h3', null, 'Timbrature di oggi'),
       oggiRows.length === 0
@@ -7958,7 +8064,7 @@ function producedPiecesFromOreRows(c, oreRows){
           )
     ),
 
-    // Widget 3: Allarmi
+    // Widget 4: Allarmi
     e('div', {className:'card'},
       e('h3', null, 'Allarmi (sforo ore / fermi >24h)'),
       allarmi.length === 0
@@ -19802,6 +19908,62 @@ function renderOperatoreField_Local(value, onChange){
 
   // --- Filtri condivisi (sia locale che cloud) ---
   const [flt, setFlt] = React.useState({ from:'', to:'', commessa:'', operatore:'', fase:'' });
+
+  // Periodi rapidi per i filtri data
+  function applyQuickRange(preset){
+    const dayMs = 24*60*60*1000;
+    const now   = new Date();
+    const today = todayISO();
+
+    let from = '';
+    let to   = '';
+
+    if (preset === 'today') {
+      from = today;
+      to   = today;
+    } else if (preset === 'last7') {
+      const start = new Date(now.getTime() - 6*dayMs);
+      from = start.toISOString().slice(0,10);
+      to   = today;
+    } else if (preset === 'last30') {
+      const start = new Date(now.getTime() - 29*dayMs);
+      from = start.toISOString().slice(0,10);
+      to   = today;
+    } else if (preset === 'month') {
+      const year  = now.getFullYear();
+      const month = now.getMonth() + 1;
+      const mm    = String(month).padStart(2,'0');
+      const fromIso = `${year}-${mm}-01`;
+      const nextMonthYear  = month === 12 ? year + 1 : year;
+      const nextMonthIndex = month === 12 ? 0 : month; // 0-based
+      const lastDay = new Date(Date.UTC(nextMonthYear, nextMonthIndex, 1) - dayMs);
+      const toIso   = lastDay.toISOString().slice(0,10);
+      from = fromIso;
+      to   = toIso;
+    } else if (preset === 'year') {
+      const year = now.getFullYear();
+      from = `${year}-01-01`;
+      to   = `${year}-12-31`;
+    } else if (preset === 'all') {
+      from = '';
+      to   = '';
+    }
+
+    setFlt(prev => ({ ...prev, from, to }));
+  }
+
+  // Di default mostra gli ultimi 30 giorni se non hai scelto un intervallo
+  React.useEffect(() => {
+    setFlt(prev => {
+      if (prev.from || prev.to) return prev;
+      const dayMs = 24*60*60*1000;
+      const now   = new Date();
+      const today = todayISO();
+      const start = new Date(now.getTime() - 29*dayMs);
+      const from  = start.toISOString().slice(0,10);
+      return { ...prev, from, to: today };
+    });
+  }, []);
   const opsImpostazioni = (function(){
     try{ const a = JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; return Array.isArray(a.operators)? a.operators.filter(Boolean):[]; }catch{return[]}
   })();
@@ -20459,7 +20621,7 @@ function _saveImportedCloudIds(set){
 
     // PANNELLO FILTRI
     e('div', {className:'card'},
-      e('div', {className:'row', style:{gap:12, alignItems:'end'}},
+      e('div', {className:'row', style:{gap:12, alignItems:'end', flexWrap:'wrap'}},
         e('div', null, e('label', null, 'Dal'),
           e('input', {type:'date', value:flt.from, onChange:ev=>setFlt(p=>({...p, from: ev.target.value}))})
         ),
@@ -20495,8 +20657,18 @@ function _saveImportedCloudIds(set){
           )
         ),
         e('div', {className:'actions'},
-          e('button', {className:'btn btn-outline', onClick:()=>setFlt({from:'',to:'',commessa:'',operatore:'',fase:''})}, 'Pulisci filtri')
+          e('button', {className:'btn btn-outline', onClick:()=>setFlt({from:'',to:'',commessa:'',operatore:'',fase:''})}, 
+'Pulisci filtri')
         )
+      ),
+      e('div', {className:'row', style:{gap:8, marginTop:8, flexWrap:'wrap'}},
+        e('span', {className:'muted'}, 'Periodo rapido:'),
+        e('button', {className:'btn btn-outline', onClick:()=>applyQuickRange('today')},  'Oggi'),
+        e('button', {className:'btn btn-outline', onClick:()=>applyQuickRange('last7')},  'Ultimi 7 giorni'),
+        e('button', {className:'btn btn-outline', onClick:()=>applyQuickRange('month')},  'Mese corrente'),
+        e('button', {className:'btn btn-outline', onClick:()=>applyQuickRange('last30')}, 'Ultimi 30 giorni'),
+        e('button', {className:'btn btn-outline', onClick:()=>applyQuickRange('year')},   'Anno corrente'),
+        e('button', {className:'btn btn-outline', onClick:()=>applyQuickRange('all')},    'Tutto')
       )
     ),
 
