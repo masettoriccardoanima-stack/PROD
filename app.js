@@ -14299,6 +14299,163 @@ React.useEffect(() => {
   const [showForm, setShowForm]   = React.useState(false);
   const [selDDT, setSelDDT]       = React.useState({}); // selezione multipla in lista
 
+    // BLOCCO NUOVO — Stato e helper per ALLEGATI DDT
+  const [allegatiRows, setAllegatiRows] = React.useState(() => {
+    try {
+      if (typeof lsGet === 'function') {
+        const v = lsGet('allegatiRows', []);
+        return Array.isArray(v) ? v : [];
+      }
+      const raw = localStorage.getItem('allegatiRows');
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [newAllegato, setNewAllegato] = React.useState({
+    tipo: 'FOTO_CARICO',
+    descrizione: '',
+    path: '',
+    url: ''
+  });
+
+  const [showAllegatoForm, setShowAllegatoForm] = React.useState(false);
+
+  const currentDDTId = React.useMemo(() => {
+    const id = form && form.id ? String(form.id) : (editingId ? String(editingId) : '');
+    return id || '';
+  }, [form, editingId]);
+
+  const allegatiDDT = React.useMemo(() => {
+    if (!currentDDTId) return [];
+    const arr = Array.isArray(allegatiRows) ? allegatiRows : [];
+    return arr.filter(a =>
+      a &&
+      !a.deletedAt &&
+      String(a.entityType || 'DDT').toUpperCase() === 'DDT' &&
+      String(a.entityId || '') === currentDDTId
+    );
+  }, [allegatiRows, currentDDTId]);
+
+  React.useEffect(() => {
+    try {
+      const arr = Array.isArray(allegatiRows) ? allegatiRows : [];
+      if (typeof lsSet === 'function') {
+        lsSet('allegatiRows', arr);
+      } else {
+        localStorage.setItem('allegatiRows', JSON.stringify(arr));
+        window.__anima_dirty = true;
+      }
+    } catch {}
+  }, [allegatiRows]);
+
+  function nextAllegatoId(){
+    try {
+      if (typeof window.nextIdUnique === 'function') {
+        const res = window.nextIdUnique('alg', 'ALG', 'allegatiRows');
+        if (res && res.id) return res.id;
+      }
+    } catch {}
+    const year = new Date().getFullYear();
+    const prefix = 'ALG-' + year + '-';
+    const re = new RegExp('^' + prefix.replace(/-/g, '\\-') + '(\\d{3})$', 'i');
+    let max = 0;
+    const arr = Array.isArray(allegatiRows) ? allegatiRows : [];
+    arr.forEach(a => {
+      if (!a || !a.id) return;
+      const m = String(a.id).match(re);
+      if (!m) return;
+      const n = parseInt(m[1] || '0', 10) || 0;
+      if (n > max) max = n;
+    });
+    const next = max + 1;
+    return prefix + String(next).padStart(3, '0');
+  }
+
+  function resetNewAllegato(){
+    setNewAllegato({
+      tipo: 'FOTO_CARICO',
+      descrizione: '',
+      path: '',
+      url: ''
+    });
+  }
+
+  function openNewAllegato(){
+    if (!currentDDTId) {
+      alert('Per aggiungere allegati è necessario prima salvare il DDT (ID obbligatorio).');
+      return;
+    }
+    resetNewAllegato();
+    setShowAllegatoForm(true);
+  }
+
+  function saveNewAllegato(ev){
+    if (ev && ev.preventDefault) ev.preventDefault();
+    if (!currentDDTId) {
+      alert('Per aggiungere allegati è necessario prima salvare il DDT (ID obbligatorio).');
+      return;
+    }
+    const base = {
+      id: nextAllegatoId(),
+      createdAt: new Date().toISOString(),
+      tipo: newAllegato.tipo || 'ALTRO',
+      descrizione: String(newAllegato.descrizione || '').trim(),
+      path: String(newAllegato.path || '').trim(),
+      url: String(newAllegato.url || '').trim(),
+      entityType: 'DDT',
+      entityId: currentDDTId,
+      note: '',
+      deletedAt: null
+    };
+    if (!base.path && !base.url && !base.descrizione) {
+      alert('Compila almeno uno tra Path, URL o Descrizione.');
+      return;
+    }
+    setAllegatiRows(prev => {
+      const arr = Array.isArray(prev) ? prev.slice() : [];
+      arr.push(base);
+      return arr;
+    });
+    setShowAllegatoForm(false);
+    resetNewAllegato();
+  }
+
+  function removeAllegato(id){
+    if (!id) return;
+    if (!confirm('Eliminare questo allegato dal DDT?')) return;
+    const nowISO = new Date().toISOString();
+    setAllegatiRows(prev => {
+      const arr = Array.isArray(prev) ? prev.slice() : [];
+      return arr.map(a => {
+        if (!a || String(a.id || '') !== String(id)) return a;
+        return { ...a, deletedAt: nowISO };
+      });
+    });
+  }
+
+  function openAllegatoUrl(url){
+    if (!url) return;
+    try { window.open(url, '_blank'); } catch {}
+  }
+
+  function copyAllegatoPath(path){
+    if (!path) return;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(path)
+          .catch(() => { window.prompt('Copia il percorso e premi OK', path); });
+      } else {
+        window.prompt('Copia il percorso e premi OK', path);
+      }
+    } catch {
+      window.prompt('Copia il percorso e premi OK', path);
+    }
+  }
+
   function toggleSel(id){
     setSelDDT(m => ({ ...m, [id]: !m[id] }));
   }
@@ -15228,6 +15385,134 @@ showForm && e('form', { className:'card', onSubmit:save, style:{marginTop:8,padd
         e('div', null,
           e('label', null, 'Firma destinatario'),
           e('input', { name:'firmaDestinatario', value:form.firmaDestinatario, onChange:onChange })
+        )
+      )
+    ),
+
+        // BLOCCO NUOVO — Card Allegati collegati al DDT
+    e('div', { className:'card', style:{marginTop:8} },
+      e('h3', null, 'Allegati'),
+      !currentDDTId && e('div', { className:'muted', style:{marginBottom:8} },
+        'Per aggiungere allegati è necessario prima salvare il DDT (ID obbligatorio).'
+      ),
+      currentDDTId && e('div', { className:'actions', style:{justifyContent:'flex-end',gap:8,marginBottom:8} },
+        (function(){
+          const base = {
+            type:'button',
+            className:'btn btn-outline',
+            onClick: openNewAllegato,
+            disabled: !currentDDTId
+          };
+          const ro = window.roProps ? window.roProps() : null;
+          return e('button', ro ? { ...base, ...ro, disabled: ro.disabled || !currentDDTId } : base, '➕ Aggiungi allegato');
+        })()
+      ),
+      e('div', { style:{overflowX:'auto'} },
+        e('table', { className:'table' },
+          e('thead', null,
+            e('tr', null,
+              e('th', null, 'Tipo'),
+              e('th', null, 'Descrizione'),
+              e('th', null, 'Path'),
+              e('th', null, 'Azioni')
+            )
+          ),
+          e('tbody', null,
+            (!allegatiDDT || !allegatiDDT.length)
+              ? e('tr', null,
+                  e('td', { colSpan:4, className:'muted' },
+                    currentDDTId
+                      ? 'Nessun allegato collegato a questo DDT.'
+                      : 'Nessun allegato (DDT non ancora salvato).'
+                  )
+                )
+              : allegatiDDT.map(a =>
+                  e('tr', { key: a.id || a.createdAt },
+                    e('td', null, String(a.tipo || '')),
+                    e('td', null, String(a.descrizione || '')),
+                    e('td', null,
+                      e('code', { style:{ fontSize:11, whiteSpace:'nowrap' } },
+                        String(a.path || '')
+                      )
+                    ),
+                    e('td', null,
+                      a.url && /^https?:\/\//i.test(String(a.url||'')) && e('button', {
+                        type:'button',
+                        className:'btn btn-outline',
+                        onClick: ()=> openAllegatoUrl(a.url),
+                        style:{marginRight:4}
+                      }, 'Apri'),
+                      e('button', {
+                        type:'button',
+                        className:'btn btn-outline',
+                        onClick: ()=> copyAllegatoPath(a.path),
+                        style:{marginRight:4}
+                      }, 'Copia percorso'),
+                      (function(){
+                        const base = {
+                          type:'button',
+                          className:'btn btn-outline',
+                          onClick: ()=> removeAllegato(a.id)
+                        };
+                        const ro = window.roProps ? window.roProps() : null;
+                        return e('button', ro ? { ...base, ...ro } : base, '🗑');
+                      })()
+                    )
+                  )
+                )
+          )
+        )
+      ),
+      showAllegatoForm && currentDDTId && e('div', { className:'card', style:{marginTop:8,padding:8} },
+        e('div', { className:'form', style:{gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))'} },
+          e('div', null,
+            e('label', null, 'Tipo'),
+            e('select', {
+              value: newAllegato.tipo,
+              onChange: ev => setNewAllegato(p => ({ ...p, tipo: ev.target.value }))
+            },
+              ['FOTO_CARICO','COLLAUDO','NC_FORN','DISEGNO','ALTRO'].map(t =>
+                e('option', { key:t, value:t }, t)
+              )
+            )
+          ),
+          e('div', null,
+            e('label', null, 'Descrizione'),
+            e('input', {
+              value: newAllegato.descrizione || '',
+              onChange: ev => setNewAllegato(p => ({ ...p, descrizione: ev.target.value }))
+            })
+          ),
+          e('div', null,
+            e('label', null, 'Path (percorso file)'),
+            e('input', {
+              value: newAllegato.path || '',
+              onChange: ev => setNewAllegato(p => ({ ...p, path: ev.target.value }))
+            })
+          ),
+          e('div', null,
+            e('label', null, 'URL (opzionale, http/https)'),
+            e('input', {
+              value: newAllegato.url || '',
+              onChange: ev => setNewAllegato(p => ({ ...p, url: ev.target.value }))
+            })
+          )
+        ),
+        e('div', { className:'actions', style:{justifyContent:'flex-end',gap:8,marginTop:8} },
+          e('button', {
+            type:'button',
+            className:'btn btn-outline',
+            onClick: ()=>{ setShowAllegatoForm(false); resetNewAllegato(); }
+          }, 'Annulla'),
+          (function(){
+            const base = {
+              type:'button',
+              className:'btn',
+              onClick: saveNewAllegato
+            };
+            const ro = window.roProps ? window.roProps() : null;
+            return e('button', ro ? { ...base, ...ro } : base, 'Salva allegato');
+          })()
         )
       )
     ),
