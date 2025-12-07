@@ -59,6 +59,22 @@ body { margin:0; font-family:system-ui, Arial, sans-serif; background:#f5f6f8; }
 .dashboard-intro{
   grid-column: 1 / -1;
 }
+/* Impostazioni: layout responsive (1 colonna su mobile, 2 su desktop) */
+.settings-grid{
+  grid-template-columns: minmax(0, 1fr);
+  align-items:flex-start;
+  gap:16px;
+}
+
+/* Prima card (Dati azienda) sempre a tutta larghezza su desktop */
+@media (min-width: 1200px){
+  .settings-grid{
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.2fr);
+  }
+  .settings-grid > .card:first-child{
+    grid-column: 1 / -1;
+  }
+}
 .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap:12px; }
 .row { display:flex; align-items:center; gap:8px; }
 .table { width:100%; border-collapse:collapse; }
