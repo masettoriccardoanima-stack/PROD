@@ -559,6 +559,120 @@ window.softDeleteOreOrfane = window.softDeleteOreOrfane || function(options){
   };
 };
 
+// ================== DIAGNOSTICA DATI (solo lettura) ==================
+function DiagnosticaView(){
+  const e = React.createElement;
+
+  const [report, setReport]   = React.useState(null);
+  const [running, setRunning] = React.useState(false);
+  const [error, setError]     = React.useState(null);
+
+  const run = React.useCallback((limit)=>{
+    try{
+      setRunning(true);
+      setError(null);
+
+      const fn = window.runAnimaSmokeTest;
+      if (typeof fn === 'function') {
+        const r = fn(limit || 20);
+        setReport(r || null);
+      } else {
+        setError('Funzione runAnimaSmokeTest non disponibile.');
+      }
+    } catch (e){
+      console.error('DiagnosticaView – errore', e);
+      setError('Errore in diagnostica (vedi console).');
+    } finally {
+      setRunning(false);
+    }
+  },[]);
+
+  React.useEffect(()=>{ run(20); }, [run]);
+
+  const mag = (report && report.magazzino) || {};
+  const com = (report && report.commesse)  || {};
+  const ore = (report && report.ore)       || {};
+  const last = report && report.startedAt;
+
+  return e('div',{className:'page'},
+    // Header + pulsante riesegui
+    e('div', {
+      className:'actions',
+      style:{justifyContent:'space-between', alignItems:'center', marginBottom:12}
+    },
+      e('div', null,
+        e('h2', null, 'Diagnostica dati'),
+        e('div',{className:'muted small'},
+          'Controlli di coerenza su movimenti, commesse e ore (solo lettura).'
+        ),
+        last && e('div',{className:'muted small'},
+          'Ultimo controllo: ',
+          String(last).replace('T',' ').slice(0,16)
+        )
+      ),
+      e('div', null,
+        e('button', {
+          className:'btn btn-outline',
+          onClick: ()=> run(20),
+          disabled: running
+        }, running ? 'Analisi in corso…' : 'Riesegui diagnostica')
+      )
+    ),
+
+    error && e('div',{
+      className:'card',
+      style:{borderColor:'#dc2626', color:'#b91c1c', marginBottom:12}
+    }, String(error)),
+
+    report && e('div',{className:'grid', style:{gap:16}},
+      // Card magazzino / movimenti
+      e('div',{className:'card'},
+        e('h3', null, 'Magazzino / movimenti'),
+        e('div',{className:'muted small'},
+          'Foto sintetica dei movimenti in locale.'
+        ),
+        e('ul',{className:'small'},
+          e('li',null, `Totali movimenti: ${mag.totalMovimenti ?? 0}`),
+          e('li',null, `Vivi: ${mag.vivi ?? 0}`),
+          e('li',null, `Soft-deleted: ${mag.softDeleted ?? 0}`),
+          e('li',null, `Senza id (legacy): ${mag.senzaId ?? 0}`),
+          e('li',null, `Con id senza updatedAt: ${mag.conIdSenzaUpdatedAt ?? 0}`)
+        )
+      ),
+
+      // Card commesse
+      e('div',{className:'card'},
+        e('h3', null, 'Commesse'),
+        e('div',{className:'muted small'},
+          'Controllo pezzi prodotti / residuo sulle commesse.'
+        ),
+        e('ul',{className:'small'},
+          e('li',null, `Totali commesse: ${com.totali ?? 0}`),
+          e('li',null,
+            `Anomalie pezzi (prod>tot, residuo<0 o prod<0): ${com.anomalie ?? 0}`
+          )
+        )
+      ),
+
+      // Card ore
+      e('div',{className:'card'},
+        e('h3', null, 'Ore'),
+        e('div',{className:'muted small'},
+          'Ore orfane = commessaId senza commessa (da ripulire con softDeleteOreOrfane).'
+        ),
+        e('ul',{className:'small'},
+          e('li',null, `Totali ore: ${ore.totali ?? 0}`),
+          e('li',null, `Ore orfane vive: ${ore.orfane ?? 0}`)
+        )
+      )
+    ),
+
+    !report && !running && !error &&
+      e('div',{className:'muted'}, 'Nessun dato di diagnostica disponibile.')
+  );
+}
+window.DiagnosticaView = DiagnosticaView;
+
 // Stampa etichette centrale (manuale, senza vincolo di commessa completa)
 window.triggerEtichetteFor = window.triggerEtichetteFor || function(commessa, opts = {}){
   try{
@@ -24418,6 +24532,7 @@ window.findCommessaById = window.findCommessaById || function(id){
 
       ['__section__', 'Sistema'],
         ['#/impostazioni', 'Impostazioni'],
+        ['#/diagnostica', 'Diagnostica'],
     ];
 
     // — Filtro ruoli: worker / viewer / mobile vedono solo alcune rotte
@@ -24450,9 +24565,11 @@ window.findCommessaById = window.findCommessaById || function(id){
       );
     }
 
-    // Solo ADMIN vede la voce "Impostazioni" nel menu
+    // Solo ADMIN vede le voci di sistema (Impostazioni / Diagnostica)
     if (!isAdmin) {
-      LINKS = LINKS.filter(([href]) => href !== '#/impostazioni');
+      LINKS = LINKS.filter(
+        ([href]) => href !== '#/impostazioni' && href !== '#/diagnostica'
+      );
     }
 
     // Link factory (nome diverso per evitare conflitti)
@@ -24549,8 +24666,8 @@ window.findCommessaById = window.findCommessaById || function(id){
           h = '#/timbratura';
         }
       } else {
-        // worker / accountant / altri non-admin: blocca solo accesso a Impostazioni
-        if (h === '#/impostazioni') {
+        // worker / accountant / altri non-admin: blocca accesso a Impostazioni/Diagnostica
+        if (h === '#/impostazioni' || h === '#/diagnostica') {
           if (h !== '#/timbratura') {
             location.hash = '#/timbratura';
           }
@@ -26326,6 +26443,7 @@ if (typeof window !== 'undefined') { window.TimbraturaMobileView = TimbraturaMob
     '#/ordini-ritardo':   window.OrdiniFornitoriRitardoView,
     '#/magazzino':        window.MagazzinoView,
     '#/report':           window.ReportView,
+    '#/diagnostica':      window.DiagnosticaView,
     '#/impostazioni':     (window.SettingsView || window.ImpostazioniView),
     '#/login':            window.LoginView,
 
