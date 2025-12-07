@@ -1,6 +1,6 @@
 // in sw.js, in alto
 self.APP_CHANNEL = self.APP_CHANNEL || 'beta';
-self.APP_VERSION = self.APP_VERSION || '0.8.0-beta.1';
+self.APP_VERSION = self.APP_VERSION || '0.8.0-beta.2';
 const CACHE_NAME = `anima-${self.APP_CHANNEL}-${self.APP_VERSION}`;
 
 // sw.js – cache minimale
