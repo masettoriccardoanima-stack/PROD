@@ -8156,14 +8156,14 @@ function producedPiecesFromOreRows(c, oreRows){
 
   function RowRadar({ x }){
     const e = React.createElement;
-    const c = x && x.c ? x.c : {};
+    const c = (x && x.c) ? x.c : {};
 
     const days = (x && typeof x.diffDays === 'number') ? x.diffDays : null;
     let giorniLabel = '';
-    if (days == null) giorniLabel = '-';
-    else if (days === 0) giorniLabel = 'Oggi';
-    else if (days < 0)   giorniLabel = `${days}g`;
-    else                 giorniLabel = `+${days}g`;
+    if (days == null)      giorniLabel = '-';
+    else if (days === 0)   giorniLabel = 'Oggi';
+    else if (days < 0)     giorniLabel = `${days}g`;
+    else                   giorniLabel = `+${days}g`;
 
     const scad = (function(){
       try{
@@ -8176,10 +8176,17 @@ function producedPiecesFromOreRows(c, oreRows){
       }
     })();
 
+    const idCell = c.id
+      ? e('a', {
+          href: `#/commesse?q=${encodeURIComponent(c.id)}`,
+          onClick: ev => ev.stopPropagation && ev.stopPropagation()
+        }, c.id)
+      : '-';
+
     return e('tr', null,
-      e('td', null, c.id || '-'),
+      e('td', null, idCell),
       e('td', null, c.cliente || '-'),
-      e('td', null, c.descrizione || '-'),
+      e('td', null, descrForCommessaDashboard(c)),
       e('td', {className:'right'}, scad),
       e('td', {className:'right'}, giorniLabel),
       e('td', {className:'right'}, String(x && x.residuo != null ? x.residuo : '')),
