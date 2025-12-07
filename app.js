@@ -13812,11 +13812,11 @@ const counters0 = lsGet('counters', {}) || {};
     // Utenti & ruoli (login Supabase)
     e('div', {className:'card'},
       e('h3', null, 'Utenti e ruoli (login Supabase)'),
-      e('div', {className:'form'},
+      e('div', {className:'settings-users'},
         e('div', {className:'muted', style:{marginBottom:8}},
           'Qui configuri quali email Supabase hanno accesso e con che ruolo.'
         ),
-        e('div', null,
+        e('div', {className:'settings-users-list'},
           (Array.isArray(form.users) ? form.users : []).map((u,idx)=>
             e('div', {
               key:idx,
