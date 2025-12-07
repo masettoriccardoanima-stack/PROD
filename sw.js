@@ -6,11 +6,18 @@ const CACHE_NAME = `anima-${self.APP_CHANNEL}-${self.APP_VERSION}`;
 // sw.js – cache minimale
 const CACHE = CACHE_NAME;
 const CORE = [
+  // Root (eventuali vecchie installazioni / ambiente base)
   '/', '/index.html', '/manifest.webmanifest',
   '/icons/icon-192.png', '/icons/icon-512.png',
-  // aggiungi qui i tuoi file principali:
-  '/app.js', '/styles.css', '/anima.css','/shim-desktop.js',
-  '/vendor/xlsx.full.min.js'
+  // file principali root
+  '/app.js', '/styles.css', '/anima.css', '/shim-desktop.js',
+  '/vendor/xlsx.full.min.js',
+
+  // Varianti per ambiente PROD su GitHub Pages
+  '/PROD/index.html', '/PROD/manifest.webmanifest',
+  '/PROD/icons/icon-192.png', '/PROD/icons/icon-512.png',
+  '/PROD/app.js', '/PROD/styles.css', '/PROD/anima.css', '/PROD/shim-desktop.js',
+  '/PROD/vendor/xlsx.full.min.js'
 ];
 
 self.addEventListener('install', (event) => {
