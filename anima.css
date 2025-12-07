@@ -921,6 +921,7 @@ aside.sidebar + aside.card, aside.sidebar ~ aside.card { display: none !importan
 /* Variabile unica larghezza sidebar */
 :root{
   --sidebar-w: 200px !important;
+  --sessionbar-safe: 0px !important;   /* riduce lo spazio orizzontale riservato alla sessionbar */
 }
 
 /* Desktop: sidebar fissa + content spostato a destra */
