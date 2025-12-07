@@ -7989,9 +7989,7 @@ function producedPiecesFromOreRows(c, oreRows){
     }
 
     // Aggrego minuti timbrati per reparto/fase nell'intervallo [periodStart, periodEnd]
-    const totMinByRep = {};
-
-    const totMinByRep = {};
+        const totMinByRep = {};
     let senzaFaseCount = 0;
     const esempiSenzaFase = [];
 
