@@ -1020,6 +1020,7 @@ aside.sidebar + aside.card, aside.sidebar ~ aside.card { display: none !importan
 .timbratura-summary{
   width:100% !important;
   max-width:100% !important;
+  box-sizing:border-box;          /* include padding + bordi nel 100%, niente più sporgenza */
   overflow-x:hidden !important;
 }
 
