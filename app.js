@@ -7548,59 +7548,106 @@ function DashboardView(){
     return producedPiecesLegacy(c);
   }
 
-      // Ore pianificate (wrapper sul modello "smart" per-riga / globale)
+  // Ore pianificate (smart: per-riga se ci sono fasi con tempi, altrimenti fallback globale)
   function plannedMinutes(c){
     const commessa = c || {};
 
+    // helper: minuti pianificati di UNA fase (stessa logica del Report Tempi)
+    function minsFromPhase(f){
+      if (!f || typeof f !== 'object') return 0;
+
+      const n =
+        (typeof f.oreMin === 'number'      && isFinite(f.oreMin))      ? f.oreMin      :
+        (typeof f.minuti === 'number'      && isFinite(f.minuti))      ? f.minuti      :
+        (typeof f.min === 'number'         && isFinite(f.min))         ? f.min         :
+        (typeof f.orePrevMin === 'number'  && isFinite(f.orePrevMin))  ? f.orePrevMin  :
+        null;
+
+      if (n != null) return Math.max(0, Math.round(n));
+
+      const hhmm =
+        f.orePrevHHMM      ||   // per-riga
+        f.oreHHMM          ||
+        f.hhmm             ||
+        f.orePrevistaHHMM  ||
+        f.orePrev          ||
+        f.durataHHMM       ||
+        '';
+
+      return Math.max(0, Math.round(toMin(hhmm || '0')));
+    }
+
+    const qComm = Math.max(1, Number(commessa.qtaPezzi || 1));
+    const righe = Array.isArray(commessa.righeArticolo) ? commessa.righeArticolo : [];
+
+    // ci sono fasi per-riga con tempi pianificati?
+    const hasRowFasiPlanned = righe.some(row =>
+      Array.isArray(row && row.fasi) &&
+      row.fasi.some(f => minsFromPhase(f) > 0)
+    );
+
     let tot = 0;
 
-    // 1) Prova a usare l'helper "smart" se esiste
-    try{
-      const fnSmart =
-        (typeof window !== 'undefined' && typeof window.plannedMinTotalCommessaSmart === 'function')
-          ? window.plannedMinTotalCommessaSmart
-          : (typeof plannedMinTotalCommessaSmart === 'function'
-              ? plannedMinTotalCommessaSmart
-              : null);
+    if (righe.length && hasRowFasiPlanned){
+      // 1) Caso moderno: sommo il totale pianificato per ogni riga articolo
+      for (const row of righe){
+        const qRow = Math.max(1, Number(row?.qta || row?.qtaPezzi || row?.pezzi || 1));
 
-      if (fnSmart) {
-        tot = Number(fnSmart(commessa)) || 0;
+        const rowFasi  = (row && Array.isArray(row.fasi) && row.fasi.length) ? row.fasi : [];
+        const commFasi = Array.isArray(commessa.fasi) ? commessa.fasi : [];
+
+        // se la riga ha tempi propri uso quelli, altrimenti ricado sulle fasi globali
+        const rowHasPlanned = rowFasi.some(f => minsFromPhase(f) > 0);
+        const fasiEff = rowHasPlanned ? rowFasi : commFasi;
+
+        if (!fasiEff.length){
+          // nessuna fase né per-riga né globale: uso oreMin/oreHHMM commessa come tempo per pezzo
+          const perPiece =
+            (typeof commessa.oreMin === 'number' && isFinite(commessa.oreMin))
+              ? commessa.oreMin
+              : toMin(commessa.oreHHMM || '0');
+
+          tot += Math.max(0, Math.round(perPiece * qRow));
+        } else {
+          let perPiece = 0;
+          let unaTantum = 0;
+
+          for (const f of fasiEff){
+            const m = minsFromPhase(f);
+            if (f && (f.unaTantum || f.once)) unaTantum += m;
+            else perPiece += m;
+          }
+
+          tot += Math.max(0, Math.round(unaTantum + perPiece * qRow));
+        }
       }
-    }catch(err){
-      console.error('plannedMinutes error (smart helper):', err);
-      tot = 0;
-    }
-
-    // 2) Fallback di sicurezza se l'helper non c'è o restituisce qualcosa di non valido
-    if (!Number.isFinite(tot) || tot <= 0){
-      const q = Math.max(1, Number(commessa.qtaPezzi || 1));
+    } else {
+      // 2) Fallback legacy: uso solo le fasi globali della commessa
       const fasi = Array.isArray(commessa.fasi) ? commessa.fasi : [];
 
-      let perPieceFallback = 0;
-      let unaTantum = 0;
+      if (!fasi.length){
+        // nessuna fase: oreMin/oreHHMM commessa = tempo per pezzo
+        const perPiece =
+          (typeof commessa.oreMin === 'number' && isFinite(commessa.oreMin))
+            ? commessa.oreMin
+            : toMin(commessa.oreHHMM || '0');
 
-      for (const f of fasi){
-        let min = 0;
-        try{
-          if (typeof plannedMinsFromFase === 'function') {
-            min = plannedMinsFromFase(f);
-          } else {
-            min = toMin(f?.oreHHMM || '0');
-          }
-        }catch{
-          min = 0;
+        tot = Math.max(0, Math.round(perPiece * qComm));
+      } else {
+        let perPiece = 0;
+        let unaTantum = 0;
+
+        for (const f of fasi){
+          const m = minsFromPhase(f);
+          if (f && (f.unaTantum || f.once)) unaTantum += m;
+          else perPiece += m;
         }
 
-        if (f && (f.unaTantum || f.once)) unaTantum += min;
-        else perPieceFallback += min;
+        tot = Math.max(0, Math.round(unaTantum + perPiece * qComm));
       }
-
-      tot = Math.max(0, Math.round(unaTantum + perPieceFallback * q));
     }
 
-    // 3) Deriva per-pezzo dal totale
-    const q = Math.max(1, Number(commessa.qtaPezzi || 1));
-    const perPezzo = q > 0 ? Math.round(tot / q) : tot;
+    const perPezzo = qComm > 0 ? Math.round(tot / qComm) : tot;
 
     return { perPezzo, tot };
   }
