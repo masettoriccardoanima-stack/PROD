@@ -9752,12 +9752,32 @@ function CommesseView({ query = '' }) {
   }
 
   // --- filtro ricerca ---
-  const [q, setQ] = React.useState(query||'');
+  const [q, setQ] = React.useState('');
+  const [openedFromQuery, setOpenedFromQuery] = React.useState(false);
   const rowsSorted = (Array.isArray(rows)? rows.slice():[]).sort((a,b)=> idKeyC(b) - idKeyC(a));
   const filtered = rowsSorted.filter(c => {
     const s = `${c.id||''} ${c.cliente||''} ${c.descrizione||''} ${c.articoloCodice||''} ${(Array.isArray(c.righe)&&c.righe.map(r=>r.articoloCodice).join(' '))||''}`.toLowerCase();
     return s.includes((q||'').toLowerCase());
   });
+
+    React.useEffect(() => {
+    // se non c'è query oppure abbiamo già aperto da query, non fare niente
+    if (!query || openedFromQuery) return;
+
+    const id = String(query).trim();
+    if (!id) return;
+
+    const all = Array.isArray(rows) ? rows : [];
+    const found = all.find(c => String(c.id) === id);
+    if (!found) return;
+
+    try {
+      startEdit(found); // apre il form su quella commessa
+    } catch (err) {
+      console.warn('[Commesse] startEdit da query fallito', err);
+    }
+    setOpenedFromQuery(true);
+  }, [query, rows, openedFromQuery]);
 
   // --- selezione multipla per DDT ---
   const [sel, setSel] = React.useState({}); // { [id]: true }
