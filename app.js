@@ -7962,46 +7962,72 @@ function producedPiecesFromOreRows(c, oreRows){
     return `${op} – ${label}`;
   }
 
-  function RowPronta({ x }) {
-  const e = React.createElement;
-  const c = x?.c || x || {};
+    function descrForCommessaDashboard(c) {
+    try{
+      const comm = c || {};
 
-  return e('tr', null,
-    e('td', null, c.id || '-'),
-    e('td', null, c.cliente || '-'),
-    e('td', null, (function(){
-      try{
-        // Se esiste il tuo helper, lo riuso per restare coerente
-        if (typeof window.previewDescrAndRef === 'function') {
-          const p = window.previewDescrAndRef(c);
-          const extra = p.rifCol && p.rifCol !== '-' ? ` — ${p.rifCol}` : '';
-          return (p.descr || c.descrizione || '-') + extra;
-        }
+      // Se esiste l'helper globale, lo uso per restare allineato alla vista Commesse
+      if (typeof window.previewDescrAndRef === 'function') {
+        const p   = window.previewDescrAndRef(comm);
+        const base = String(p.descr || comm.descrizione || '').trim();
+        const rif  = (p.rifCol && p.rifCol !== '-') ? String(p.rifCol).trim() : '';
 
-        // Fallback robusto se l’helper non c’è
-        const righe = Array.isArray(c.righeArticolo) ? c.righeArticolo
-                     : (Array.isArray(c.righe) ? c.righe : []);
-        const multi = Array.isArray(righe) && righe.length > 1;
-
-        if (multi) {
-          // multi-articolo → Descrizione + n° ordine cliente (se disponibile)
-          const ref = c.ordineCliente || c.nrOrdineCliente || c.rifCliente || c.ddtCliente || c.ordine || c.ordineId || '';
-          const txt = (window.refClienteToText ? window.refClienteToText(ref) : String(ref||''));
-          return (c.descrizione || '-') + (txt ? ` — ${txt}` : '');
-        } else {
-          // singola riga → Descrizione + codice articolo (se disponibile)
-          const r0 = (Array.isArray(righe) && righe[0]) ? righe[0] : null;
-          const code = c.articoloCodice || r0?.articoloCodice || r0?.codice || r0?.code || '';
-          return (c.descrizione || '-') + (code ? ` — ${code}` : ''); 
-        } 
-      }catch{
-        return (c.descrizione || '-');
+        if (base && rif) return `${base} — ${rif}`;
+        if (base)        return base;
+        if (rif)         return rif;
+        return '-';
       }
-    })()),
-    e('td', { className:'right' }, String(c.qtaPezzi || 1)),
-    e('td', { className:'right' }, '100%')
-  );
-}
+
+      // Fallback robusto se per qualche motivo previewDescrAndRef non c'è
+      const righe = Array.isArray(comm.righeArticolo) ? comm.righeArticolo
+                   : (Array.isArray(comm.righe) ? comm.righe : []);
+      const multi = Array.isArray(righe) && righe.length > 1;
+
+      if (multi) {
+        const ref = comm.ordineCliente || comm.nrOrdineCliente || comm.rifCliente ||
+                    comm.ddtCliente   || comm.ordine        || comm.ordineId     || '';
+        const txt  = (window.refClienteToText ? window.refClienteToText(ref) : String(ref||'')).trim();
+        const base = String(comm.descrizione || '').trim();
+
+        if (base && txt) return `${base} — ${txt}`;
+        if (base)        return base;
+        if (txt)         return txt;
+        return '-';
+      } else {
+        const r0   = (Array.isArray(righe) && righe[0]) ? righe[0] : null;
+        const code = comm.articoloCodice ||
+                     (r0 && (r0.articoloCodice || r0.codice || r0.code)) || '';
+        const base = String(comm.descrizione || '').trim();
+
+        if (base && code) return `${base} — ${code}`;
+        if (base)         return base;
+        if (code)         return code;
+        return '-';
+      }
+    } catch {
+      return (c && c.descrizione) ? c.descrizione : '-';
+    }
+  }
+
+  function RowPronta({ x }) {
+    const e = React.createElement;
+    const c = x?.c || x || {};
+
+    const idCell = c.id
+      ? e('a', {
+          href: `#/commesse?q=${encodeURIComponent(c.id)}`,
+          onClick: ev => ev.stopPropagation && ev.stopPropagation()
+        }, c.id)
+      : '-';
+
+    return e('tr', null,
+      e('td', null, idCell),
+      e('td', null, c.cliente || '-'),
+      e('td', null, descrForCommessaDashboard(c)),
+      e('td', { className:'right' }, String(c.qtaPezzi || 1)),
+      e('td', { className:'right' }, '100%')
+    );
+  }
 
   function RowToday(o){
     return e('tr', {key:o.id},
@@ -8012,47 +8038,22 @@ function producedPiecesFromOreRows(c, oreRows){
     );
   }
   function RowAllarme(a){
+    const e = React.createElement;
     const c = (a && a.c) ? a.c : {};
 
-    return e('tr', {key:c.id},
-      e('td', null, c.id || '-'),
+    const idCell = c.id
+      ? e('a', {
+          href: `#/commesse?q=${encodeURIComponent(c.id)}`,
+          onClick: ev => ev.stopPropagation && ev.stopPropagation()
+        }, c.id)
+      : '-';
+
+    return e('tr', { key: c.id || undefined },
+      e('td', null, idCell),
       e('td', null, c.cliente || '-'),
-      e('td', null, (function(){
-        try{
-          // Stessa logica usata per le commesse pronte / vista commesse
-          if (typeof window.previewDescrAndRef === 'function') {
-            const p = window.previewDescrAndRef(c);
-            const extra = p.rifCol && p.rifCol !== '-' ? ` — ${p.rifCol}` : '';
-            return (p.descr || c.descrizione || '-') + extra;
-          }
-
-          const righe = Array.isArray(c.righeArticolo)
-            ? c.righeArticolo
-            : (Array.isArray(c.righe) ? c.righe : []);
-          const multi = Array.isArray(righe) && righe.length > 1;
-
-          if (multi) {
-            // multi-articolo → Descrizione + n° ordine cliente (se disponibile)
-            const ref = c.ordineCliente || c.nrOrdineCliente || c.rifCliente ||
-                        c.ddtCliente || c.ordine || c.ordineId || '';
-            const txt = (window.refClienteToText
-              ? window.refClienteToText(ref)
-              : String(ref || ''));
-            return (c.descrizione || '-') + (txt ? ` — ${txt}` : '');
-          } else {
-            // singola riga → Descrizione + codice articolo (se disponibile)
-            const r0 = (Array.isArray(righe) && righe[0]) ? righe[0] : null;
-            const code = c.articoloCodice ||
-                         (r0 && (r0.articoloCodice || r0.codice || r0.code)) ||
-                         '';
-            return (c.descrizione || '-') + (code ? ` — ${code}` : '');
-          }
-        } catch {
-          return (c.descrizione || '-');
-        }
-      })()),
-      e('td', {className:'right'}, fmtHHMM(a.planTot)),
-      e('td', {className:'right'}, fmtHHMM(a.effTot)),
+      e('td', null, descrForCommessaDashboard(c)),
+      e('td', { className:'right' }, fmtHHMM(a.planTot)),
+      e('td', { className:'right' }, fmtHHMM(a.effTot)),
       e('td', null, a.cause)
     );
   }
