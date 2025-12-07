@@ -15,6 +15,111 @@
   }catch{ return `Fase ${Number(idx|0)+1}`; }
 };
 
+// ---- Helper globali fase / extra gas (per Dashboard, Report, Registrazioni) ----
+if (typeof window !== 'undefined') {
+  // Riconoscimento note "Cambio Bombola Gas"
+  window.isGasNote = window.isGasNote || function isGasNoteGlobal(t){
+    return /cambio\s*bombola\s*gas/i.test(String(t || ''));
+  };
+
+  // Nome fase coerente con Timbratura/Report per una riga di oreRows
+  if (typeof window.faseLabelFromRow !== 'function') {
+    window.faseLabelFromRow = function faseLabelFromRowGlobal(row){
+      try{
+        if (!row || typeof row !== 'object') return 'Intera commessa';
+
+        // 1) Nome salvato al momento della timbratura (se non è "Fase N")
+        const storedRaw = row.faseLabelAtReg != null
+          ? String(row.faseLabelAtReg).trim()
+          : '';
+        const isGeneric = /^fase\s+\d+$/i.test(storedRaw);
+        if (storedRaw && !isGeneric) {
+          return storedRaw;
+        }
+
+        const idxRaw = row.faseIdx;
+
+        // 2) Nessuna fase impostata → Intera commessa o Extra gas
+        if (idxRaw === '' || idxRaw == null) {
+          if (typeof window.isGasNote === 'function' && window.isGasNote(row.note)) {
+            return 'EXTRA: Cambio Bombola Gas';
+          }
+          return 'Intera commessa';
+        }
+
+        const idx = Number(idxRaw);
+        if (!Number.isFinite(idx) || idx < 0) {
+          return `Fase ${(Number(idxRaw)||0)+1}`;
+        }
+
+        // 3) Cerco la commessa collegata
+        const commId = row.commessaId != null ? String(row.commessaId) : '';
+        let commessa = null;
+        try{
+          const allC = (typeof window.lsGet === 'function'
+            ? window.lsGet('commesseRows', [])
+            : JSON.parse(localStorage.getItem('commesseRows') || '[]')) || [];
+          commessa = (Array.isArray(allC) ? allC : []).find(x => String(x.id) === commId) || null;
+        }catch(_){}
+
+        // 4) Fasi per-riga articolo (se ho rigaIdx)
+        if (commessa) {
+          try{
+            const righe = Array.isArray(commessa.righeArticolo) ? commessa.righeArticolo
+                         : (Array.isArray(commessa.righe) ? commessa.righe : []);
+            const rIdxRaw = row.rigaIdx;
+            const rIdx = (rIdxRaw === '' || rIdxRaw == null) ? null : Number(rIdxRaw);
+            if (Number.isFinite(rIdx) && rIdx >= 0 && righe[rIdx] &&
+                Array.isArray(righe[rIdx].fasi)) {
+              const f = righe[rIdx].fasi[idx];
+              if (f) {
+                const lbl = (f.lav || f.label || f.nome || f.reparto || f.repartoNome || '').trim();
+                if (lbl) return lbl;
+              }
+            }
+          }catch(_){}
+
+          // 5) Fasi globali commessa
+          try{
+            const gFasi = Array.isArray(commessa.fasi) ? commessa.fasi : [];
+            const f = gFasi[idx];
+            if (f) {
+              const lbl = (f.lav || f.label || f.nome || f.reparto || f.repartoNome || '').trim();
+              if (lbl) return lbl;
+            }
+          }catch(_){}
+        }
+
+        // 6) Fasi standard da appSettings (fasiStandard)
+        try{
+          const app = (typeof window.lsGet === 'function'
+            ? window.lsGet('appSettings', {})
+            : JSON.parse(localStorage.getItem('appSettings') || '{}')) || {};
+          const fas = Array.isArray(app.fasiStandard) ? app.fasiStandard : [];
+          const entry = fas[idx];
+          if (entry) {
+            const lbl = (typeof entry === 'string')
+              ? entry
+              : (entry.label || entry.nome || entry.lav || entry.reparto || entry.repartoNome || '').trim();
+            if (lbl) return lbl;
+          }
+        }catch(_){}
+
+        // 7) Fallback legacy → window.faseLabel
+        if (typeof window.faseLabel === 'function' && commessa) {
+          const v = window.faseLabel(commessa, idx);
+          if (v) return v;
+        }
+
+        // 8) Ultima spiaggia
+        return `Fase ${idx+1}`;
+      }catch(_){
+        return 'Intera commessa';
+      }
+    };
+  }
+}
+
 // === ID progressivi generici (DDT, FATT, OF, ecc.) ===
 // Usage: const idObj = await window.nextIdFor({ prefix:'DDT', storageKey:'ddtRows', seriesKey:'DDT', width:3 });
 window.nextIdFor = window.nextIdFor || async function nextIdFor({
@@ -7886,6 +7991,10 @@ function producedPiecesFromOreRows(c, oreRows){
     // Aggrego minuti timbrati per reparto/fase nell'intervallo [periodStart, periodEnd]
     const totMinByRep = {};
 
+    const totMinByRep = {};
+    let senzaFaseCount = 0;
+    const esempiSenzaFase = [];
+
     (Array.isArray(oreRows)?oreRows:[]).forEach(row => {
       if (!row || row.deletedAt) return;
 
@@ -7893,10 +8002,13 @@ function producedPiecesFromOreRows(c, oreRows){
       if (!dIso) return;
       if (dIso < periodStart || dIso > periodEnd) return;
 
-      // Escludo righe "extra gas" se riconosciute
+      // Escludo righe "extra gas" se riconosciute (usa helper globale window.isGasNote)
       try{
-        if ((row.faseIdx == null || row.faseIdx === '') && typeof isGasNote === 'function'){
-          if (isGasNote(row.note)) return;
+        if ((row.faseIdx == null || row.faseIdx === '') &&
+            typeof window !== 'undefined' &&
+            typeof window.isGasNote === 'function' &&
+            window.isGasNote(row.note)) {
+          return;
         }
       }catch(_){}
 
@@ -7905,16 +8017,28 @@ function producedPiecesFromOreRows(c, oreRows){
 
       let rep = '';
       try{
-        if (typeof faseLabelFromRow === 'function'){
-          rep = faseLabelFromRow(row);
-        } else if (typeof window !== 'undefined' && typeof window.faseLabelFromRow === 'function'){
+        if (typeof window !== 'undefined' && typeof window.faseLabelFromRow === 'function'){
           rep = window.faseLabelFromRow(row);
         }
       }catch(_){}
       rep = String(rep || '').trim() || '[Senza fase]';
 
+      if (rep === '[Senza fase]') {
+        senzaFaseCount++;
+        if (esempiSenzaFase.length < 5) {
+          esempiSenzaFase.push({
+            id         : row.id,
+            data       : row.data,
+            commessaId : row.commessaId,
+            operatore  : row.operatore || '',
+            note       : row.note || ''
+          });
+        }
+      }
+
       totMinByRep[rep] = (totMinByRep[rep] || 0) + mins;
     });
+
 
     const reps = new Set([
       ...Object.keys(capMinByRep),
@@ -7937,6 +8061,13 @@ function producedPiecesFromOreRows(c, oreRows){
         if (pb !== pa) return pb - pa;
         return (b.minuti - a.minuti);
       });
+
+          if (typeof console !== 'undefined' && senzaFaseCount > 0) {
+      try{
+        console.warn('[Dashboard/Saturazione] Ore senza fase (ultimi 7 giorni):',
+          senzaFaseCount, 'righe. Esempi:', esempiSenzaFase);
+      }catch(_){}
+    }
 
     return { rows, periodStart, periodEnd, capMinByRep };
   })();
