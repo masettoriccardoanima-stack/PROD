@@ -365,7 +365,7 @@ input, select, textarea{ padding: 8px 10px; }
 /* ====== LAYOUT GUARDRAILS ====== */
 :root{
   --sidebar-w: 200px;        /* larghezza sidebar */
-  --sessionbar-safe: 148px;  /* spazio per il box admin/logout in alto a dx */
+  --sessionbar-safe: 0px;    /* spazio orizzontale riservato alla sessionbar (ridotto, la bar è flottante) */
 }
 
 /* sidebar sempre visibile, niente overlay sulla tabella */
