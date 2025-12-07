@@ -8058,50 +8058,59 @@ function producedPiecesFromOreRows(c, oreRows){
     return `${op} – ${label}`;
   }
 
-    function descrForCommessaDashboard(c) {
+  function descrForCommessaDashboard(c) {
     try{
       const comm = c || {};
 
-      // Se esiste l'helper globale, lo uso per restare allineato alla vista Commesse
-      if (typeof window.previewDescrAndRef === 'function') {
-        const p   = window.previewDescrAndRef(comm);
-        const base = String(p.descr || comm.descrizione || '').trim();
-        const rif  = (p.rifCol && p.rifCol !== '-') ? String(p.rifCol).trim() : '';
-
-        if (base && rif) return `${base} — ${rif}`;
-        if (base)        return base;
-        if (rif)         return rif;
-        return '-';
+      // 1) Numero ordine (usa lo stesso helper che usi nel resto dell’app)
+      let ref = '';
+      try{
+        if (typeof window.orderRefFor === 'function') {
+          ref = window.orderRefFor(comm) || '';
+        } else {
+          const r = comm.ordineCliente
+            || comm.nrOrdineCliente
+            || comm.ddtCliente
+            || comm.ordine
+            || comm.ordineId
+            || comm.rifCliente
+            || '';
+          ref = (window.refClienteToText ? window.refClienteToText(r) : String(r||'')).trim();
+        }
+      }catch{
+        ref = '';
       }
 
-      // Fallback robusto se per qualche motivo previewDescrAndRef non c'è
-      const righe = Array.isArray(comm.righeArticolo) ? comm.righeArticolo
-                   : (Array.isArray(comm.righe) ? comm.righe : []);
-      const multi = Array.isArray(righe) && righe.length > 1;
-
-      if (multi) {
-        const ref = comm.ordineCliente || comm.nrOrdineCliente || comm.rifCliente ||
-                    comm.ddtCliente   || comm.ordine        || comm.ordineId     || '';
-        const txt  = (window.refClienteToText ? window.refClienteToText(ref) : String(ref||'')).trim();
-        const base = String(comm.descrizione || '').trim();
-
-        if (base && txt) return `${base} — ${txt}`;
-        if (base)        return base;
-        if (txt)         return txt;
-        return '-';
-      } else {
-        const r0   = (Array.isArray(righe) && righe[0]) ? righe[0] : null;
-        const code = comm.articoloCodice ||
-                     (r0 && (r0.articoloCodice || r0.codice || r0.code)) || '';
-        const base = String(comm.descrizione || '').trim();
-
-        if (base && code) return `${base} — ${code}`;
-        if (base)         return base;
-        if (code)         return code;
-        return '-';
+      // 2) Data ordine (ISO → data italiana)
+      let dataTxt = '';
+      try{
+        const rawDate = comm.dataOrdine || '';
+        if (rawDate) {
+          const s = String(rawDate).trim();
+          if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+            // es. "2025-10-14" → "14/10/2025"
+            const dt = new Date(s + 'T00:00:00');
+            if (!isNaN(dt.getTime())) {
+              dataTxt = dt.toLocaleDateString('it-IT');
+            } else {
+              dataTxt = s;
+            }
+          } else {
+            // se fosse già in formato italiano, lo mostro così com’è
+            dataTxt = s;
+          }
+        }
+      }catch{
+        dataTxt = '';
       }
+
+      // 3) Composizione finale "ordine — data"
+      if (ref && dataTxt) return `${ref} — ${dataTxt}`;
+      if (ref)            return ref;
+      if (dataTxt)        return dataTxt;
+      return '-';
     } catch {
-      return (c && c.descrizione) ? c.descrizione : '-';
+      return '-';
     }
   }
 
