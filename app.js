@@ -8191,24 +8191,7 @@ function producedPiecesFromOreRows(c, oreRows){
   return e('div', {className:'grid dashboard-grid', style:{gap:16}},
     e('div', {className:'muted dashboard-intro'}, 'Vista PC: avanzamento commesse e scorciatoie utili.'),
 
-    // Widget 1: Commesse pronte
-    e('div', {className:'card'},
-      e('h3', null, 'Commesse pronte (residuo = 0)'),
-      pronte.length === 0
-        ? e('div', {className:'muted'}, 'Nessuna commessa pronta.')
-        : e('table', {className:'table'},
-            e('thead', null, e('tr', null,
-              e('th', null, 'ID'),
-              e('th', null, 'Cliente'),
-              e('th', null, 'Descrizione'),
-              e('th', {className:'right'}, 'Pezzi'),
-              e('th', {className:'right'}, 'Completamento')
-            )),
-            e('tbody', null, pronte.map((x,i)=> e(RowPronta, {key:i, x})))
-          )
-    ),
-
-    // Widget 2: Radar urgenze (scadenze a breve)
+    // Widget 1: Radar urgenze (scadenze a breve)
     e('div', {className:'card'},
       e('h3', null, 'Radar urgenze (scadenze a breve)'),
       radar.length === 0
@@ -8224,6 +8207,23 @@ function producedPiecesFromOreRows(c, oreRows){
               e('th', null, 'Stato')
             )),
             e('tbody', null, radar.map((x,i)=> e(RowRadar, {key:i, x})))
+          )
+    ),
+
+    // Widget 2: Commesse pronte
+    e('div', {className:'card'},
+      e('h3', null, 'Commesse pronte (residuo = 0)'),
+      pronte.length === 0
+        ? e('div', {className:'muted'}, 'Nessuna commessa pronta.')
+        : e('table', {className:'table'},
+            e('thead', null, e('tr', null,
+              e('th', null, 'ID'),
+              e('th', null, 'Cliente'),
+              e('th', null, 'Descrizione'),
+              e('th', {className:'right'}, 'Pezzi'),
+              e('th', {className:'right'}, 'Completamento')
+            )),
+            e('tbody', null, pronte.map((x,i)=> e(RowPronta, {key:i, x})))
           )
     ),
 
@@ -8261,7 +8261,7 @@ function producedPiecesFromOreRows(c, oreRows){
           )
     ),
 
-    // Widget 4: Saturazione reparti (ultimi 7 giorni, ore effettive)
+    // Widget 5: Saturazione reparti (ultimi 7 giorni, ore effettive)
     e('div', { className:'card' },
       e('h3', null, 'Saturazione reparti (ultimi 7 giorni)'),
       e('p', { className:'muted', style:{ fontSize:11, marginTop:4 } },
@@ -8285,15 +8285,13 @@ function producedPiecesFromOreRows(c, oreRows){
                 let cellStyle = { textAlign:'right', whiteSpace:'nowrap' };
 
                 if (typeof perc === 'number') {
-                  // Stessa logica colori della vista Saturazione:
-                  // <70% verde, 70–100% giallo, >100% rosso
                   if (perc > 100){
-                    cellStyle.background = '#fee2e2';   // rosso chiaro
+                    cellStyle.background = '#fee2e2';
                     cellStyle.fontWeight = 600;
                   } else if (perc >= 70){
-                    cellStyle.background = '#fef9c3';   // giallino
+                    cellStyle.background = '#fef9c3';
                   } else {
-                    cellStyle.background = '#dcfce7';   // verdino
+                    cellStyle.background = '#dcfce7';
                   }
                 }
 
@@ -8313,8 +8311,6 @@ function producedPiecesFromOreRows(c, oreRows){
   );
 }
 window.DashboardView = DashboardView;
-
-
 
 /* ================== ANAGRAFICA CLIENTI (con SDI/PEC/pagamento/IBAN/plafond) ================== */
 function ClientiView(){
