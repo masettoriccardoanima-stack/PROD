@@ -13590,7 +13590,7 @@ const counters0 = lsGet('counters', {}) || {};
   const autosync = !!(window.__cloudSync__ && window.__cloudSync__.enabled);
 
   // UI
-  return e('div', {className:'grid settings-grid', style:{gap:16}},
+  return e('div', {className:'page', style:{display:'grid', gap:16}},
     
     // Dati azienda
     e('div', {className:'card'},
