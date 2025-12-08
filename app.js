@@ -9792,8 +9792,17 @@ function CommesseView({ query = '' }) {
   const lsGet = window.lsGet || ((k, d) => { try { return JSON.parse(localStorage.getItem(k) || 'null') ?? d; } catch { return d; } });
   const lsSet = window.lsSet || ((k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); window.__anima_dirty = true; } catch {} });
 
+
   // --- chiudi i menu "…" cliccando fuori ---
   const [menuRow, setMenuRow] = React.useState(null);
+    // BLOCCO NUOVO — Stato form allegato commessa
+  const [allegatoCommessaForm, setAllegatoCommessaForm] = React.useState({
+    tipo: 'ALTRO',
+    descrizione: '',
+    path: '',
+    url: ''
+  });
+
   React.useEffect(() => {
     const onDocClick = (ev) => { if (!ev.target.closest('.dropdown')) setMenuRow(null); };
     document.addEventListener('click', onDocClick);
@@ -11622,6 +11631,226 @@ e('div', {className:'subcard', style:{gridColumn:'1 / -1'}},
   ),
   e('div', {className:'actions'}, e('button', {className:'btn', onClick:addRiga}, '➕ Aggiungi riga'))
 ),
+
+// BLOCCO NUOVO — Allegati commessa
+(function(){
+  const entityId = form && form.id ? String(form.id) : '';
+  const all = lsGet('allegatiRows', []) || [];
+  const rows = entityId
+    ? (Array.isArray(all) ? all : []).filter(a =>
+        a && !a.deletedAt &&
+        String(a.entityType || '').toUpperCase() === 'COMMESSA' &&
+        String(a.entityId || '') === entityId
+      )
+    : [];
+
+  function nextAllegatoId(existing){
+    const now  = new Date();
+    const year = now.getFullYear();
+    let maxSeq = 0;
+    (existing || []).forEach(r => {
+      const id = r && r.id ? String(r.id) : '';
+      const m = /^ALG-(\d{4})-(\d+)$/.exec(id);
+      if (m && Number(m[1]) === year) {
+        const n = parseInt(m[2], 10);
+        if (!isNaN(n) && n > maxSeq) maxSeq = n;
+      }
+    });
+    const next = String(maxSeq + 1).padStart(4, '0');
+    return `ALG-${year}-${next}`;
+  }
+
+  const onChangeField = (field, value) => {
+    if (typeof setAllegatoCommessaForm !== 'function') return;
+    setAllegatoCommessaForm(prev => ({
+      ...(prev || { tipo:'ALTRO', descrizione:'', path:'', url:'' }),
+      [field]: value
+    }));
+  };
+
+  const onAdd = () => {
+    const f = allegatoCommessaForm || {};
+    const tipo  = (f.tipo || 'ALTRO').trim() || 'ALTRO';
+    const descr = (f.descrizione || '').trim();
+    const path  = (f.path || '').trim();
+    const url   = (f.url  || '').trim();
+
+    if (!entityId) {
+      alert('Salva la commessa prima di aggiungere allegati.');
+      return;
+    }
+    if (!path && !url) {
+      alert('Inserisci almeno il percorso o l\'URL.');
+      return;
+    }
+
+    let allRows = [];
+    try { allRows = lsGet('allegatiRows', []) || []; } catch(e) { allRows = []; }
+    if (!Array.isArray(allRows)) allRows = [];
+
+    const id = nextAllegatoId(allRows);
+    const nowIso = new Date().toISOString();
+
+    const newRow = {
+      id,
+      createdAt: nowIso,
+      tipo,
+      descrizione: descr || `Allegato commessa ${entityId}`,
+      path,
+      url,
+      entityType: 'COMMESSA',
+      entityId,
+      note: '',
+      deletedAt: null
+    };
+
+    const updated = allRows.concat([newRow]);
+    lsSet('allegatiRows', updated);
+
+    // forza un re-render “innocuo”
+    if (typeof setForm === 'function') {
+      setForm(prev => ({ ...(prev || {}) }));
+    }
+
+    if (typeof setAllegatoCommessaForm === 'function') {
+      setAllegatoCommessaForm({
+        tipo: 'ALTRO',
+        descrizione: '',
+        path: '',
+        url: ''
+      });
+    }
+  };
+
+  const onDelete = (row) => {
+    if (!row || !row.id) return;
+    if (!window.confirm('Eliminare questo allegato?')) return;
+
+    let allRows = [];
+    try { allRows = lsGet('allegatiRows', []) || []; } catch(e) { allRows = []; }
+    if (!Array.isArray(allRows)) allRows = [];
+
+    const nowIso = new Date().toISOString();
+    const updated = allRows.map(r =>
+      r && r.id === row.id
+        ? { ...r, deletedAt: r.deletedAt || nowIso }
+        : r
+    );
+    lsSet('allegatiRows', updated);
+
+    if (typeof setForm === 'function') {
+      setForm(prev => ({ ...(prev || {}) }));
+    }
+  };
+
+  const onCopyPath = (row) => {
+    const p = (row && row.path) ? String(row.path) : '';
+    if (!p) return;
+    if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(p).catch(() => {
+        window.prompt('Copia il percorso:', p);
+      });
+    } else {
+      window.prompt('Copia il percorso:', p);
+    }
+  };
+
+  const onOpenUrl = (row) => {
+    const u = (row && row.url) ? String(row.url) : '';
+    if (!u) return;
+    if (/^https?:\/\//i.test(u)) window.open(u, '_blank');
+  };
+
+  const f = allegatoCommessaForm || { tipo:'ALTRO', descrizione:'', path:'', url:'' };
+
+  return e('div', {className:'subcard', style:{gridColumn:'1 / -1'}},
+    e('h4', null, 'Allegati commessa'),
+    !entityId
+      ? e('p', {className:'muted'}, 'Salva la commessa per poter aggiungere allegati.')
+      : e(React.Fragment, null,
+          rows.length
+            ? e('table', {className:'table table-sm'},
+                e('thead', null,
+                  e('tr', null,
+                    e('th', null, 'Tipo'),
+                    e('th', null, 'Descrizione'),
+                    e('th', null, 'Percorso'),
+                    e('th', null, 'Azioni')
+                  )
+                ),
+                e('tbody', null,
+                  rows.map(r => e('tr', {key:r.id || r.path || r.url || Math.random()},
+                    e('td', null, r.tipo || ''),
+                    e('td', null, r.descrizione || ''),
+                    e('td', null, r.path || ''),
+                    e('td', null,
+                      e('div', {className:'row', style:{gap:4}},
+                        r.url && /^https?:\/\//i.test(r.url||'')
+                          ? e('button', {className:'btn btn-xs', onClick:()=>onOpenUrl(r)}, 'Apri')
+                          : null,
+                        r.path
+                          ? e('button', {className:'btn btn-xs', onClick:()=>onCopyPath(r)}, 'Copia percorso')
+                          : null,
+                        !readOnly
+                          ? e('button', {
+                              className:'btn btn-xs btn-outline',
+                              onClick:()=>onDelete(r)
+                            }, '🗑')
+                          : null
+                      )
+                    )
+                  ))
+                )
+              )
+            : e('p', {className:'muted'}, 'Nessun allegato per questa commessa.'),
+          e('div', {className:'form-grid', style:{marginTop:8}},
+            e('div', null,
+              e('label', null, 'Tipo'),
+              e('select', {
+                value:f.tipo || 'ALTRO',
+                onChange:ev=>onChangeField('tipo', ev.target.value),
+                disabled: readOnly
+              },
+                ['FOTO_CARICO','COLLAUDO','NC_FORN','DISEGNO','ALTRO'].map(opt =>
+                  e('option', {key:opt, value:opt}, opt)
+                )
+              )
+            ),
+            e('div', null,
+              e('label', null, 'Descrizione'),
+              e('input', {
+                value:f.descrizione || '',
+                onChange:ev=>onChangeField('descrizione', ev.target.value),
+                disabled: readOnly
+              })
+            ),
+            e('div', null,
+              e('label', null, 'Percorso (path)'),
+              e('input', {
+                value:f.path || '',
+                onChange:ev=>onChangeField('path', ev.target.value),
+                disabled: readOnly
+              })
+            ),
+            e('div', null,
+              e('label', null, 'URL (opzionale)'),
+              e('input', {
+                value:f.url || '',
+                onChange:ev=>onChangeField('url', ev.target.value),
+                disabled: readOnly
+              })
+            )
+          ),
+          e('div', {className:'actions'},
+            e('button', {
+              className:'btn',
+              onClick:onAdd,
+              disabled: readOnly
+            }, '➕ Aggiungi allegato')
+          )
+        )
+  );
+})(),
 
         // Editor fasi per-riga (quando selezionata una riga)
         rowFasiEditIdx != null && (function(){
