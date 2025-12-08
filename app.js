@@ -24776,6 +24776,22 @@ function MagazzinoView(props){
       return s.includes(q.toLowerCase());
     });
 
+  // Mappa conteggio allegati per articolo (entityType='ARTICOLO', !deletedAt)
+  let allegatiCountByCodice = {};
+  try {
+    const all = (typeof lsGet === 'function') ? (lsGet('allegatiRows', []) || []) : [];
+    (Array.isArray(all) ? all : []).forEach(r => {
+      if (!r || r.deletedAt) return;
+      const et = String(r.entityType || '').toUpperCase();
+      if (et !== 'ARTICOLO') return;
+      const k = String(r.entityId || '').toLowerCase().trim();
+      if (!k) return;
+      allegatiCountByCodice[k] = (allegatiCountByCodice[k] || 0) + 1;
+    });
+  } catch {
+    allegatiCountByCodice = {};
+  }
+
   const articoliUI = e('div', null,
   e('div', {className:'actions', style:{justifyContent:'space-between', gap:8, alignItems:'center'}},
     e('div', {style:{display:'flex', alignItems:'center', gap:8}},
@@ -25144,7 +25160,12 @@ function MagazzinoView(props){
         )),
         e('tbody', null, filtered.map((a,ix)=> e('tr', {key:ix},
           e('td', null, a.codice),
-          e('td', null, a.descrizione),
+          e('td', null,
+            a.descrizione,
+            (allegatiCountByCodice && allegatiCountByCodice[String(a.codice||'').toLowerCase()])
+              ? ` (allegati: ${allegatiCountByCodice[String(a.codice||'').toLowerCase()]})`
+              : ''
+          ),
           e('td', null, a.um||''),
           e('td', {style:{textAlign:'right'}}, (a.prezzo!=null? Number(a.prezzo).toFixed(2):'')),
           e('td', {style:{textAlign:'right'}}, (a.costo!=null? Number(a.costo).toFixed(2):'')),
