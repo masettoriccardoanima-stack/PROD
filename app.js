@@ -16567,9 +16567,13 @@ if (!window.renderSchedaCollaudoG3HTML) {
     }
     .timbro-box {
       border: 1px solid #000;
-      height: 25mm;
+      height: 27mm;               /* un filo più alta per non “tagliare” il timbro */
       margin-top: 2mm;
       margin-bottom: 6mm;
+      display: flex;               /* centra il contenuto */
+      align-items: center;         /* verticale */
+      justify-content: center;     /* orizzontale */
+      padding: 2mm 4mm;            /* margini interni per non far toccare i bordi */
     }
     .timbro-firma-img {
       max-width: 100%;
