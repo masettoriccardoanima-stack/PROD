@@ -24911,11 +24911,36 @@ function MagazzinoView(props){
         return `ALG-${year}-${next}`;
       }
 
+            function suggestDisegnoPath(entityId){
+        if (!entityId) return '';
+        const safeCode = String(entityId).trim();
+        if (!safeCode) return '';
+        // Convenzione base:
+        // \\ANIMA-SERVER\ANIMA_DOC\DISEGNI\ARTICOLI\<CODICE>\<CODICE>.pdf
+        return `\\\\ANIMA-SERVER\\ANIMA_DOC\\DISEGNI\\ARTICOLI\\${safeCode}\\${safeCode}.pdf`;
+      }
+
       const onChangeField = (field, value) => {
-        setAllegatoArtForm(prev => ({
-          ...(prev || { tipo:'DISEGNO', descrizione:'', path:'', url:'' }),
-          [field]: value
-        }));
+        setAllegatoArtForm(prev => {
+          const base = prev || { tipo:'DISEGNO', descrizione:'', path:'', url:'' };
+          let next = { ...base, [field]: value };
+
+          // Se passo a DISEGNO, ho un codice articolo e il path è ancora vuoto,
+          // propongo automaticamente un percorso NAS standard.
+          if (
+            field === 'tipo' &&
+            value === 'DISEGNO' &&
+            entityId &&
+            !(base.path && String(base.path).trim())
+          ) {
+            const suggested = suggestDisegnoPath(entityId);
+            if (suggested) {
+              next.path = suggested;
+            }
+          }
+
+          return next;
+        });
       };
 
       const onAdd = () => {
