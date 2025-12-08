@@ -14559,6 +14559,76 @@ React.useEffect(() => {
     return id || '';
   }, [form, editingId]);
 
+    // Anno DDT per costruire i path NAS (da data o da id tipo DDT-2025-0001)
+  function getDDTYear(){
+    // 1) Prova da data DDT (form.data)
+    try {
+      const dStr = form && form.data ? String(form.data) : '';
+      if (dStr && /^\d{4}/.test(dStr)) {
+        const y = parseInt(dStr.slice(0, 4), 10);
+        if (!isNaN(y) && y > 2000 && y < 2100) return y;
+      }
+    } catch {}
+    // 2) Prova da id DDT: DDT-YYYY-NNNN
+    try {
+      if (currentDDTId) {
+        const parts = String(currentDDTId).split('-');
+        if (parts.length >= 3) {
+          const y2 = parseInt(parts[1], 10);
+          if (!isNaN(y2) && y2 > 2000 && y2 < 2100) return y2;
+        }
+      }
+    } catch {}
+    // Fallback: anno corrente
+    return new Date().getFullYear();
+  }
+
+  // Gestione centralizzata delle modifiche al form nuovo allegato DDT
+  function handleChangeNewAllegato(field, value){
+    setNewAllegato(prev => {
+      const base = prev || { tipo:'FOTO_CARICO', descrizione:'', path:'', url:'' };
+      let next = { ...base, [field]: value };
+
+      // Auto-suggerimenti solo quando cambia il tipo
+      if (field === 'tipo') {
+        const tipo    = value;
+        const hasPath = !!(base.path && String(base.path).trim());
+        const hasDesc = !!(base.descrizione && String(base.descrizione).trim());
+        const id      = currentDDTId;
+        const year    = getDDTYear();
+
+        if (id) {
+          // Path suggerito
+          if (!hasPath) {
+            if (tipo === 'FOTO_CARICO') {
+              // \\ANIMA-SERVER\ANIMA_DOC\FOTO_CARICO\<YYYY>\DDT-YYYY-NNNN\img001.jpg
+              next.path = `\\\\ANIMA-SERVER\\ANIMA_DOC\\FOTO_CARICO\\${year}\\${id}\\img001.jpg`;
+            } else if (tipo === 'COLLAUDO') {
+              // \\ANIMA-SERVER\ANIMA_DOC\COLLAUDI\<YYYY>\DDT-YYYY-NNNN-G3-collaudo.pdf
+              next.path = `\\\\ANIMA-SERVER\\ANIMA_DOC\\COLLAUDI\\${year}\\${id}-G3-collaudo.pdf`;
+            } else if (tipo === 'NC_FORN') {
+              // \\ANIMA-SERVER\ANIMA_DOC\NC_FORN\<YYYY>\DDT-YYYY-NNNN-NC.pdf
+              next.path = `\\\\ANIMA-SERVER\\ANIMA_DOC\\NC_FORN\\${year}\\${id}-NC.pdf`;
+            }
+          }
+
+          // Descrizione suggerita se vuota
+          if (!hasDesc) {
+            if (tipo === 'FOTO_CARICO') {
+              next.descrizione = `Foto carico DDT ${id}`;
+            } else if (tipo === 'COLLAUDO') {
+              next.descrizione = `Collaudo DDT ${id}`;
+            } else if (tipo === 'NC_FORN') {
+              next.descrizione = `NC fornitore DDT ${id}`;
+            }
+          }
+        }
+      }
+
+      return next;
+    });
+  }
+
   const allegatiDDT = React.useMemo(() => {
     if (!currentDDTId) return [];
     const arr = Array.isArray(allegatiRows) ? allegatiRows : [];
@@ -15766,7 +15836,7 @@ showForm && e('form', { className:'card', onSubmit:save, style:{marginTop:8,padd
             e('label', null, 'Tipo'),
             e('select', {
               value: newAllegato.tipo,
-              onChange: ev => setNewAllegato(p => ({ ...p, tipo: ev.target.value }))
+              onChange: ev => handleChangeNewAllegato('tipo', ev.target.value)
             },
               ['FOTO_CARICO','COLLAUDO','NC_FORN','DISEGNO','ALTRO'].map(t =>
                 e('option', { key:t, value:t }, t)
@@ -15777,21 +15847,21 @@ showForm && e('form', { className:'card', onSubmit:save, style:{marginTop:8,padd
             e('label', null, 'Descrizione'),
             e('input', {
               value: newAllegato.descrizione || '',
-              onChange: ev => setNewAllegato(p => ({ ...p, descrizione: ev.target.value }))
+              onChange: ev => handleChangeNewAllegato('descrizione', ev.target.value)
             })
           ),
           e('div', null,
             e('label', null, 'Path (percorso file)'),
             e('input', {
               value: newAllegato.path || '',
-              onChange: ev => setNewAllegato(p => ({ ...p, path: ev.target.value }))
+              onChange: ev => handleChangeNewAllegato('path', ev.target.value)
             })
           ),
           e('div', null,
             e('label', null, 'URL (opzionale, http/https)'),
             e('input', {
               value: newAllegato.url || '',
-              onChange: ev => setNewAllegato(p => ({ ...p, url: ev.target.value }))
+              onChange: ev => handleChangeNewAllegato('url', ev.target.value)
             })
           )
         ),
@@ -24927,13 +24997,23 @@ function MagazzinoView(props){
         return `ALG-${year}-${next}`;
       }
 
-            function suggestDisegnoPath(entityId){
+      function suggestDisegnoPath(entityId){
         if (!entityId) return '';
         const safeCode = String(entityId).trim();
         if (!safeCode) return '';
         // Convenzione base:
         // \\ANIMA-SERVER\ANIMA_DOC\DISEGNI\ARTICOLI\<CODICE>\<CODICE>.pdf
         return `\\\\ANIMA-SERVER\\ANIMA_DOC\\DISEGNI\\ARTICOLI\\${safeCode}\\${safeCode}.pdf`;
+      }
+
+      function suggestNCFornPath(entityId){
+        if (!entityId) return '';
+        const safeCode = String(entityId).trim();
+        if (!safeCode) return '';
+        const year = new Date().getFullYear();
+        // Convenzione base NC fornitore per articolo:
+        // \\ANIMA-SERVER\ANIMA_DOC\NC_FORN\<YYYY>\<CODICE>\<CODICE>-NC.pdf
+        return `\\\\ANIMA-SERVER\\ANIMA_DOC\\NC_FORN\\${year}\\${safeCode}\\${safeCode}-NC.pdf`;
       }
 
       const onChangeField = (field, value) => {
@@ -24955,6 +25035,24 @@ function MagazzinoView(props){
             }
           }
 
+                    // Se passo a NC_FORN, e non ho ancora path/descrizione,
+          // propongo un template per NC fornitore articolo.
+          if (
+            field === 'tipo' &&
+            value === 'NC_FORN' &&
+            entityId
+          ) 
+          {
+            if (!(base.path && String(base.path).trim())) {
+              const ncPath = suggestNCFornPath(entityId);
+              if (ncPath) {
+                next.path = ncPath;
+              }
+            }
+            if (!(base.descrizione && String(base.descrizione).trim())) {
+              next.descrizione = `NC fornitore articolo ${entityId}`;
+            }
+          }
           return next;
         });
       };
@@ -25159,7 +25257,11 @@ function MagazzinoView(props){
           e('th', {style:{textAlign:'right'}}, 'Azioni')
         )),
         e('tbody', null, filtered.map((a,ix)=> e('tr', {key:ix},
-          e('td', null, a.codice),
+          e('td', null,
+            (allegatiCountByCodice && allegatiCountByCodice[String(a.codice||'').toLowerCase()])
+              ? `📎 ${a.codice}`
+              : a.codice
+          ),
           e('td', null,
             a.descrizione,
             (allegatiCountByCodice && allegatiCountByCodice[String(a.codice||'').toLowerCase()])
