@@ -14878,9 +14878,11 @@ React.useEffect(() => {
     const all = (typeof lsGet === 'function') ? (lsGet('allegatiRows', []) || []) : [];
     (Array.isArray(all) ? all : []).forEach(r => {
       if (!r || r.deletedAt) return;
-      const et = String(r.entityType || '').toUpperCase();
+      // Considero default 'DDT' anche se entityType è vuoto (legacy)
+      const et = String(r.entityType || 'DDT').toUpperCase();
       if (et !== 'DDT') return;
-      const k = String(r.entityId || '').trim();
+      // Uso sempre chiave normalizzata: entityId o id, trim + lowercase
+      const k = String(r.entityId || r.id || '').trim().toLowerCase();
       if (!k) return;
       allegatiCountByDDTId[k] = (allegatiCountByDDTId[k] || 0) + 1;
     });
@@ -15435,15 +15437,17 @@ const filteredDDT = (Array.isArray(rowsDDT) ? rowsDDT : [])
                     })
                   ),
                   e('td', null,
-                    (allegatiCountByDDTId && allegatiCountByDDTId[r.id])
+                    (allegatiCountByDDTId &&
+                     allegatiCountByDDTId[String(r.id || '').trim().toLowerCase()])
                       ? `📎 ${r.id}`
                       : r.id
                   ),
                   e('td', null, r.data || ''),
                   e('td', null,
                     r.note || '',
-                    (allegatiCountByDDTId && allegatiCountByDDTId[r.id])
-                      ? ` (allegati: ${allegatiCountByDDTId[r.id]})`
+                    (allegatiCountByDDTId &&
+                     allegatiCountByDDTId[String(r.id || '').trim().toLowerCase()])
+                      ? ` (allegati: ${allegatiCountByDDTId[String(r.id || '').trim().toLowerCase()]})`
                       : ''
                   ),
                   e('td', { className:'ctr' }, String((r.righe||[]).length))
