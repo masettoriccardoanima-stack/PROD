@@ -16262,18 +16262,25 @@ if (!window.renderSchedaCollaudoG3HTML) {
 
     const cliName   = esc(ddt && (ddt.cliente || ddt.clienteRagione || 'G3 srl'));
 
-    // Logo G3: /icons/g3-logo.png sullo stesso dominio (se non sei su file://)
-    let logoG3Url = '';
-    try {
-      const origin = (window.location && window.location.origin) || '';
-      if (origin && origin !== 'null') {
-        logoG3Url = origin.replace(/\/$/, '') + '/icons/g3-logo.png';
-      }
-    } catch(e) {}
+  // Logo G3: cerca g3-logo.png nella cartella "icons" accanto all'index
+  // (funziona sia in BETA, che in PROD, che in file://)
+  let logoG3Url = '';
+  try {
+    const loc = window.location || {};
+    const hrefNoHash = String(loc.href || '').split('#')[0]; // tolgo l'hash
+    if (hrefNoHash) {
+      // rimuovo "index.html" se presente in fondo
+      let base = hrefNoHash.replace(/index\.html$/i, '');
+      // tolgo eventuale slash finale
+      base = base.replace(/\/$/, '');
+      // icona nella sottocartella "icons"
+      logoG3Url = base + '/icons/g3-logo.png';
+    }
+  } catch (e) {}
 
-    const logoSegment = logoG3Url
-      ? `<img src="${logoG3Url}" class="logo-g3-img" />`
-      : `<div class="g3-main">G3 srl</div>`;
+  const logoSegment = logoG3Url
+    ? `<img src="${logoG3Url}" class="logo-g3-img" alt="G3 logo" />`
+    : `<div class="g3-main">G3</div>`;
 
     // Testi normativi (come nella scheda Word, con “...” dove presenti)
     const norm1 = 'Con la presente dichiariamo che il prodotto è stato fabbricato ...to può essere emesso nel mercato secondo le seguenti normative:';
