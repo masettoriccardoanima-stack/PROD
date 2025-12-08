@@ -16301,6 +16301,22 @@ if (!window.renderSchedaCollaudoG3HTML) {
     ? `<img src="${logoG3Url}" class="logo-g3-img" alt="G3 logo" />`
     : `<div class="g3-main">G3</div>`;
 
+        // Timbro + firma ANIMA opzionale (immagine statica)
+    let timbroFirmaUrl = '';
+    try {
+      const loc2 = window.location || {};
+      const hrefNoHash2 = String(loc2.href || '').split('#')[0];
+      if (hrefNoHash2) {
+        let base2 = hrefNoHash2.replace(/index\.html$/i, '');
+        base2 = base2.replace(/\/$/, '');
+        timbroFirmaUrl = base2 + '/icons/anima-timbro-firma.png';
+      }
+    } catch(e) {}
+
+    const timbroFirmaSegment = timbroFirmaUrl
+      ? `<img src="${timbroFirmaUrl}" class="timbro-firma-img" alt="Timbro e firma" />`
+      : '&nbsp;';
+
     // Testi normativi (come nella scheda Word, con “...” dove presenti)
     const norm1 = 'Con la presente dichiariamo che il prodotto è stato fabbricato ...to può essere emesso nel mercato secondo le seguenti normative:';
     const norm2 = '• PED (Direttiva Attrezzature a pressione 2014/68/UE) - Articolo 4 Paragrafo 3 Il prodotto non deve recare la marcatura CE';
@@ -16403,7 +16419,9 @@ if (!window.renderSchedaCollaudoG3HTML) {
   <div class="timbro-label">
     Timbro e Firma del legale rappresentate o responsabile incaricato
   </div>
-  <div class="timbro-box"></div>
+  <div class="timbro-box">
+    ${timbroFirmaSegment}
+  </div>
 
   <div class="page-footer">
     SCHEDA COLLAUDO FORNITORE&nbsp;&nbsp;&nbsp;MOD_0003 R00 24/03/2023&nbsp;&nbsp;&nbsp;PAG ${page1Num} | ${totalPages}
@@ -16552,6 +16570,12 @@ if (!window.renderSchedaCollaudoG3HTML) {
       height: 25mm;
       margin-top: 2mm;
       margin-bottom: 6mm;
+    }
+    .timbro-firma-img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      display: block;
     }
     .page-footer {
       position: absolute;
