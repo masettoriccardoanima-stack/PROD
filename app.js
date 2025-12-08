@@ -14468,16 +14468,48 @@ React.useEffect(() => {
   }, [clienti, form && form.clienteId]);
 
   const isG3DDT = React.useMemo(() => {
-    // uso sia il campo form.cliente che l'eventuale cliente trovato in anagrafica
-    const nome =
-      (form && form.cliente) ||
-      (currentCliente && (currentCliente.ragioneSociale || currentCliente.nome || currentCliente.denominazione)) ||
-      '';
+    const names = [];
 
-    const s = String(nome || '').trim().toLowerCase();
-    // match robusto: "g3 srl", "g3 s.r.l.", ecc.
-    return /g3\s*s\.?r\.?l\.?/.test(s) || s === 'g3 srl';
-  }, [form && form.cliente, currentCliente]);
+    // Dati scritti dentro il DDT
+    if (form) {
+      if (form.cliente)         names.push(form.cliente);
+      if (form.clienteRagione)  names.push(form.clienteRagione);
+    }
+
+    // Dati da anagrafica clienti
+    if (currentCliente) {
+      if (currentCliente.ragione)         names.push(currentCliente.ragione);
+      if (currentCliente.ragioneSociale)  names.push(currentCliente.ragioneSociale);
+      if (currentCliente.denominazione)   names.push(currentCliente.denominazione);
+      if (currentCliente.nome)            names.push(currentCliente.nome);
+      if (currentCliente.codiceCliente)   names.push(currentCliente.codiceCliente);
+      if (currentCliente.codice)          names.push(currentCliente.codice);
+    }
+
+    let isG3 = false;
+
+    for (const raw of names) {
+      const sRaw = String(raw || '').trim();
+      if (!sRaw) continue;
+
+      const s = sRaw.toLowerCase();
+      const normalized = s.replace(/[\s\.]+/g, ' ').trim(); // "G3  S.R.L." -> "g3 srl"
+
+      // casi principali: "g3 srl", "g3 s.r.l.", ecc.
+      if (/g3\s*s\.?r\.?l\.?/.test(normalized)) {
+        isG3 = true;
+        break;
+      }
+
+      // fallback ancora più permissivo: contiene "g3" e "srl"
+      if (normalized.includes('g3') && normalized.includes('srl')) {
+        isG3 = true;
+        break;
+      }
+    }
+
+    return isG3;
+  }, [form && (form.cliente || form.clienteRagione), currentCliente]);
 
   function toggleSel(id){
     setSelDDT(m => ({ ...m, [id]: !m[id] }));
