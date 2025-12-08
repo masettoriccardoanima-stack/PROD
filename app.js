@@ -16573,7 +16573,7 @@ if (!window.renderSchedaCollaudoG3HTML) {
       display: flex;               /* centra il contenuto */
       align-items: center;         /* verticale */
       justify-content: center;     /* orizzontale */
-      padding: 2mm 4mm;            /* margini interni per non far toccare i bordi */
+      padding: 1mm 2mm;            /* margini interni per non far toccare i bordi */
     }
     .timbro-firma-img {
       max-width: 100%;
