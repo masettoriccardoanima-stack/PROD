@@ -24837,38 +24837,52 @@ function MagazzinoView(props){
       e('div', {className:'card-title'}, 'Articolo'),
       e('div', {className:'grid grid-2'},
         e('label', null, 'Codice',
-          e('input', {value:editArt.codice, onChange:ev=>setEditArt({...editArt, codice:ev.target.value})})
+          e('input', {
+            value: editArt.codice,
+            onChange: ev => setEditArt({...editArt, codice: ev.target.value})
+          })
         ),
         e('label', null, 'UM',
-          e('input', {value:editArt.um||'PZ', onChange:ev=>setEditArt({...editArt, um:ev.target.value.toUpperCase()})})
+          e('input', {
+            value: editArt.um || 'PZ',
+            onChange: ev => setEditArt({...editArt, um: ev.target.value.toUpperCase()})
+          })
         ),
         e('label', {style:{gridColumn:'1 / span 2'}}, 'Descrizione',
-          e('input', {value:editArt.descrizione||'', onChange:ev=>setEditArt({...editArt, descrizione:ev.target.value})})
+          e('input', {
+            value: editArt.descrizione || '',
+            onChange: ev => setEditArt({...editArt, descrizione: ev.target.value})
+          })
         ),
         e('label', null, 'Prezzo',
-          e('input', {type:'number', step:'0.01', value:editArt.prezzo||0, onChange:ev=>setEditArt({...editArt, prezzo:Number(ev.target.value||0)})})
+          e('input', {
+            type:'number',
+            step:'0.01',
+            value: editArt.prezzo || 0,
+            onChange: ev => setEditArt({...editArt, prezzo: Number(ev.target.value || 0)})
+          })
         ),
         e('label', null, 'Costo',
           e('input', {
-            type:'number', step:'0.01',
-            value:(editArt.costo!=null ? editArt.costo : 0),
-            onChange:ev=>setEditArt({...editArt, costo:Number(ev.target.value||0)})
+            type:'number',
+            step:'0.01',
+            value: (editArt.costo != null ? editArt.costo : 0),
+            onChange: ev => setEditArt({...editArt, costo: Number(ev.target.value || 0)})
           })
         )
-
       ),
       e('div', {className:'actions', style:{justifyContent:'flex-end', gap:8}},
-        e('button', {className:'btn btn-outline', type:'button', onClick:cancelEditArt}, 'Annulla'),
+        e('button', {className:'btn btn-outline', type:'button', onClick: cancelEditArt}, 'Annulla'),
         e('button', {
           className:'btn',
           type:'button',
-          onClick:saveArt,
+          onClick: saveArt,
           ...roBtnProps()
         }, 'Salva')
       )
     ),
 
-        // BLOCCO NUOVO — Allegati articolo
+    // BLOCCO NUOVO — Allegati articolo
     !editArt ? null : (function(){
       const codice = (editArt && editArt.codice) ? String(editArt.codice).trim() : '';
       const entityId = codice;
@@ -24898,7 +24912,6 @@ function MagazzinoView(props){
       }
 
       const onChangeField = (field, value) => {
-        if (typeof setAllegatoArtForm !== 'function') return;
         setAllegatoArtForm(prev => ({
           ...(prev || { tipo:'DISEGNO', descrizione:'', path:'', url:'' }),
           [field]: value
@@ -24906,8 +24919,8 @@ function MagazzinoView(props){
       };
 
       const onAdd = () => {
-        const f = allegatoArtForm || {};
-        const tipo  = (f.tipo || 'DISEGNO').trim() || 'DISEGNO';
+        const f    = allegatoArtForm || {};
+        const tipo = (f.tipo || 'DISEGNO').trim() || 'DISEGNO';
         const descr = (f.descrizione || '').trim();
         const path  = (f.path || '').trim();
         const url   = (f.url  || '').trim();
@@ -24925,10 +24938,10 @@ function MagazzinoView(props){
         try { allRows = lsGet('allegatiRows', []) || []; } catch(e) { allRows = []; }
         if (!Array.isArray(allRows)) allRows = [];
 
-        const id = nextAllegatoId(allRows);
+        const id     = nextAllegatoId(allRows);
         const nowIso = new Date().toISOString();
-
         const baseDescr = descr || `Disegno articolo ${entityId}`;
+
         const newRow = {
           id,
           createdAt: nowIso,
@@ -24945,14 +24958,13 @@ function MagazzinoView(props){
         const updated = allRows.concat([newRow]);
         lsSet('allegatiRows', updated);
 
-        if (typeof setAllegatoArtForm === 'function') {
-          setAllegatoArtForm({
-            tipo: 'DISEGNO',
-            descrizione: '',
-            path: '',
-            url: ''
-          });
-        }
+        // reset form
+        setAllegatoArtForm({
+          tipo:'DISEGNO',
+          descrizione:'',
+          path:'',
+          url:''
+        });
       };
 
       const onDelete = (row) => {
@@ -24972,9 +24984,7 @@ function MagazzinoView(props){
         lsSet('allegatiRows', updated);
 
         // piccolo "tick" per forzare il re-render
-        if (typeof setAllegatoArtForm === 'function') {
-          setAllegatoArtForm(prev => ({ ...(prev || {}) }));
-        }
+        setAllegatoArtForm(prev => ({ ...(prev || {}) }));
       };
 
       const onCopyPath = (row) => {
@@ -25036,8 +25046,8 @@ function MagazzinoView(props){
                       ))
                     )
                   )
-                : e('p', {className:'muted'}, 'Nessun allegato per questo articolo.'),
-              e('div', {className:'form-grid', style:{marginTop:8}},
+                : null,
+              e('div', {className:'grid grid-3', style:{marginTop:8}},
                 e('div', null,
                   e('label', null, 'Tipo'),
                   e('select', {
@@ -25045,9 +25055,9 @@ function MagazzinoView(props){
                     onChange:ev=>onChangeField('tipo', ev.target.value),
                     disabled: readOnly
                   },
-                    ['DISEGNO','NC_FORN','ALTRO'].map(opt =>
-                      e('option', {key:opt, value:opt}, opt)
-                    )
+                    e('option', {value:'DISEGNO'}, 'Disegno'),
+                    e('option', {value:'NC_FORN'}, 'NC fornitore'),
+                    e('option', {value:'ALTRO'}, 'Altro')
                   )
                 ),
                 e('div', null,
