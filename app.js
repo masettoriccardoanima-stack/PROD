@@ -24449,6 +24449,15 @@ function MagazzinoView(props){
   const [editArt, setEditArt]       = React.useState(null); // {codice, descrizione, um, prezzo, costo} | null
   const [schedaArt, setSchedaArt]   = React.useState(null); // articolo o null
   const [newMov, setNewMov]         = React.useState({ data:new Date().toISOString().slice(0,10), codice:'', qta:0, note:'' });
+
+  // BLOCCO NUOVO — form "nuovo allegato articolo"
+  const [allegatoArtForm, setAllegatoArtForm] = React.useState({
+    tipo: 'DISEGNO',
+    descrizione: '',
+    path: '',
+    url: ''
+  });
+
   // --- selezione multipla articoli ---
   const [selected, _setSelected] = React.useState(new Set());
   function isSel(cod){ return selected.has(String(cod||'')); }
@@ -24858,6 +24867,224 @@ function MagazzinoView(props){
         }, 'Salva')
       )
     ),
+
+        // BLOCCO NUOVO — Allegati articolo
+    !editArt ? null : (function(){
+      const codice = (editArt && editArt.codice) ? String(editArt.codice).trim() : '';
+      const entityId = codice;
+      const all = lsGet('allegatiRows', []) || [];
+      const rows = entityId
+        ? (Array.isArray(all) ? all : []).filter(a =>
+            a && !a.deletedAt &&
+            String(a.entityType || '').toUpperCase() === 'ARTICOLO' &&
+            String(a.entityId || '').toUpperCase() === entityId.toUpperCase()
+          )
+        : [];
+
+      function nextAllegatoId(existing){
+        const now  = new Date();
+        const year = now.getFullYear();
+        let maxSeq = 0;
+        (existing || []).forEach(r => {
+          const id = r && r.id ? String(r.id) : '';
+          const m = /^ALG-(\d{4})-(\d+)$/.exec(id);
+          if (m && Number(m[1]) === year) {
+            const n = parseInt(m[2], 10);
+            if (!isNaN(n) && n > maxSeq) maxSeq = n;
+          }
+        });
+        const next = String(maxSeq + 1).padStart(4, '0');
+        return `ALG-${year}-${next}`;
+      }
+
+      const onChangeField = (field, value) => {
+        if (typeof setAllegatoArtForm !== 'function') return;
+        setAllegatoArtForm(prev => ({
+          ...(prev || { tipo:'DISEGNO', descrizione:'', path:'', url:'' }),
+          [field]: value
+        }));
+      };
+
+      const onAdd = () => {
+        const f = allegatoArtForm || {};
+        const tipo  = (f.tipo || 'DISEGNO').trim() || 'DISEGNO';
+        const descr = (f.descrizione || '').trim();
+        const path  = (f.path || '').trim();
+        const url   = (f.url  || '').trim();
+
+        if (!entityId) {
+          alert('Inserisci e salva il codice articolo prima di aggiungere allegati.');
+          return;
+        }
+        if (!path && !url) {
+          alert('Inserisci almeno il percorso o l\'URL.');
+          return;
+        }
+
+        let allRows = [];
+        try { allRows = lsGet('allegatiRows', []) || []; } catch(e) { allRows = []; }
+        if (!Array.isArray(allRows)) allRows = [];
+
+        const id = nextAllegatoId(allRows);
+        const nowIso = new Date().toISOString();
+
+        const baseDescr = descr || `Disegno articolo ${entityId}`;
+        const newRow = {
+          id,
+          createdAt: nowIso,
+          tipo,
+          descrizione: baseDescr,
+          path,
+          url,
+          entityType: 'ARTICOLO',
+          entityId,
+          note: '',
+          deletedAt: null
+        };
+
+        const updated = allRows.concat([newRow]);
+        lsSet('allegatiRows', updated);
+
+        if (typeof setAllegatoArtForm === 'function') {
+          setAllegatoArtForm({
+            tipo: 'DISEGNO',
+            descrizione: '',
+            path: '',
+            url: ''
+          });
+        }
+      };
+
+      const onDelete = (row) => {
+        if (!row || !row.id) return;
+        if (!window.confirm('Eliminare questo allegato articolo?')) return;
+
+        let allRows = [];
+        try { allRows = lsGet('allegatiRows', []) || []; } catch(e) { allRows = []; }
+        if (!Array.isArray(allRows)) allRows = [];
+
+        const nowIso = new Date().toISOString();
+        const updated = allRows.map(r =>
+          r && r.id === row.id
+            ? { ...r, deletedAt: r.deletedAt || nowIso }
+            : r
+        );
+        lsSet('allegatiRows', updated);
+
+        // piccolo "tick" per forzare il re-render
+        if (typeof setAllegatoArtForm === 'function') {
+          setAllegatoArtForm(prev => ({ ...(prev || {}) }));
+        }
+      };
+
+      const onCopyPath = (row) => {
+        const p = (row && row.path) ? String(row.path) : '';
+        if (!p) return;
+        if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(p).catch(() => {
+            window.prompt('Copia il percorso:', p);
+          });
+        } else {
+          window.prompt('Copia il percorso:', p);
+        }
+      };
+
+      const onOpenUrl = (row) => {
+        const u = (row && row.url) ? String(row.url) : '';
+        if (!u) return;
+        if (/^https?:\/\//i.test(u)) window.open(u, '_blank');
+      };
+
+      const f = allegatoArtForm || { tipo:'DISEGNO', descrizione:'', path:'', url:'' };
+
+      return e('div', {className:'card', style:{marginTop:8}},
+        e('div', {className:'card-title'}, 'Allegati articolo'),
+        !entityId
+          ? e('p', {className:'muted'}, 'Inserisci e salva il codice articolo per poter aggiungere allegati.')
+          : e(React.Fragment, null,
+              rows.length
+                ? e('table', {className:'table table-sm'},
+                    e('thead', null,
+                      e('tr', null,
+                        e('th', null, 'Tipo'),
+                        e('th', null, 'Descrizione'),
+                        e('th', null, 'Percorso'),
+                        e('th', null, 'Azioni')
+                      )
+                    ),
+                    e('tbody', null,
+                      rows.map(r => e('tr', {key:r.id || r.path || r.url || Math.random()},
+                        e('td', null, r.tipo || ''),
+                        e('td', null, r.descrizione || ''),
+                        e('td', null, r.path || ''),
+                        e('td', null,
+                          e('div', {className:'row', style:{gap:4}},
+                            r.url && /^https?:\/\//i.test(r.url||'')
+                              ? e('button', {className:'btn btn-xs', onClick:()=>onOpenUrl(r)}, 'Apri')
+                              : null,
+                            r.path
+                              ? e('button', {className:'btn btn-xs', onClick:()=>onCopyPath(r)}, 'Copia percorso')
+                              : null,
+                            !readOnly
+                              ? e('button', {
+                                  className:'btn btn-xs btn-outline',
+                                  onClick:()=>onDelete(r)
+                                }, '🗑')
+                              : null
+                          )
+                        )
+                      ))
+                    )
+                  )
+                : e('p', {className:'muted'}, 'Nessun allegato per questo articolo.'),
+              e('div', {className:'form-grid', style:{marginTop:8}},
+                e('div', null,
+                  e('label', null, 'Tipo'),
+                  e('select', {
+                    value:f.tipo || 'DISEGNO',
+                    onChange:ev=>onChangeField('tipo', ev.target.value),
+                    disabled: readOnly
+                  },
+                    ['DISEGNO','NC_FORN','ALTRO'].map(opt =>
+                      e('option', {key:opt, value:opt}, opt)
+                    )
+                  )
+                ),
+                e('div', null,
+                  e('label', null, 'Descrizione'),
+                  e('input', {
+                    value:f.descrizione || '',
+                    onChange:ev=>onChangeField('descrizione', ev.target.value),
+                    disabled: readOnly
+                  })
+                ),
+                e('div', null,
+                  e('label', null, 'Percorso (path)'),
+                  e('input', {
+                    value:f.path || '',
+                    onChange:ev=>onChangeField('path', ev.target.value),
+                    disabled: readOnly
+                  })
+                ),
+                e('div', null,
+                  e('label', null, 'URL (opzionale)'),
+                  e('input', {
+                    value:f.url || '',
+                    onChange:ev=>onChangeField('url', ev.target.value),
+                    disabled: readOnly
+                  })
+                )
+              ),
+              e('div', {className:'actions'},
+                e('button', {
+                  className:'btn',
+                  onClick:onAdd,
+                  disabled: readOnly
+                }, '➕ Aggiungi allegato')
+              )
+            )
+      );
+    })(),
 
     // tabella articoli
     e('div', {className:'card', style:{marginTop:8}},
