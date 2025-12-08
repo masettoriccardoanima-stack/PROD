@@ -16381,7 +16381,7 @@ if (!window.renderSchedaCollaudoG3HTML) {
     </tr>
     <tr>
       <td class="lbl">INIZIALI OPERATORE (NOME / COGNOME):</td>
-      <td class="val underline">M.N.</td>
+      <td class="val underline">N.M.</td>
     </tr>
     <tr>
       <td class="lbl">DATA COLLAUDO:</td>
@@ -16582,17 +16582,69 @@ ${sheetsHtml}
 if (!window.printSchedeCollaudoG3ForDDT) {
   window.printSchedeCollaudoG3ForDDT = function(ddt){
     try{
-      if (!ddt) { alert('DDT non valido per scheda collaudo G3'); return; }
-      const rows = (
+      if (!ddt) {
+        alert('DDT non valido per scheda collaudo G3');
+        return;
+      }
+
+      const allRows = (
         Array.isArray(ddt?.righe) ? ddt.righe :
         Array.isArray(ddt?.righeDDT) ? ddt.righeDDT :
         Array.isArray(ddt?.righeArticolo) ? ddt.righeArticolo :
         []
       ).filter(r => r && (r.codice || r.descrizione));
-      if (!rows.length) { alert('Nessuna riga articolo per questo DDT.'); return; }
 
-      const html = window.renderSchedaCollaudoG3HTML ? window.renderSchedaCollaudoG3HTML(ddt, rows) : '';
-      if (!html) { alert('Layout scheda collaudo G3 non disponibile'); return; }
+      if (!allRows.length) {
+        alert('Nessuna riga articolo per questo DDT.');
+        return;
+      }
+
+      let rowsToPrint = allRows;
+
+      // Se ci sono più righe, permetti di scegliere
+      if (allRows.length > 1) {
+        const elenco = allRows.map((r, idx) => {
+          const cod  = r.codice || r.codArt || '';
+          const desc = r.descrizione || '';
+          const label = [cod, desc].filter(Boolean).join(' - ');
+          return (idx + 1) + ') ' + label;
+        }).join('\n');
+
+        const msg =
+          'Schede collaudo G3 per DDT ' + (ddt.id || '') + '\n\n' +
+          'Digita il numero della riga che vuoi stampare (1-' + allRows.length + ')\n' +
+          'oppure scrivi T per stampare tutte le righe.\n\n' +
+          elenco + '\n\n' +
+          'Scelta (1-' + allRows.length + ' o T):';
+
+        const ansRaw = window.prompt(msg, 'T');
+        if (ansRaw === null) {
+          // Annulla = non stampare nulla
+          return;
+        }
+
+        const ans = String(ansRaw).trim().toUpperCase();
+
+        if (ans && ans !== 'T' && ans !== 'ALL') {
+          const n = parseInt(ans, 10);
+          if (!isNaN(n) && n >= 1 && n <= allRows.length) {
+            rowsToPrint = [allRows[n - 1]];
+          } else {
+            alert('Scelta non valida.');
+            return;
+          }
+        }
+        // Se ans è T/ALL/"" → rowsToPrint resta allRows (tutte le righe)
+      }
+
+      const html = window.renderSchedaCollaudoG3HTML
+        ? window.renderSchedaCollaudoG3HTML(ddt, rowsToPrint)
+        : '';
+
+      if (!html) {
+        alert('Layout scheda collaudo G3 non disponibile');
+        return;
+      }
 
       if (window.safePrintHTMLStringWithPageNum) {
         window.safePrintHTMLStringWithPageNum(html);
@@ -16601,8 +16653,11 @@ if (!window.printSchedeCollaudoG3ForDDT) {
       } else {
         const w = window.open('', '_blank');
         if (!w) return;
-        w.document.open(); w.document.write(html); w.document.close();
-        w.focus(); try{ w.print(); }catch{}
+        w.document.open();
+        w.document.write(html);
+        w.document.close();
+        w.focus();
+        try { w.print(); } catch(e) {}
       }
     }catch(e){
       console.error('printSchedeCollaudoG3ForDDT error', e);
