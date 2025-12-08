@@ -16255,104 +16255,143 @@ if (!window.renderSchedaCollaudoG3HTML) {
       }
     } catch { ddtDataTxt = esc(ddt && ddt.data ? String(ddt.data) : ''); }
 
-    const cliName   = esc(ddt && (ddt.cliente || ddt.clienteRagione || 'G3 Srl'));
-    const operatore = esc('M.N.');
+    const cliName   = esc(ddt && (ddt.cliente || ddt.clienteRagione || 'G3 srl'));
 
-    const norm1 = 'Con la presente dichiariamo che il prodotto è stato fabbricato s...to può essere emesso nel mercato secondo le seguenti normative:';
-    const norm2 = 'PED (Direttiva Attrezzature a pressione 2014/68/UE) - Articolo 4 Paragrafo 3. Il prodotto non deve recare la marcatura CE.';
+    // Testi normativi presi dalla scheda Word (così come sono nel file)
+    const norm1 = 'Con la presente dichiariamo che il prodotto è stato fabbricato...to può essere emesso nel mercato secondo le seguenti normative:';
+    const norm2 = '• PED (Direttiva Attrezzature a pressione 2014/68/UE) - Articolo 4 Paragrafo 3 Il prodotto non deve recare la marcatura CE';
     const norm3 = 'Il documento dovrà essere allegato al DDT di spedizione.';
+    const norm4 = 'La riproduzione o distribuzione di questi documenti, l’uso o ...i è proibita senza autorizzazione scritta della società stessa.';
+    const norm5 = 'The reproduction or distribution of these documents, the use ...hibited without the written authorization of the company itself';
 
-    const g3Rag    = 'G3 srl';
-    const g3Ind    = 'Via della Fornace, 11 – 31023 Resana (TV) – ITALY';
-    const g3Tel    = 'Tel. +39 0423 783720 – www.g3sistemi.com – info@g3sistemi.com';
-    const g3NoteIt = 'La riproduzione o distribuzione di questi documenti, l’uso o diffusione non autorizzata del loro contenuto è proibita senza autorizzazione scritta della società stessa.';
-    const g3NoteEn = 'The reproduction or distribution of these documents, the use or unauthorized disclosure of their contents is prohibited without the written authorization of the company itself.';
+    const g3Rag = 'G3 srl';
+    const g3Ind = 'Via della Fornace, 11 – 31023 Resana (TV) – ITALY';
+    const g3Tel = 'Tel. +39 0423 783720 – info@g3sistemi.com';
 
     const sheetsHtml = righeOk.map((riga, idx) => {
-      const sheetIndex  = idx + 1;
-      const totalSheets = righeOk.length;
+      const pageBase   = idx * 2;
+      const totalPages = righeOk.length * 2;
+
       const cod  = esc(riga.codice || riga.codArt || '');
       const desc = esc(riga.descrizione || '');
 
+      const page1Num = pageBase + 1;
+      const page2Num = pageBase + 2;
+
       return `
 <div class="page">
-  <div class="header-row">
-    <div class="col-left">
-      <div class="title">SCHEDA COLLAUDO FORNITORE</div>
-      <div class="line small">FORNITORE: <b>${ragAzi}</b></div>
-      ${pivaAzi ? `<div class="line small">P.IVA: ${pivaAzi}</div>` : ``}
+  <div class="top-header">
+    <div class="logo-g3">
+      <div class="g3-main">G3 srl</div>
     </div>
-    <div class="col-right">
-      <div class="line small">Cliente: <b>${cliName}</b></div>
-      <div class="line small">DDT n.: <b>${ddtNum || '____'}</b> del <b>${ddtDataTxt || '____'}</b></div>
-      <div class="line small">Scheda: ${sheetIndex} / ${totalSheets}</div>
+    <div class="title-block">
+      <div class="title-main">SCHEDA COLLAUDO FORNITORE</div>
+      <div class="title-sub">MOD_0003 R00 24/03/2023</div>
     </div>
   </div>
 
-  <h3>DATI PRODOTTO</h3>
-  <table class="meta">
+  <table class="tbl fornitore">
     <tr>
-      <td class="lbl">Codice prodotto</td>
-      <td>${cod || '____'}</td>
-    </tr>
-    <tr>
-      <td class="lbl">Descrizione prodotto</td>
-      <td>${desc || '____'}</td>
+      <td class="lbl">FORNITORE:</td>
+      <td class="val">${ragAzi}${pivaAzi ? ' - P.IVA ' + pivaAzi : ''}</td>
     </tr>
   </table>
 
-  <h3>DATI TECNICI COLLAUDO</h3>
-  <table class="meta">
+  <table class="tbl blocco">
     <tr>
-      <td class="lbl">Fluido di prova</td>
-      <td>ARIA COMPRESSA</td>
+      <td class="lbl"></td>
+      <td class="val titolo-blocco">DATI PRODOTTO</td>
     </tr>
     <tr>
-      <td class="lbl">Pressione di prova</td>
-      <td>4.5 bar</td>
+      <td class="lbl">CODICE PRODOTTO:</td>
+      <td class="val">${cod || '____'}</td>
     </tr>
     <tr>
-      <td class="lbl">Durata della prova</td>
-      <td>______________________________</td>
+      <td class="lbl">DESCRIZIONE PRODOTTO:</td>
+      <td class="val">${desc || '____'}</td>
     </tr>
   </table>
 
-  <h3>ESITO COLLAUDO</h3>
-  <div class="esito-row">
-    <div class="check-box">[ ] POSITIVO</div>
-    <div class="check-box">[ ] NEGATIVO</div>
-  </div>
+  <table class="tbl blocco">
+    <tr>
+      <td class="lbl"></td>
+      <td class="val titolo-blocco">DATI TECNICI COLLAUDO</td>
+    </tr>
+    <tr>
+      <td class="lbl">FLUIDO DI PROVA:</td>
+      <td class="val">ARIA COMPRESSA</td>
+    </tr>
+    <tr>
+      <td class="lbl">PRESSIONE DI PROVA:</td>
+      <td class="val">4.5 bar</td>
+    </tr>
+    <tr>
+      <td class="lbl">DURATA DELLA PROVA:</td>
+      <td class="val">______________________________</td>
+    </tr>
+    <tr>
+      <td class="lbl">VERIFICA CORRETTA PROVA:</td>
+      <td class="val">• CONTROLLO VISIVO CON IMMERSIONI IN ACQUA</td>
+    </tr>
+  </table>
 
-  <h3>NOTE</h3>
-  <div class="note-box">&nbsp;</div>
+  <table class="tbl operatori">
+    <tr>
+      <td colspan="2" class="titolo-blocco center">OPERATORE CHE HA ESEGUITO IL TEST</td>
+    </tr>
+    <tr>
+      <td class="lbl">INIZIALI OPERATORE (NOME / COGNOME):</td>
+      <td class="val underline">M.N.</td>
+    </tr>
+    <tr>
+      <td class="lbl">DATA COLLAUDO:</td>
+      <td class="val">&nbsp;</td>
+    </tr>
+    <tr>
+      <td class="lbl">ESITO COLLAUDO</td>
+      <td class="val">□ POSITIVO   □ NEGATIVO</td>
+    </tr>
+  </table>
 
-  <div class="sign-row">
-    <div>Data: ____ / ____ / ______</div>
-    <div>Operatore G3: <span class="underline">${operatore}</span></div>
-    <div>Firma: __________________________</div>
+  <table class="tbl ddt-ref">
+    <tr>
+      <td class="lbl">DDT RIFERIMENTO:</td>
+      <td class="val">${ddtNum || '____'}</td>
+    </tr>
+  </table>
+
+  <div class="timbro-label">
+    Timbro e Firma del legale rappresentate o responsabile incaricato
   </div>
+  <div class="timbro-box"></div>
 
   <div class="page-footer">
-    SCHEDA COLLAUDO FORNITORE - MOD_0003 R00 24/03/2023 - PAG ${sheetIndex} | ${totalSheets}
+    SCHEDA COLLAUDO FORNITORE&nbsp;&nbsp;&nbsp;MOD_0003 R00 24/03/2023&nbsp;&nbsp;&nbsp;PAG ${page1Num} | ${totalPages}
   </div>
 </div>
 
 <div class="page">
-  <h3>Dichiarazione del fornitore</h3>
-  <p>${norm1}</p>
-  <ul>
-    <li>${norm2}</li>
-  </ul>
-  <p>${norm3}</p>
-
-  <div class="g3-footer">
-    <div><b>${g3Rag}</b></div>
-    <div>${g3Ind}</div>
-    <div>${g3Tel}</div>
+  <div class="title-block second">
+    <div class="title-main">SCHEDA COLLAUDO FORNITORE</div>
+    <div class="title-sub">MOD_0003 R00 24/03/2023</div>
   </div>
 
-  <p class="small">${g3NoteIt}</p>
-  <p class="small">${g3NoteEn}</p>
+  <p>${esc(norm1)}</p>
+  <p>${esc(norm2)}</p>
+  <p>${esc(norm3)}</p>
+
+  <div class="g3-footer">
+    <div><b>${esc(g3Rag)}</b></div>
+    <div>${esc(g3Ind)}</div>
+    <div>${esc(g3Tel)}</div>
+  </div>
+
+  <p class="small">${esc(norm4)}</p>
+  <p class="small">${esc(norm5)}</p>
+
+  <div class="page-footer">
+    SCHEDA COLLAUDO FORNITORE&nbsp;&nbsp;&nbsp;MOD_0003 R00 24/03/2023&nbsp;&nbsp;&nbsp;PAG ${page2Num} | ${totalPages}
+  </div>
 </div>`;
     }).join('\n');
 
@@ -16367,7 +16406,7 @@ if (!window.renderSchedaCollaudoG3HTML) {
     * { box-sizing: border-box; }
     body {
       font-family: Arial, Helvetica, sans-serif;
-      font-size: 11pt;
+      font-size: 10pt;
       margin: 0;
       padding: 0;
     }
@@ -16375,90 +16414,106 @@ if (!window.renderSchedaCollaudoG3HTML) {
       width: 190mm;
       min-height: 267mm;
       margin: 0 auto;
-      padding: 8mm 10mm;
+      padding: 6mm 8mm 18mm 8mm;
       position: relative;
     }
     .page + .page {
       page-break-before: always;
     }
-    h3 {
-      margin: 6mm 0 3mm 0;
-      font-size: 12pt;
+    .top-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4mm;
+    }
+    .logo-g3 .g3-main {
+      font-size: 16pt;
+      font-weight: bold;
+    }
+    .title-block {
+      text-align: right;
+    }
+    .title-block.second {
+      text-align: center;
+      margin-bottom: 8mm;
+    }
+    .title-main {
+      font-size: 13pt;
+      font-weight: bold;
       text-transform: uppercase;
     }
-    .header-row {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 6mm;
-      border-bottom: 1px solid #000;
-      padding-bottom: 3mm;
+    .title-sub {
+      font-size: 9pt;
+      margin-top: 1mm;
     }
-    .col-left, .col-right {
-      width: 48%;
-    }
-    .title {
-      font-size: 14pt;
-      font-weight: bold;
-      margin-bottom: 2mm;
-    }
-    .line.small {
-      font-size: 10pt;
-    }
-    table.meta {
+    .tbl {
       width: 100%;
       border-collapse: collapse;
       margin-bottom: 3mm;
+      font-size: 10pt;
     }
-    table.meta td {
-      padding: 2mm 2mm;
-      vertical-align: top;
+    .tbl td {
+      border: 1px solid #000;
+      padding: 1.5mm 2mm;
+      vertical-align: middle;
     }
-    table.meta td.lbl {
+    .tbl.fornitore td.lbl {
+      width: 35mm;
+    }
+    .tbl.blocco td.lbl {
       width: 40mm;
+    }
+    .tbl.operatori td.lbl {
+      width: 55mm;
+    }
+    .tbl.ddt-ref td.lbl {
+      width: 40mm;
+    }
+    .lbl {
       font-weight: bold;
     }
-    .esito-row {
-      display: flex;
-      gap: 10mm;
-      margin: 4mm 0 6mm 0;
+    .val {
+      width: auto;
     }
-    .check-box {
-      border: 1px solid #000;
-      padding: 2mm 4mm;
-      min-width: 35mm;
+    .titolo-blocco {
+      font-weight: bold;
+      text-transform: uppercase;
       text-align: center;
+      background-color: #e6e6e6;
     }
-    .note-box {
-      border: 1px solid #000;
-      min-height: 25mm;
-      margin-bottom: 8mm;
-    }
-    .sign-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
-      margin-top: 8mm;
-      font-size: 10pt;
+    .center {
+      text-align: center;
     }
     .underline {
       border-bottom: 1px solid #000;
-      padding-right: 8mm;
+      padding-bottom: 1mm;
+      min-width: 25mm;
+      display: inline-block;
+    }
+    .timbro-label {
+      margin-top: 6mm;
+      font-size: 9pt;
+    }
+    .timbro-box {
+      border: 1px solid #000;
+      height: 25mm;
+      margin-top: 2mm;
+      margin-bottom: 6mm;
     }
     .page-footer {
       position: absolute;
       bottom: 6mm;
-      left: 10mm;
-      right: 10mm;
+      left: 8mm;
+      right: 8mm;
       text-align: right;
-      font-size: 9pt;
-      color: #444;
+      font-size: 8.5pt;
     }
     .g3-footer {
       margin-top: 20mm;
-      font-size: 10pt;
+      font-size: 9.5pt;
     }
     .small {
-      font-size: 9pt;
+      font-size: 8.5pt;
       margin-top: 4mm;
     }
   </style>
