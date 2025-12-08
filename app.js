@@ -16627,9 +16627,8 @@ if (!window.printSchedeCollaudoG3ForDDT) {
         return;
       }
 
+      // scelta righe da stampare (come prima)
       let rowsToPrint = allRows;
-
-      // Se ci sono più righe, permetti di scegliere
       if (allRows.length > 1) {
         const elenco = allRows.map((r, idx) => {
           const cod  = r.codice || r.codArt || '';
@@ -16662,7 +16661,7 @@ if (!window.printSchedeCollaudoG3ForDDT) {
             return;
           }
         }
-        // Se ans è T/ALL/"" → rowsToPrint resta allRows (tutte le righe)
+        // se ans è T/ALL/"" -> rowsToPrint resta allRows
       }
 
       const html = window.renderSchedaCollaudoG3HTML
@@ -16674,6 +16673,7 @@ if (!window.printSchedeCollaudoG3ForDDT) {
         return;
       }
 
+      // STAMPA (come prima)
       if (window.safePrintHTMLStringWithPageNum) {
         window.safePrintHTMLStringWithPageNum(html);
       } else if (window.safePrintHTMLString) {
@@ -16687,6 +16687,102 @@ if (!window.printSchedeCollaudoG3ForDDT) {
         w.focus();
         try { w.print(); } catch(e) {}
       }
+
+      // --- BLOCCO NUOVO: registrazione automatica allegato COLLAUDO (opzionale) ---
+
+      // helper locale per ID tipo "ALG-2025-0001"
+      function nextAllegatoId(existing){
+        const now  = new Date();
+        const year = now.getFullYear();
+        let maxSeq = 0;
+        (existing || []).forEach(r => {
+          const id = r && r.id ? String(r.id) : '';
+          const m = /^ALG-(\d{4})-(\d+)$/.exec(id);
+          if (m && Number(m[1]) === year) {
+            const n = parseInt(m[2], 10);
+            if (!isNaN(n) && n > maxSeq) maxSeq = n;
+          }
+        });
+        const next = String(maxSeq + 1).padStart(4, '0');
+        return 'ALG-' + year + '-' + next;
+      }
+
+      // chiedi se creare allegato
+      const conferma = window.confirm('Vuoi registrare un allegato di tipo COLLAUDO per questo DDT?');
+      if (!conferma) return;
+
+      // suggerimento di percorso (puoi adattarlo al tuo NAS)
+      const yearFromDdt = (function(){
+        try {
+          if (ddt && ddt.data) {
+            const d = new Date(ddt.data);
+            if (!isNaN(d.getTime())) return d.getFullYear();
+          }
+        } catch(e){}
+        return (new Date()).getFullYear();
+      })();
+
+      const ddtIdTxt = ddt && ddt.id ? String(ddt.id) : '';
+      const suggestedPath =
+        '\\\\ANIMA-SERVER\\ANIMA_DOC\\COLLAUDI\\' +
+        yearFromDdt +
+        '\\DDT-' + yearFromDdt + '-' + ddtIdTxt + '-G3-collaudo.pdf';
+
+      const userPath = window.prompt(
+        'Inserisci il percorso del PDF della scheda collaudo G3 appena salvata.\n' +
+        'Lascia vuoto per non registrare nulla.\n\n' +
+        'Suggerimento (puoi modificarlo):\n' + suggestedPath,
+        suggestedPath
+      );
+
+      if (!userPath) {
+        return; // utente ha lasciato vuoto o annullato
+      }
+
+      const pathTrimmed = String(userPath).trim();
+      if (!pathTrimmed) {
+        return;
+      }
+
+      // leggi allegati esistenti
+      let existing = [];
+      try {
+        const raw = localStorage.getItem('allegatiRows');
+        if (raw) existing = JSON.parse(raw) || [];
+        if (!Array.isArray(existing)) existing = [];
+      } catch(e) {
+        existing = [];
+      }
+
+      const nowIso = new Date().toISOString();
+      const newId  = nextAllegatoId(existing);
+
+      const descrBase = 'Scheda collaudo G3 DDT ' + (ddtIdTxt || '');
+      const newRow = {
+        id: newId,
+        createdAt: nowIso,
+        tipo: 'COLLAUDO',
+        descrizione: descrBase,
+        path: pathTrimmed,
+        url: '',
+        entityType: 'DDT',
+        entityId: ddt && ddt.id ? ddt.id : '',
+        note: '',
+        deletedAt: null
+      };
+
+      const updated = existing.concat([newRow]);
+      try {
+        localStorage.setItem('allegatiRows', JSON.stringify(updated));
+      } catch(e) {
+        console.error('Errore salvataggio allegatiRows', e);
+        alert('Non sono riuscito a salvare l\'allegato COLLAUDO in locale.');
+        return;
+      }
+
+      alert('Allegato COLLAUDO registrato per questo DDT.\n' +
+            'Se non lo vedi subito nella card Allegati, chiudi e riapri il DDT.');
+
     }catch(e){
       console.error('printSchedeCollaudoG3ForDDT error', e);
       alert('Errore durante la stampa della scheda collaudo G3');
