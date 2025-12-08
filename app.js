@@ -16220,6 +16220,8 @@ window.printDDT = function(state){
 if (!window.renderSchedaCollaudoG3HTML) {
   window.renderSchedaCollaudoG3HTML = function(ddt, righeOverride){
     const esc = v => String(v ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+
+    // Righe articolo (righe DDT)
     const righe = Array.isArray(righeOverride) && righeOverride.length
       ? righeOverride
       : (
@@ -16234,6 +16236,7 @@ if (!window.renderSchedaCollaudoG3HTML) {
     // Config azienda (fornitore)
     let cfg = {};
     try { cfg = JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; } catch {}
+
     const ragAzi = esc(
       cfg.ragioneSociale || cfg.ragione || cfg.ragioneAzienda ||
       cfg.companyName ||
@@ -16253,20 +16256,35 @@ if (!window.renderSchedaCollaudoG3HTML) {
         const d = new Date(ddt.data);
         ddtDataTxt = isNaN(d.getTime()) ? String(ddt.data) : d.toLocaleDateString('it-IT');
       }
-    } catch { ddtDataTxt = esc(ddt && ddt.data ? String(ddt.data) : ''); }
+    } catch {
+      ddtDataTxt = esc(ddt && ddt.data ? String(ddt.data) : '');
+    }
 
     const cliName   = esc(ddt && (ddt.cliente || ddt.clienteRagione || 'G3 srl'));
 
-    // Testi normativi presi dalla scheda Word (così come sono nel file)
-    const norm1 = 'Con la presente dichiariamo che il prodotto è stato fabbricato...to può essere emesso nel mercato secondo le seguenti normative:';
+    // Logo G3: /icons/g3-logo.png sullo stesso dominio (se non sei su file://)
+    let logoG3Url = '';
+    try {
+      const origin = (window.location && window.location.origin) || '';
+      if (origin && origin !== 'null') {
+        logoG3Url = origin.replace(/\/$/, '') + '/icons/g3-logo.png';
+      }
+    } catch(e) {}
+
+    const logoSegment = logoG3Url
+      ? `<img src="${logoG3Url}" class="logo-g3-img" />`
+      : `<div class="g3-main">G3 srl</div>`;
+
+    // Testi normativi (come nella scheda Word, con “...” dove presenti)
+    const norm1 = 'Con la presente dichiariamo che il prodotto è stato fabbricato ...to può essere emesso nel mercato secondo le seguenti normative:';
     const norm2 = '• PED (Direttiva Attrezzature a pressione 2014/68/UE) - Articolo 4 Paragrafo 3 Il prodotto non deve recare la marcatura CE';
     const norm3 = 'Il documento dovrà essere allegato al DDT di spedizione.';
-    const norm4 = 'La riproduzione o distribuzione di questi documenti, l’uso o ...i è proibita senza autorizzazione scritta della società stessa.';
-    const norm5 = 'The reproduction or distribution of these documents, the use ...hibited without the written authorization of the company itself';
 
-    const g3Rag = 'G3 srl';
-    const g3Ind = 'Via della Fornace, 11 – 31023 Resana (TV) – ITALY';
-    const g3Tel = 'Tel. +39 0423 783720 – info@g3sistemi.com';
+    const g3Rag    = 'G3 srl';
+    const g3Ind    = 'Via della Fornace, 11 – 31023 Resana (TV) – ITALY';
+    const g3Tel    = 'Tel. +39 0423 783720 – www.g3sistemi.com – info@g3sistemi.com';
+    const g3NoteIt = 'La riproduzione o distribuzione di questi documenti, l’uso o diffusione non autorizzata del loro contenuto è proibita senza autorizzazione scritta della società stessa.';
+    const g3NoteEn = 'The reproduction or distribution of these documents, the use or unauthorized disclosure of their contents is prohibited without the written authorization of the company itself.';
 
     const sheetsHtml = righeOk.map((riga, idx) => {
       const pageBase   = idx * 2;
@@ -16282,7 +16300,7 @@ if (!window.renderSchedaCollaudoG3HTML) {
 <div class="page">
   <div class="top-header">
     <div class="logo-g3">
-      <div class="g3-main">G3 srl</div>
+      ${logoSegment}
     </div>
     <div class="title-block">
       <div class="title-main">SCHEDA COLLAUDO FORNITORE</div>
@@ -16331,7 +16349,7 @@ if (!window.renderSchedaCollaudoG3HTML) {
     </tr>
     <tr>
       <td class="lbl">VERIFICA CORRETTA PROVA:</td>
-      <td class="val">• CONTROLLO VISIVO CON IMMERSIONI IN ACQUA</td>
+      <td class="val">CONTROLLO VISIVO CON IMMERSIONI IN ACQUA</td>
     </tr>
   </table>
 
@@ -16349,7 +16367,7 @@ if (!window.renderSchedaCollaudoG3HTML) {
     </tr>
     <tr>
       <td class="lbl">ESITO COLLAUDO</td>
-      <td class="val">□ POSITIVO   □ NEGATIVO</td>
+      <td class="val">□ POSITIVO &nbsp;&nbsp; □ NEGATIVO</td>
     </tr>
   </table>
 
@@ -16386,8 +16404,8 @@ if (!window.renderSchedaCollaudoG3HTML) {
     <div>${esc(g3Tel)}</div>
   </div>
 
-  <p class="small">${esc(norm4)}</p>
-  <p class="small">${esc(norm5)}</p>
+  <p class="small">${esc(g3NoteIt)}</p>
+  <p class="small">${esc(g3NoteEn)}</p>
 
   <div class="page-footer">
     SCHEDA COLLAUDO FORNITORE&nbsp;&nbsp;&nbsp;MOD_0003 R00 24/03/2023&nbsp;&nbsp;&nbsp;PAG ${page2Num} | ${totalPages}
@@ -16402,7 +16420,10 @@ if (!window.renderSchedaCollaudoG3HTML) {
   <meta charset="utf-8">
   <title>Scheda collaudo G3 - ${ddtNum}</title>
   <style>
-    @page { size: A4; margin: 15mm 15mm 20mm 15mm; }
+    @page {
+      size: A4;
+      margin: 15mm 15mm 20mm 15mm;
+    }
     * { box-sizing: border-box; }
     body {
       font-family: Arial, Helvetica, sans-serif;
@@ -16426,7 +16447,17 @@ if (!window.renderSchedaCollaudoG3HTML) {
       justify-content: space-between;
       margin-bottom: 4mm;
     }
-    .logo-g3 .g3-main {
+    .logo-g3 {
+      display: flex;
+      align-items: flex-start;
+      min-width: 30mm;
+    }
+    .logo-g3-img {
+      display: block;
+      height: 16mm;
+      width: auto;
+    }
+    .g3-main {
       font-size: 16pt;
       font-weight: bold;
     }
@@ -16479,7 +16510,7 @@ if (!window.renderSchedaCollaudoG3HTML) {
       font-weight: bold;
       text-transform: uppercase;
       text-align: center;
-      background-color: #e6e6e6;
+      background-color: #f2f2f2; /* come shading Word */
     }
     .center {
       text-align: center;
