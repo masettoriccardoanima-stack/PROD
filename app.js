@@ -16309,10 +16309,6 @@ if (!window.renderSchedaCollaudoG3HTML) {
     <div class="logo-g3">
       ${logoSegment}
     </div>
-    <div class="title-block">
-      <div class="title-main">SCHEDA COLLAUDO FORNITORE</div>
-      <div class="title-sub">MOD_0003 R00 24/03/2023</div>
-    </div>
   </div>
 
   <table class="tbl fornitore">
