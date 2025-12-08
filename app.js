@@ -14230,6 +14230,7 @@ React.useEffect(() => {
     luogoConsegna: '',
     vettore: '', firmaVettore: '', firmaDestinatario: '', firmaConducente: '',
     dataOra: '', pesoNetto: '', pesoLordo: '', colli: '', aspetto: '',
+    pressioneCollaudoG3: '4,5 bar',   // pressione di prova standard G3
     righe: [] // {codice, descrizione, qta, UM, note}
   };
 
@@ -15429,6 +15430,18 @@ showForm && e('form', { className:'card', onSubmit:save, style:{marginTop:8,padd
           e('label', null, 'Peso lordo'),
           e('input', { name:'pesoLordo', value:form.pesoLordo, onChange:onChange })
         ),
+        // BLOCCO NUOVO — Pressione di prova collaudo G3
+        e('div', null,
+          e('label', null, 'Pressione di prova (collaudo G3)'),
+          e('input', {
+            name:'pressioneCollaudoG3',
+            value: form.pressionecollaudoG3 || form.pressionecollaudoG3 === '' 
+              ? form.pressionecollaudoG3 
+              : (form.pressioneCollaudoG3 || '4,5 bar'),
+            onChange:onChange,
+            placeholder:'es. 4,5 bar'
+          })
+        ),
         e('div', null,
           e('label', null, 'Firma vettore'),
           e('input', { name:'firmaVettore', value:form.firmaVettore, onChange:onChange })
@@ -16262,6 +16275,12 @@ if (!window.renderSchedaCollaudoG3HTML) {
 
     const cliName   = esc(ddt && (ddt.cliente || ddt.clienteRagione || 'G3 srl'));
 
+        const pressioneProva = esc(
+      ddt && (ddt.pressioneCollaudoG3 || ddt.pressioneProvaG3)
+        ? String(ddt.pressioneCollaudoG3 || ddt.pressioneProvaG3)
+        : '4,5 bar'
+    );
+
   // Logo G3: cerca g3-logo.png nella cartella "icons" accanto all'index
   // (funziona sia in BETA, che in PROD, che in file://)
   let logoG3Url = '';
@@ -16344,7 +16363,7 @@ if (!window.renderSchedaCollaudoG3HTML) {
     </tr>
     <tr>
       <td class="lbl">PRESSIONE DI PROVA:</td>
-      <td class="val">4.5 bar</td>
+      <td class="val">${pressioneProva}</td>
     </tr>
     <tr>
       <td class="lbl">DURATA DELLA PROVA:</td>
@@ -16366,11 +16385,11 @@ if (!window.renderSchedaCollaudoG3HTML) {
     </tr>
     <tr>
       <td class="lbl">DATA COLLAUDO:</td>
-      <td class="val">&nbsp;</td>
+      <td class="val">${ddtDataTxt || ''}</td>
     </tr>
     <tr>
       <td class="lbl">ESITO COLLAUDO</td>
-      <td class="val">[X] POSITIVO &nbsp;&nbsp; [ ] NEGATIVO</td>
+      <td class="val">☑ POSITIVO &nbsp;&nbsp; ☐ NEGATIVO</td>
     </tr>
   </table>
 
