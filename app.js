@@ -16348,7 +16348,7 @@ if (!window.renderSchedaCollaudoG3HTML) {
     </tr>
     <tr>
       <td class="lbl">DURATA DELLA PROVA:</td>
-      <td class="val">______________________________</td>
+      <td class="val">2 minuti</td>
     </tr>
     <tr>
       <td class="lbl">VERIFICA CORRETTA PROVA:</td>
@@ -16370,7 +16370,7 @@ if (!window.renderSchedaCollaudoG3HTML) {
     </tr>
     <tr>
       <td class="lbl">ESITO COLLAUDO</td>
-      <td class="val">□ POSITIVO &nbsp;&nbsp; □ NEGATIVO</td>
+      <td class="val">[X] POSITIVO &nbsp;&nbsp; [ ] NEGATIVO</td>
     </tr>
   </table>
 
