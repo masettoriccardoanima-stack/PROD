@@ -14456,6 +14456,29 @@ React.useEffect(() => {
     }
   }
 
+    // BLOCCO NUOVO — Cliente corrente + flag G3
+  const currentCliente = React.useMemo(() => {
+    try {
+      if (!form || !form.clienteId) return null;
+      const list = Array.isArray(clienti) ? clienti : [];
+      return list.find(c => String(c.id) === String(form.clienteId)) || null;
+    } catch {
+      return null;
+    }
+  }, [clienti, form && form.clienteId]);
+
+  const isG3DDT = React.useMemo(() => {
+    // uso sia il campo form.cliente che l'eventuale cliente trovato in anagrafica
+    const nome =
+      (form && form.cliente) ||
+      (currentCliente && (currentCliente.ragioneSociale || currentCliente.nome || currentCliente.denominazione)) ||
+      '';
+
+    const s = String(nome || '').trim().toLowerCase();
+    // match robusto: "g3 srl", "g3 s.r.l.", ecc.
+    return /g3\s*s\.?r\.?l\.?/.test(s) || s === 'g3 srl';
+  }, [form && form.cliente, currentCliente]);
+
   function toggleSel(id){
     setSelDDT(m => ({ ...m, [id]: !m[id] }));
   }
@@ -15542,6 +15565,22 @@ showForm && e('form', { className:'card', onSubmit:save, style:{marginTop:8,padd
         }catch(e){ alert('Errore stampa DDT'); console.error(e); } }
       }, 'Stampa'),
 
+            // BLOCCO NUOVO — Schede collaudo G3 (solo per cliente G3 e se ci sono righe)
+      (isG3DDT && (__getRighe(form) || []).length > 0) && e('button', {
+        type:'button',
+        className:'btn btn-outline',
+        onClick:()=>{ try{
+          if (window.printSchedeCollaudoG3ForDDT) {
+            window.printSchedeCollaudoG3ForDDT(form);
+          } else {
+            alert('Funzione schede collaudo G3 non disponibile');
+          }
+        } catch(e) {
+          alert('Errore durante la preparazione delle schede collaudo G3');
+          console.error(e);
+        } }
+      }, 'Schede collaudo G3'),
+
       e('button', {
         type:'button',
         className:'btn btn-outline',
@@ -16145,6 +16184,292 @@ window.printDDT = function(state){
   }
 })();
 
+// BLOCCO NUOVO — Stampa Scheda Collaudo G3 (cliente G3 Srl, per righe DDT)
+if (!window.renderSchedaCollaudoG3HTML) {
+  window.renderSchedaCollaudoG3HTML = function(ddt, righeOverride){
+    const esc = v => String(v ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+    const righe = Array.isArray(righeOverride) && righeOverride.length
+      ? righeOverride
+      : (
+          Array.isArray(ddt?.righe) ? ddt.righe :
+          Array.isArray(ddt?.righeDDT) ? ddt.righeDDT :
+          Array.isArray(ddt?.righeArticolo) ? ddt.righeArticolo :
+          []
+        );
+    const righeOk = righe.filter(r => r && (r.codice || r.descrizione));
+    if (!righeOk.length) return '';
+
+    // Config azienda (fornitore)
+    let cfg = {};
+    try { cfg = JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; } catch {}
+    const ragAzi = esc(
+      cfg.ragioneSociale || cfg.ragione || cfg.ragioneAzienda ||
+      cfg.companyName ||
+      (cfg.azienda && (cfg.azienda.ragione || cfg.azienda.ragioneSociale)) ||
+      'ANIMA SRL'
+    );
+    const pivaAzi = esc(
+      cfg.piva || cfg.partitaIva || cfg.companyVat ||
+      (cfg.azienda && (cfg.azienda.piva || cfg.azienda.partitaIva)) ||
+      ''
+    );
+
+    const ddtNum  = esc(ddt && ddt.id ? String(ddt.id) : '');
+    let ddtDataTxt = '';
+    try {
+      if (ddt && ddt.data) {
+        const d = new Date(ddt.data);
+        ddtDataTxt = isNaN(d.getTime()) ? String(ddt.data) : d.toLocaleDateString('it-IT');
+      }
+    } catch { ddtDataTxt = esc(ddt && ddt.data ? String(ddt.data) : ''); }
+
+    const cliName   = esc(ddt && (ddt.cliente || ddt.clienteRagione || 'G3 Srl'));
+    const operatore = esc('M.N.');
+
+    const norm1 = 'Con la presente dichiariamo che il prodotto è stato fabbricato s...to può essere emesso nel mercato secondo le seguenti normative:';
+    const norm2 = 'PED (Direttiva Attrezzature a pressione 2014/68/UE) - Articolo 4 Paragrafo 3. Il prodotto non deve recare la marcatura CE.';
+    const norm3 = 'Il documento dovrà essere allegato al DDT di spedizione.';
+
+    const g3Rag    = 'G3 srl';
+    const g3Ind    = 'Via della Fornace, 11 – 31023 Resana (TV) – ITALY';
+    const g3Tel    = 'Tel. +39 0423 783720 – www.g3sistemi.com – info@g3sistemi.com';
+    const g3NoteIt = 'La riproduzione o distribuzione di questi documenti, l’uso o diffusione non autorizzata del loro contenuto è proibita senza autorizzazione scritta della società stessa.';
+    const g3NoteEn = 'The reproduction or distribution of these documents, the use or unauthorized disclosure of their contents is prohibited without the written authorization of the company itself.';
+
+    const sheetsHtml = righeOk.map((riga, idx) => {
+      const sheetIndex  = idx + 1;
+      const totalSheets = righeOk.length;
+      const cod  = esc(riga.codice || riga.codArt || '');
+      const desc = esc(riga.descrizione || '');
+
+      return `
+<div class="page">
+  <div class="header-row">
+    <div class="col-left">
+      <div class="title">SCHEDA COLLAUDO FORNITORE</div>
+      <div class="line small">FORNITORE: <b>${ragAzi}</b></div>
+      ${pivaAzi ? `<div class="line small">P.IVA: ${pivaAzi}</div>` : ``}
+    </div>
+    <div class="col-right">
+      <div class="line small">Cliente: <b>${cliName}</b></div>
+      <div class="line small">DDT n.: <b>${ddtNum || '____'}</b> del <b>${ddtDataTxt || '____'}</b></div>
+      <div class="line small">Scheda: ${sheetIndex} / ${totalSheets}</div>
+    </div>
+  </div>
+
+  <h3>DATI PRODOTTO</h3>
+  <table class="meta">
+    <tr>
+      <td class="lbl">Codice prodotto</td>
+      <td>${cod || '____'}</td>
+    </tr>
+    <tr>
+      <td class="lbl">Descrizione prodotto</td>
+      <td>${desc || '____'}</td>
+    </tr>
+  </table>
+
+  <h3>DATI TECNICI COLLAUDO</h3>
+  <table class="meta">
+    <tr>
+      <td class="lbl">Fluido di prova</td>
+      <td>ARIA COMPRESSA</td>
+    </tr>
+    <tr>
+      <td class="lbl">Pressione di prova</td>
+      <td>4.5 bar</td>
+    </tr>
+    <tr>
+      <td class="lbl">Durata della prova</td>
+      <td>______________________________</td>
+    </tr>
+  </table>
+
+  <h3>ESITO COLLAUDO</h3>
+  <div class="esito-row">
+    <div class="check-box">[ ] POSITIVO</div>
+    <div class="check-box">[ ] NEGATIVO</div>
+  </div>
+
+  <h3>NOTE</h3>
+  <div class="note-box">&nbsp;</div>
+
+  <div class="sign-row">
+    <div>Data: ____ / ____ / ______</div>
+    <div>Operatore G3: <span class="underline">${operatore}</span></div>
+    <div>Firma: __________________________</div>
+  </div>
+
+  <div class="page-footer">
+    SCHEDA COLLAUDO FORNITORE - MOD_0003 R00 24/03/2023 - PAG ${sheetIndex} | ${totalSheets}
+  </div>
+</div>
+
+<div class="page">
+  <h3>Dichiarazione del fornitore</h3>
+  <p>${norm1}</p>
+  <ul>
+    <li>${norm2}</li>
+  </ul>
+  <p>${norm3}</p>
+
+  <div class="g3-footer">
+    <div><b>${g3Rag}</b></div>
+    <div>${g3Ind}</div>
+    <div>${g3Tel}</div>
+  </div>
+
+  <p class="small">${g3NoteIt}</p>
+  <p class="small">${g3NoteEn}</p>
+</div>`;
+    }).join('\n');
+
+    const html = `
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <title>Scheda collaudo G3 - ${ddtNum}</title>
+  <style>
+    @page { size: A4; margin: 15mm 15mm 20mm 15mm; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 11pt;
+      margin: 0;
+      padding: 0;
+    }
+    .page {
+      width: 190mm;
+      min-height: 267mm;
+      margin: 0 auto;
+      padding: 8mm 10mm;
+      position: relative;
+    }
+    .page + .page {
+      page-break-before: always;
+    }
+    h3 {
+      margin: 6mm 0 3mm 0;
+      font-size: 12pt;
+      text-transform: uppercase;
+    }
+    .header-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6mm;
+      border-bottom: 1px solid #000;
+      padding-bottom: 3mm;
+    }
+    .col-left, .col-right {
+      width: 48%;
+    }
+    .title {
+      font-size: 14pt;
+      font-weight: bold;
+      margin-bottom: 2mm;
+    }
+    .line.small {
+      font-size: 10pt;
+    }
+    table.meta {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 3mm;
+    }
+    table.meta td {
+      padding: 2mm 2mm;
+      vertical-align: top;
+    }
+    table.meta td.lbl {
+      width: 40mm;
+      font-weight: bold;
+    }
+    .esito-row {
+      display: flex;
+      gap: 10mm;
+      margin: 4mm 0 6mm 0;
+    }
+    .check-box {
+      border: 1px solid #000;
+      padding: 2mm 4mm;
+      min-width: 35mm;
+      text-align: center;
+    }
+    .note-box {
+      border: 1px solid #000;
+      min-height: 25mm;
+      margin-bottom: 8mm;
+    }
+    .sign-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      margin-top: 8mm;
+      font-size: 10pt;
+    }
+    .underline {
+      border-bottom: 1px solid #000;
+      padding-right: 8mm;
+    }
+    .page-footer {
+      position: absolute;
+      bottom: 6mm;
+      left: 10mm;
+      right: 10mm;
+      text-align: right;
+      font-size: 9pt;
+      color: #444;
+    }
+    .g3-footer {
+      margin-top: 20mm;
+      font-size: 10pt;
+    }
+    .small {
+      font-size: 9pt;
+      margin-top: 4mm;
+    }
+  </style>
+</head>
+<body>
+${sheetsHtml}
+</body>
+</html>`;
+    return html;
+  };
+}
+
+if (!window.printSchedeCollaudoG3ForDDT) {
+  window.printSchedeCollaudoG3ForDDT = function(ddt){
+    try{
+      if (!ddt) { alert('DDT non valido per scheda collaudo G3'); return; }
+      const rows = (
+        Array.isArray(ddt?.righe) ? ddt.righe :
+        Array.isArray(ddt?.righeDDT) ? ddt.righeDDT :
+        Array.isArray(ddt?.righeArticolo) ? ddt.righeArticolo :
+        []
+      ).filter(r => r && (r.codice || r.descrizione));
+      if (!rows.length) { alert('Nessuna riga articolo per questo DDT.'); return; }
+
+      const html = window.renderSchedaCollaudoG3HTML ? window.renderSchedaCollaudoG3HTML(ddt, rows) : '';
+      if (!html) { alert('Layout scheda collaudo G3 non disponibile'); return; }
+
+      if (window.safePrintHTMLStringWithPageNum) {
+        window.safePrintHTMLStringWithPageNum(html);
+      } else if (window.safePrintHTMLString) {
+        window.safePrintHTMLString(html);
+      } else {
+        const w = window.open('', '_blank');
+        if (!w) return;
+        w.document.open(); w.document.write(html); w.document.close();
+        w.focus(); try{ w.print(); }catch{}
+      }
+    }catch(e){
+      console.error('printSchedeCollaudoG3ForDDT error', e);
+      alert('Errore durante la stampa della scheda collaudo G3');
+    }
+  };
+}
 
 /* ================== FATTURE (lista, CRUD) ================== */
 (function (global) {
