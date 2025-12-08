@@ -14872,6 +14872,22 @@ React.useEffect(() => {
       });
   }, [rowsDDT, bulkCliId]);
 
+    // Mappa conteggio allegati per DDT (entityType='DDT', !deletedAt)
+  let allegatiCountByDDTId = {};
+  try {
+    const all = (typeof lsGet === 'function') ? (lsGet('allegatiRows', []) || []) : [];
+    (Array.isArray(all) ? all : []).forEach(r => {
+      if (!r || r.deletedAt) return;
+      const et = String(r.entityType || '').toUpperCase();
+      if (et !== 'DDT') return;
+      const k = String(r.entityId || '').trim();
+      if (!k) return;
+      allegatiCountByDDTId[k] = (allegatiCountByDDTId[k] || 0) + 1;
+    });
+  } catch {
+    allegatiCountByDDTId = {};
+  }
+
   function confirmBulkFa(){
     const selIds = Object.keys(bulkPick).filter(id => bulkPick[id]);
     if (!selIds.length){ alert('Seleziona almeno un DDT'); return; }
@@ -15418,9 +15434,18 @@ const filteredDDT = (Array.isArray(rowsDDT) ? rowsDDT : [])
                       onChange: () => togglePick(r.id)
                     })
                   ),
-                  e('td', null, r.id),
+                  e('td', null,
+                    (allegatiCountByDDTId && allegatiCountByDDTId[r.id])
+                      ? `📎 ${r.id}`
+                      : r.id
+                  ),
                   e('td', null, r.data || ''),
-                  e('td', null, r.note || ''),
+                  e('td', null,
+                    r.note || '',
+                    (allegatiCountByDDTId && allegatiCountByDDTId[r.id])
+                      ? ` (allegati: ${allegatiCountByDDTId[r.id]})`
+                      : ''
+                  ),
                   e('td', { className:'ctr' }, String((r.righe||[]).length))
                 ))
               )
