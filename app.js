@@ -14872,23 +14872,26 @@ React.useEffect(() => {
       });
   }, [rowsDDT, bulkCliId]);
 
-    // Mappa conteggio allegati per DDT (entityType='DDT', !deletedAt)
-  let allegatiCountByDDTId = {};
-  try {
-    const all = (typeof lsGet === 'function') ? (lsGet('allegatiRows', []) || []) : [];
-    (Array.isArray(all) ? all : []).forEach(r => {
-      if (!r || r.deletedAt) return;
-      // Considero default 'DDT' anche se entityType è vuoto (legacy)
-      const et = String(r.entityType || 'DDT').toUpperCase();
-      if (et !== 'DDT') return;
-      // Uso sempre chiave normalizzata: entityId o id, trim + lowercase
-      const k = String(r.entityId || r.id || '').trim().toLowerCase();
-      if (!k) return;
-      allegatiCountByDDTId[k] = (allegatiCountByDDTId[k] || 0) + 1;
-    });
-  } catch {
-    allegatiCountByDDTId = {};
-  }
+  // Mappa conteggio allegati per DDT (entityType='DDT', !deletedAt)
+  const allegatiCountByDDTId = React.useMemo(() => {
+    const map = {};
+    try {
+      const all = Array.isArray(allegatiRows) ? allegatiRows : [];
+      all.forEach(r => {
+        if (!r || r.deletedAt) return;
+        // Considero default 'DDT' anche se entityType è vuoto (legacy)
+        const et = String(r.entityType || 'DDT').toUpperCase();
+        if (et !== 'DDT') return;
+        // Chiave normalizzata: entityId o id, trim + lowercase
+        const k = String(r.entityId || r.id || '').trim().toLowerCase();
+        if (!k) return;
+        map[k] = (map[k] || 0) + 1;
+      });
+    } catch {
+      // ignora errori, mappa vuota
+    }
+    return map;
+  }, [allegatiRows]);
 
   function confirmBulkFa(){
     const selIds = Object.keys(bulkPick).filter(id => bulkPick[id]);
@@ -15527,10 +15530,21 @@ const filteredDDT = (Array.isArray(rowsDDT) ? rowsDDT : [])
                 onChange: () => toggleSel(r.id)
               })
             ),
-            e('td', null, r.id),
+            e('td', null,
+              (allegatiCountByDDTId &&
+               allegatiCountByDDTId[String(r.id || '').trim().toLowerCase()])
+                ? `📎 ${r.id}`
+                : r.id
+            ),
             e('td', null, r.data || ''),
             e('td', null, r.cliente || r.clienteRagione || ''),
-            e('td', null, r.note || ''),
+            e('td', null,
+              r.note || '',
+              (allegatiCountByDDTId &&
+               allegatiCountByDDTId[String(r.id || '').trim().toLowerCase()])
+                ? ` (allegati: ${allegatiCountByDDTId[String(r.id || '').trim().toLowerCase()]})`
+                : ''
+            ),
             e('td', null,
                 e('button', { className:'btn btn-outline',
                 onClick:()=>openEdit(r.id),
