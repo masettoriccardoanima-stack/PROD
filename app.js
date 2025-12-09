@@ -3158,103 +3158,6 @@ window.sbInsert = window.sbInsert || async function(table, row){
       }
     });
 
-        // Parser ERGOMEC — Ord. acq. Standard (stesso layout BLAUWER)
-    addOrderParser({
-      id  : 'ergomec-v1',
-      name: 'ERGOMEC Ord. acq. Standard',
-      test: (txt, name='') => {
-        const t = String(txt || '');
-        return /ERGOMEC\s*S\.?R\.?L\.?/i.test(t) && /Ord\.\s*acq\.\s*Standard/i.test(t);
-      },
-      extract: (txt, name='') => {
-        const raw   = String(txt || '');
-        const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-
-        const righe = [];
-        let inBody = false;
-
-        for (const line of lines) {
-          const norm = line.replace(/\s+/g,' ').trim();
-
-          // header tabella: "Pos. Codice Rev. Descrizione UM Q.tà Prezzo Unitario Sconti Prezzo Totale Consegna"
-          if (!inBody) {
-            if (/Pos\./i.test(norm) && /Codice/i.test(norm) && /Descrizione/i.test(norm) && /\bUM\b/i.test(norm)) {
-              inBody = true;
-            }
-            continue;
-          }
-
-          if (!norm) continue;
-          if (/^TOTALE\s+ORDINE/i.test(norm)) break;
-
-          // es: "10 58038050 01 COPERCHIO SERBATOIO ... PZ 3 120,00 360,00 27/11/25"
-          const m = norm.match(
-            /^(\d+)\s+([A-Z0-9][A-Z0-9._\-]{2,})\s+[A-Z0-9]{1,3}.*?\s+(PZ|NR|KG|L1|L2|L3|M|MQ|ML)\s+([0-9.]+,[0-9]+|\d+)(?:\s+[0-9.,]+){1,3}\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})$/i
-          );
-          if (!m) continue;
-
-          const codice = m[2];
-          const descr  = m[3];
-          const um     = m[4].toUpperCase();
-          const qta    = Number(
-            String(m[5]).replace(/\./g,'').replace(',', '.')
-          ) || 0;
-
-          if (!codice || !descr || !qta) continue;
-
-          righe.push({
-            codice,
-            descrizione: descr.trim(),
-            um,
-            qta
-          });
-        }
-
-        // descrizione commessa
-        let descr = '';
-        const mHead =
-          raw.match(/Ord\.\s*acq\.\s*Standard[\s\S]*?Numero\s+([A-Z0-9\-\/]+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i) ||
-          raw.match(/Numero\s+([A-Z0-9\-\/]+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i);
-
-        if (mHead) {
-          const num = (mHead[1] || '').trim();
-          const d   = (mHead[2] || '').trim();
-          descr = `Ordine ${num} del ${d}`;
-        } else if (righe.length === 1) {
-          descr = righe[0].descrizione;
-        } else if (righe.length > 1) {
-          descr = `Ordine Ergomec (${righe.length} righe)`;
-        } else {
-          descr = 'Commessa da ordine PDF';
-        }
-
-        // scadenza = massima data trovata (tipicamente le consegne)
-        let scad = '';
-        try{
-          const dates = raw.match(/\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/g) || [];
-          const times = dates
-            .map(d => {
-              const [gg,mm,aa] = d.split(/[./-]/);
-              const iso = `${aa.length === 2 ? '20'+aa : aa}-${mm.padStart(2,'0')}-${gg.padStart(2,'0')}`;
-              return new Date(iso).getTime();
-            })
-            .filter(n => Number.isFinite(n));
-          if (times.length) {
-            const max = Math.max.apply(null, times);
-            scad = new Date(max).toISOString().slice(0,10);
-          }
-        }catch(e){}
-
-        return {
-          cliente    : 'ERGOMEC S.R.L.',
-          descrizione: descr,
-          righe,
-          qtaPezzi   : righe.reduce((s,r)=> s + (Number(r.qta)||0), 0) || 1,
-          scadenza   : scad
-        };
-      }
-    });
-
     // Template di processo “Tramoggia” (adatta i regex e i tempi al tuo standard)
     addProcessTemplate({
       id  : 'tramoggia-standard',
@@ -26288,11 +26191,18 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
       name: 'Ordini STEEL SYSTEMS',
       test: (txt, name='') => {
         const t = String(txt || '');
-        // Documento di STEEL con intestazione "Ord. acq. C/Lavoro" e tabella Pos./Codice
-        return /STEEL\s+SYSTEMS/i.test(t)
-            && /Ord\.\s*acq\.\s*C\/Lavoro/i.test(t)
-            && /Pos\.\s+Codice\s+Rev\.\s+Descrizione\s+UM\s+Q\.tà\s+Prezzo\s+Unitario/i.test(t);
+        // Modulo STEEL / ERGOMEC con tabella Pos./Codice
+        const isSteel   = /STEEL\s+SYSTEMS/i.test(t);
+        const isErgomec = /ERGOMEC\s*S\.?R\.?L\.?/i.test(t);
+
+        // Se non è né STEEL né ERGOMEC → questo parser non vale
+        if (!isSteel && !isErgomec) return false;
+
+        // Stesso layout: Ord. acq. ... con tabella Pos./Codice/Rev./Descrizione/UM/Q.tà/Prezzo Unitario...
+        return /Ord\.\s*acq\./i.test(t)
+          && /Pos\.\s+Codice\s+Rev\.\s+Descrizione\s+UM\s+Q\.tà\s+Prezzo\s+Unitario/i.test(t);
       },
+
       extract: (txt, name='') => {
         // Testo appiattito come in extractPdfText
         const flat = String(txt || '').replace(/\s+/g,' ').trim();
@@ -26357,13 +26267,17 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
           scadenza = consegne.slice().sort().slice(-1)[0];
         }
 
-        const cliente = 'STEEL SYSTEMS S.r.l.';
-        const descr   = (`Ordine c/lavoro STEEL ${rifNumero || ''}`).trim();
-        const qtaPezzi = righe.reduce((s,r)=> s + (r.qta || 0), 0) || 1;
+        const isErgomec = /ERGOMEC\s*S\.?R\.?L\.?/i.test(flat);
+        const cliente   = isErgomec ? 'ERGOMEC S.R.L.' : 'STEEL SYSTEMS S.r.l.';
+        const baseDescr = isErgomec ? 'Ordine cliente ERGOMEC' : 'Ordine c/lavoro STEEL';
+        const descr     = (`${baseDescr} ${rifNumero || ''}`).trim();
+        const qtaPezzi  = righe.reduce((s,r)=> s + (r.qta || 0), 0) || 1;
 
         return {
           cliente,
-          descrizione: descr || 'Commessa da ordine STEEL SYSTEMS',
+          descrizione: descr || (isErgomec
+            ? 'Commessa da ordine ERGOMEC'
+            : 'Commessa da ordine STEEL SYSTEMS'),
           righe,
           qtaPezzi,
           scadenza,
