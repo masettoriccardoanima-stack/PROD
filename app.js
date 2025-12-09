@@ -16784,6 +16784,9 @@ if (!window.renderSchedaCollaudoG3HTML) {
     Timbro e Firma del legale rappresentate o responsabile incaricato
   </div>
   <div class="timbro-box">
+    <div class="timbro-firma-fallback">
+      TIMBRO E FIRMA ANIMA SRL
+    </div>
     ${timbroFirmaSegment}
   </div>
 
@@ -16930,16 +16933,32 @@ if (!window.renderSchedaCollaudoG3HTML) {
       font-size: 9pt;
     }
     .timbro-box {
+      position: relative;          /* per sovrapporre scritta + immagine */
       border: 1px solid #000;
-      height: 27mm;               /* un filo più alta per non “tagliare” il timbro */
+      height: 27mm;
       margin-top: 2mm;
       margin-bottom: 6mm;
-      display: flex;               /* centra il contenuto */
-      align-items: center;         /* verticale */
-      justify-content: center;     /* orizzontale */
-      padding: 1mm 2mm;            /* margini interni per non far toccare i bordi */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2mm 4mm;
+      overflow: hidden;
+    }
+    .timbro-firma-fallback {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      font-size: 10pt;
+      font-weight: 600;
+      opacity: 0.35;              /* si vede ma non dà fastidio */
+      padding: 2mm 4mm;
     }
     .timbro-firma-img {
+      position: relative;
+      z-index: 1;                  /* sopra la scritta */
       max-width: 100%;
       max-height: 100%;
       object-fit: contain;
