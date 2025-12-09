@@ -16659,11 +16659,27 @@ if (!window.renderSchedaCollaudoG3HTML) {
     ? `<img src="${logoG3Url}" class="logo-g3-img" alt="G3 logo" />`
     : `<div class="g3-main">G3</div>`;
 
+  // Timbro + firma ANIMA
+  let timbroFirmaUrl = '';
+  try {
+    const loc = window.location || {};
+    const hrefNoHash = String(loc.href || '').split('#')[0]; // tolgo l'hash (#/ddt, #/dashboard, ...)
+    if (hrefNoHash) {
+      // rimuovo "index.html" se presente
+      let base = hrefNoHash.replace(/index\.html$/i, '');
+      // tolgo eventuale slash finale
+      base = base.replace(/\/$/, '');
+      // stessa cartella "icons" del logo, ma file diverso
+      timbroFirmaUrl = base + '/icons/anima-timbro-firma.png';
+    }
+  } catch (e) {}
 
-        // Timbro + firma ANIMA (forzato su URL assoluto PROD)
-    const timbroFirmaUrl = 'https://masettoriccardoanima-stack.github.io/PROD/icons/anima-timbro-firma.png';
+  // Fallback assoluto su PROD, nel caso il blocco sopra fallisse
+  if (!timbroFirmaUrl) {
+    timbroFirmaUrl = 'https://masettoriccardoanima-stack.github.io/PROD/icons/anima-timbro-firma.png';
+  }
 
-    const timbroFirmaSegment = `<img src="${timbroFirmaUrl}" class="timbro-firma-img" alt="Timbro e firma" />`;
+  const timbroFirmaSegment = `<img src="${timbroFirmaUrl}" class="timbro-firma-img" alt="Timbro e firma" />`;
 
     // Testi normativi (come nella scheda Word, con “...” dove presenti)
     const norm1 = 'Con la presente dichiariamo che il prodotto è stato fabbricato ...to può essere emesso nel mercato secondo le seguenti normative:';
