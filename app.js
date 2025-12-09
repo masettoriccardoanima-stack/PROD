@@ -16658,17 +16658,11 @@ if (!window.renderSchedaCollaudoG3HTML) {
     ? `<img src="${logoG3Url}" class="logo-g3-img" alt="G3 logo" />`
     : `<div class="g3-main">G3</div>`;
 
-        // Timbro + firma ANIMA opzionale (immagine statica)
+        // Timbro + firma ANIMA: riusa la stessa base del logo G3
     let timbroFirmaUrl = '';
-    try {
-      const loc2 = window.location || {};
-      const hrefNoHash2 = String(loc2.href || '').split('#')[0];
-      if (hrefNoHash2) {
-        let base2 = hrefNoHash2.replace(/index\.html$/i, '');
-        base2 = base2.replace(/\/$/, '');
-        timbroFirmaUrl = base2 + '/icons/anima-timbro-firma.png';
-      }
-    } catch(e) {}
+    if (logoG3Url) {
+      timbroFirmaUrl = logoG3Url.replace(/g3-logo\.png$/i, 'anima-timbro-firma.png');
+    }
 
     const timbroFirmaSegment = timbroFirmaUrl
       ? `<img src="${timbroFirmaUrl}" class="timbro-firma-img" alt="Timbro e firma" />`
