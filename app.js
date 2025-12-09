@@ -4570,6 +4570,7 @@ window.syncImportFromCloud = async function(){
     localStorage.setItem('commesseRows', JSON.stringify(mergeById(localC, cloudC)));
 
     ['oreRows','ddtRows','fattureRows','magMovimenti','clientiRows','fornitoriRows','ordiniFornitoriRows','preventiviRows'].forEach(k=>{
+
       if (Array.isArray(remote[k])) {
         const loc = JSON.parse(localStorage.getItem(k)||'[]')||[];
         localStorage.setItem(k, JSON.stringify(mergeById(loc, remote[k])));
@@ -16658,10 +16659,26 @@ if (!window.renderSchedaCollaudoG3HTML) {
     ? `<img src="${logoG3Url}" class="logo-g3-img" alt="G3 logo" />`
     : `<div class="g3-main">G3</div>`;
 
-        // Timbro + firma ANIMA: riusa la stessa base del logo G3
+        // Timbro + firma ANIMA opzionale (immagine statica)
     let timbroFirmaUrl = '';
-    if (logoG3Url) {
-      timbroFirmaUrl = logoG3Url.replace(/g3-logo\.png$/i, 'anima-timbro-firma.png');
+    try {
+      // 1) se ho già il logo G3, riuso la stessa cartella "icons"
+      if (logoG3Url) {
+        timbroFirmaUrl = String(logoG3Url).replace(/g3-logo\.png$/i, 'anima-timbro-firma.png');
+      } else {
+        const loc2 = window.location || {};
+        const hrefNoHash2 = String(loc2.href || '').split('#')[0];
+        if (hrefNoHash2) {
+          let base2 = hrefNoHash2.replace(/index\.html$/i, '');
+          base2 = base2.replace(/\/$/, '');
+          timbroFirmaUrl = base2 + '/icons/anima-timbro-firma.png';
+        }
+      }
+    } catch(e) {}
+
+    // 2) Fallback fisso per l’ambiente GitHub Pages PROD
+    if (!timbroFirmaUrl) {
+      timbroFirmaUrl = 'https://masettoriccardoanima-stack.github.io/PROD/icons/anima-timbro-firma.png';
     }
 
     const timbroFirmaSegment = timbroFirmaUrl
