@@ -29065,6 +29065,7 @@ window.canExportFatturaPA = function(fa){
     'commesseRows','oreRows',
     'ddtRows','fattureRows',
     'ordiniFornitoriRows',
+    'allegatiRows',
     'counters'
   ];
 
@@ -29152,6 +29153,7 @@ window.canExportFatturaPA = function(fa){
           set('ddtRows',               mergeArrayById(cur('ddtRows',[]),               data.ddtRows,               null));
           set('fattureRows',           mergeArrayById(cur('fattureRows',[]),           data.fattureRows,           null));
           set('ordiniFornitoriRows',   mergeArrayById(cur('ordiniFornitoriRows',[]),   data.ordiniFornitoriRows,   null));
+          set('allegatiRows',          mergeArrayById(cur('allegatiRows',[]),          data.allegatiRows,          null));
 
           alert('Import eseguito. Ricarica la pagina per vedere tutti i dati.');
         }catch(e){ alert('File non valido: ' + (e?.message||e)); }
@@ -29171,6 +29173,7 @@ window.canExportFatturaPA = function(fa){
     'commesseRows','oreRows',
     'ddtRows','fattureRows',
     'ordiniFornitoriRows',
+    'allegatiRows',
     'counters'
   ];
 
