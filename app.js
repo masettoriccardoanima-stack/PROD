@@ -7597,10 +7597,29 @@ window.MagazzinoMovimentiView = window.MagazzinoMovimentiView || MagazzinoMovime
         }catch{}
       };
 
-      setTimeout(()=>{
-        try{ setupPageNum(); w.focus(); w.print(); }catch{}
-        setTimeout(()=>{ try{ ifr.remove(); }catch{} }, 300);
-      },150);
+      // Attende che le immagini (logo, timbro, ecc.) siano caricate prima di stampare,
+      // per evitare che nel PDF manchino elementi grafici se la rete è lenta.
+      const waitAndPrint = (attempt) => {
+        try {
+          const maxAttempts = 20; // ~20 * 150ms ≈ 3 secondi max
+          const imgs = Array.from(d.images || []);
+          const allComplete = !imgs.length || imgs.every(im => im && im.complete);
+
+          if (!allComplete && attempt < maxAttempts) {
+            setTimeout(() => waitAndPrint(attempt + 1), 150);
+            return;
+          }
+
+          // A questo punto le immagini sono caricate (o abbiamo aspettato abbastanza)
+          setupPageNum();
+          w.focus();
+          w.print();
+          setTimeout(() => { try { ifr.remove(); } catch {} }, 300);
+        } catch {}
+      };
+
+      // Primo tentativo
+      waitAndPrint(0);
     } catch(e) {
       alert('Errore stampa (safePrintHTMLString): ' + (e?.message || e));
     }
