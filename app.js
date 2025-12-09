@@ -2533,7 +2533,7 @@ window.generatePreventivoHTML = window.generatePreventivoHTML || function(pv){
     }
     .content{
       min-height:277mm;
-      padding-bottom:40mm; /* spazio riservato per il footer fisso */
+      padding-bottom:60mm; /* più spazio per non far coprire le ultime righe */
       box-sizing:border-box;
     }
     .footer{
@@ -2543,7 +2543,7 @@ window.generatePreventivoHTML = window.generatePreventivoHTML || function(pv){
       bottom:10mm;
       background:#fff;
     }
-        .header{
+    .header{
       position:relative;
       top:auto; left:auto; right:auto;
       height:auto;
@@ -4187,7 +4187,8 @@ window.ensureXLSX = window.ensureXLSX || (function () {
     'counters',
     'clientiRows',
     'fornitoriRows',
-    'ordiniFornitoriRows'
+    'ordiniFornitoriRows',
+    'preventiviRows'
   ];
 
     function getSettings(){
@@ -4337,9 +4338,9 @@ function mergeAppSettings(localApp, remoteApp){
       'commesseRows','oreRows',
       'magArticoli','magazzinoArticoli','magMovimenti',
       'fattureRows','ddtRows',
-      'clientiRows','fornitoriRows','ordiniFornitoriRows'
+      'clientiRows','fornitoriRows','ordiniFornitoriRows',
+      'preventiviRows'
     ];
-
   // 1) appSettings: prendi quello con updatedAt più recente
   if ('appSettings' in snap) {
     const localApp = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; }catch{return{}} })();
@@ -4568,7 +4569,7 @@ window.syncImportFromCloud = async function(){
     const cloudC = Array.isArray(remote.commesseRows) ? remote.commesseRows : [];
     localStorage.setItem('commesseRows', JSON.stringify(mergeById(localC, cloudC)));
 
-    ['oreRows','ddtRows','fattureRows','magMovimenti','clientiRows','fornitoriRows','ordiniFornitoriRows'].forEach(k=>{
+    ['oreRows','ddtRows','fattureRows','magMovimenti','clientiRows','fornitoriRows','ordiniFornitoriRows','preventiviRows'].forEach(k=>{
       if (Array.isArray(remote[k])) {
         const loc = JSON.parse(localStorage.getItem(k)||'[]')||[];
         localStorage.setItem(k, JSON.stringify(mergeById(loc, remote[k])));
