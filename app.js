@@ -2526,11 +2526,23 @@ window.generatePreventivoHTML = window.generatePreventivoHTML || function(pv){
   const style = `
   <style>
     @page{ size:A4; margin:10mm; }
-        body{
-      font-family:system-ui,Arial; font-size:12.5px; color:#111;
-      display:flex; flex-direction:column; min-height:277mm;
+    body{
+      font-family:system-ui,Arial;
+      font-size:12.5px;
+      color:#111;
     }
-    .footer{ margin-top:auto; }
+    .content{
+      min-height:277mm;
+      padding-bottom:40mm; /* spazio riservato per il footer fisso */
+      box-sizing:border-box;
+    }
+    .footer{
+      position:fixed;
+      left:10mm;
+      right:10mm;
+      bottom:10mm;
+      background:#fff;
+    }
         .header{
       position:relative;
       top:auto; left:auto; right:auto;
@@ -2556,6 +2568,7 @@ window.generatePreventivoHTML = window.generatePreventivoHTML || function(pv){
   </style>`;
 
   return `<!doctype html><html><head><meta charset="utf-8">${style}</head><body>
+    <div class="content">
         <div class="header">
       <div style="display:flex;gap:12px;align-items:center">
         ${logo?`<img class="logo" src="${logo}" alt="logo">`:''}
@@ -2652,7 +2665,8 @@ window.generatePreventivoHTML = window.generatePreventivoHTML || function(pv){
         </div>
       </div>
 
-    </div>
+    </div> <!-- fine contenuto principale -->
+    </div> <!-- fine .content -->
   </body></html>`;
 
 };
