@@ -26191,6 +26191,7 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
       name: 'Ordini STEEL SYSTEMS',
       test: (txt, name='') => {
         const t = String(txt || '');
+
         // Modulo STEEL / ERGOMEC con tabella Pos./Codice
         const isSteel   = /STEEL\s+SYSTEMS/i.test(t);
         const isErgomec = /ERGOMEC\s*S\.?R\.?L\.?/i.test(t);
@@ -26198,7 +26199,7 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
         // Se non è né STEEL né ERGOMEC → questo parser non vale
         if (!isSteel && !isErgomec) return false;
 
-        // Stesso layout: Ord. acq. ... con tabella Pos./Codice/Rev./Descrizione/UM/Q.tà/Prezzo Unitario...
+        // Stesso layout: ordine di acquisto con tabella Pos./Codice/Rev./Descrizione/UM/Q.tà/Prezzo Unitario...
         return /Ord\.\s*acq\./i.test(t)
           && /Pos\.\s+Codice\s+Rev\.\s+Descrizione\s+UM\s+Q\.tà\s+Prezzo\s+Unitario/i.test(t);
       },
@@ -26213,7 +26214,7 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
         // Righe tipo:
         // 10 50821823 00 TRAMOGGIA ... M1 PZ 2 430,00 860,00 18/12/25
         // 20 50901760 00 CONO DIFFUSORE ... M1 PZ 2 1,00 2,00 01/12/25
-        const rowRe = /\b(\d{1,3})\s+([0-9]{6,})\s+([0-9]{2})\s+(.+?)\s+(PZ|NR|KG|LT|MT|ML)\s+([0-9]+(?:,[0-9]+)?)\s+([0-9.]+,[0-9]+|\d+)\s+([0-9.]+,[0-9]+|\d+)\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/g;
+        const rowRe = /\b(\d{1,3})\s+([0-9]{6,})\s+([0-9]{2})\s+(.+?)\s+([A-Z0-9]{1,3})\s+([0-9.]+,[0-9]+|\d+)\s+([0-9.]+,[0-9]+)\s+([0-9.]+,[0-9]+)\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/g;
 
         let m;
         while ((m = rowRe.exec(flat))) {
@@ -26267,6 +26268,7 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
           scadenza = consegne.slice().sort().slice(-1)[0];
         }
 
+        const isErgomec = /ERGOMEC\s*S\.?R\.?L\.?/i.test(flat);
         const isErgomec = /ERGOMEC\s*S\.?R\.?L\.?/i.test(flat);
         const cliente   = isErgomec ? 'ERGOMEC S.R.L.' : 'STEEL SYSTEMS S.r.l.';
         const baseDescr = isErgomec ? 'Ordine cliente ERGOMEC' : 'Ordine c/lavoro STEEL';
