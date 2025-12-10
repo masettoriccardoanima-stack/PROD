@@ -4173,7 +4173,7 @@ window.ensureXLSX = window.ensureXLSX || (function () {
   }
 
 
-const SYNC_KEYS = [
+    const SYNC_KEYS = [
     'appSettings',
     'commesseRows',
     'oreRows',
@@ -4183,12 +4183,12 @@ const SYNC_KEYS = [
     'magMovimenti',
     'fattureRows',
     'ddtRows',
-    'allegatiRows',
     // contatori: li esportiamo, ma non li forzeremo in pull (vedi applySnapshot)
     'counters',
     'clientiRows',
     'fornitoriRows',
     'ordiniFornitoriRows',
+    'allegatiRows',
     'preventiviRows'
   ];
 
@@ -4338,8 +4338,9 @@ function mergeAppSettings(localApp, remoteApp){
     const KEYS = [
       'commesseRows','oreRows',
       'magArticoli','magazzinoArticoli','magMovimenti',
-      'fattureRows','ddtRows','allegatiRows',
+      'fattureRows','ddtRows',
       'clientiRows','fornitoriRows','ordiniFornitoriRows',
+      'allegatiRows',
       'preventiviRows'
     ];
 
@@ -4593,7 +4594,10 @@ window.syncImportFromCloud = async function(){
     const cloudC = Array.isArray(remote.commesseRows) ? remote.commesseRows : [];
     localStorage.setItem('commesseRows', JSON.stringify(mergeById(localC, cloudC)));
 
-    ['oreRows','ddtRows','fattureRows','magMovimenti','clientiRows','fornitoriRows','ordiniFornitoriRows','preventiviRows'].forEach(k=>{
+    ['oreRows','ddtRows','fattureRows','magMovimenti',
+     'clientiRows','fornitoriRows',
+     'ordiniFornitoriRows','allegatiRows','preventiviRows'
+    ].forEach(k=>{
 
       if (Array.isArray(remote[k])) {
         const loc = JSON.parse(localStorage.getItem(k)||'[]')||[];
@@ -26510,7 +26514,7 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
 
         // Righe tipo (anche per ERGOMEC):
         // 80 50100174 00 TELAIO ... PZ 2 150,00 300,00 15/12/25
-        const rowRe = /\b(\d{1,3})\s+([0-9]{6,})\s+([0-9]{2})\s+(.+?)\s+([A-Z0-9]{1,3})\s+([0-9.]+,[0-9]+|\d+)\s+([0-9.]+,[0-9]+)\s+([0-9.]+,[0-9]+)\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/g;
+        const rowRe = /\b(\d{1,3})\s+([0-9]{6,})\s+([0-9]{2})\s+(.+?)\s+(\d*[A-Z0-9]{1,3})\s+([0-9.]+,[0-9]+|\d+)\s+([0-9.]+,[0-9]+)\s+([0-9.]+,[0-9]+)\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/g;
 
         let m;
         while ((m = rowRe.exec(flat))) {
@@ -26528,7 +26532,7 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
           if (!codice) continue;
 
           descr = descr.replace(/\s+/g,' ').trim();
-          const um      = (umRaw || 'PZ').replace(/\./g,'').toUpperCase();
+          const um      = (umRaw || 'PZ').replace(/[^A-Z]/gi,'').toUpperCase() || 'PZ';
           const qta     = toNum(qtaStr);
           const dataIso = parseData(consegna);
 
@@ -29533,12 +29537,13 @@ window.canExportFatturaPA = function(fa){
 
 // ===== Backup/Ripristino SMART (usa lsGet/lsSet e ignora formati strani) =====
 (function(){
-  const BK_KEYS = [
+const BK_KEYS = [
     'appSettings',
     'clientiRows','fornitoriRows',
     'magArticoli','magMovimenti',
     'commesseRows','oreRows',
     'ddtRows','fattureRows',
+    'preventiviRows',
     'ordiniFornitoriRows',
     'allegatiRows',
     'counters'
