@@ -27218,58 +27218,34 @@ window.getHashParam = window.getHashParam || function(name){
   }catch{ return ''; }
 };
 
-/* ================== TIMBRATURA MOBILE (VISTA COMPLETA + FIX LIVE) ================== */
+/* ================== TIMBRATURA MOBILE (SAFE MODE - FIX IPHONE) ================== */
 var TimbraturaMobileView = function(){
   const e = React.createElement;
 
-  // --- 1. Login Guard Robusto (Fix schermata bianca) ---
+  // --- 1. Sicurezza e Login ---
   const [user, setUser] = React.useState(window.__USER || null);
-  const [loadingAuth, setLoadingAuth] = React.useState(!window.__USER);
-
+  
+  // Effetto Auth sicuro: non blocca il rendering
   React.useEffect(() => {
-    // Se abbiamo già l'utente globale, usiamolo e stop
     if (window.__USER) {
       setUser(window.__USER);
-      setLoadingAuth(false);
       return;
     }
-    
-    // Altrimenti proviamo a recuperarlo
-    const check = async () => {
-      try {
-        if (window.requireLogin) {
-          const u = await window.requireLogin();
-          setUser(u);
-        }
-      } catch (err) {
-        // Se fallisce (es. redirect a login), non facciamo nulla, ci pensa il router
-        console.warn('Auth check failed', err);
-      } finally {
-        setLoadingAuth(false);
-      }
-    };
-    check();
+    // Tentativo di recupero sessione
+    if (typeof window.requireLogin === 'function') {
+      window.requireLogin()
+        .then(u => setUser(u))
+        .catch(() => {
+           // Se fallisce, non fare nulla qui, l'utente vedrà pulsante login o verrà reindirizzato
+           // Evitiamo loop infiniti o schermate bianche
+        });
+    }
   }, []);
 
-  // Se sta caricando, mostra uno spinner o testo semplice, ma non bloccare per sempre
-  if (loadingAuth) return e('div', {className:'page'}, 'Caricamento...');
+  // --- 2. Helpers sicuri ---
+  const lsGet = window.lsGet || ((k,d)=>{ try{ return JSON.parse(localStorage.getItem(k))||d; }catch{return d;} });
+  const lsSet = window.lsSet || ((k,v)=>{ try{ localStorage.setItem(k, JSON.stringify(v)); window.__anima_dirty=true; }catch{} });
 
-  // --- RBAC e Utils ---
-  const readOnly = (typeof window.isReadOnlyUser === 'function' ? !!window.isReadOnlyUser() : false);
-  const roBtnProps = () => (window.roProps ? window.roProps() : {});
-
-  // Header User Label
-  const rawRole = user && user.role ? String(user.role).toLowerCase() : '';
-  let roleLabel = '';
-  if (rawRole === 'admin') roleLabel = 'Admin';
-  else if (rawRole === 'worker') roleLabel = 'Operatore';
-  else if (rawRole === 'mobile') roleLabel = 'Mobile';
-  const userLabel = user ? (user.name || user.username || user.email || user.user || '') : '';
-  const headerUser = (userLabel && roleLabel) ? `${userLabel} — ${roleLabel}` : (userLabel || roleLabel || '');
-
-  // Helpers
-  const lsGet = window.lsGet || ((k,d)=>JSON.parse(localStorage.getItem(k)||'null')||d);
-  const lsSet = window.lsSet || ((k,v)=>{localStorage.setItem(k,JSON.stringify(v));window.__anima_dirty=true;});
   const fmtHHMM = (mins) => {
     const t = Math.max(0, Math.round(Number(mins)||0));
     const h = Math.floor(t/60), m=t%60;
@@ -27283,50 +27259,47 @@ var TimbraturaMobileView = function(){
     return `${hh}:${mm}:${ss}`;
   };
 
-  // State
+  // --- 3. Stato ---
   const [refresh, setRefresh] = React.useState(0);
   const [jobId, setJobId] = React.useState('');
   
-  // Restore Job da hash
+  // Recupero Job da URL o memoria
   React.useEffect(()=>{
-    const h = window.location.hash || '';
-    const qs = h.split('?')[1] || '';
-    const params = new URLSearchParams(qs);
-    const j = params.get('job');
-    if(j) setJobId(j);
-    else {
-      // Fallback: se non c'è hash, prova localStorage (utile per refresh pagina)
-      try {
-        const stored = JSON.parse(localStorage.getItem('qrJob'));
-        if (stored) setJobId(String(stored));
-      } catch {}
-    }
+    try {
+      const h = window.location.hash || '';
+      const qs = h.split('?')[1] || '';
+      const params = new URLSearchParams(qs);
+      const j = params.get('job');
+      if(j) { setJobId(j); return; }
+      
+      const stored = JSON.parse(localStorage.getItem('qrJob'));
+      if (stored) setJobId(String(stored));
+    } catch {}
   }, []);
 
-  // Dati
+  // Lettura dati (protetta da crash)
   const app = lsGet('appSettings', {}) || {};
-  const commesse = lsGet('commesseRows', []) || [];
-  const oreRows = lsGet('oreRows', []) || []; 
+  const commesse = Array.isArray(lsGet('commesseRows', [])) ? lsGet('commesseRows', []) : [];
+  const oreRows  = Array.isArray(lsGet('oreRows', [])) ? lsGet('oreRows', []) : [];
 
   const commessa = commesse.find(c => String(c.id) === String(jobId));
 
-  // Righe
+  // Righe e Fasi
   const righe = commessa ? (commessa.righeArticolo || commessa.righe || []) : [];
   const [rigaIdx, setRigaIdx] = React.useState('');
-  
+
   // Auto-selezione riga unica
   React.useEffect(() => {
     if (commessa && righe.length === 1 && rigaIdx==='') setRigaIdx('0');
   }, [commessa, righe]);
 
-  // Fasi
   const fasi = React.useMemo(() => {
     if (!commessa) return [];
     const rNum = (rigaIdx!=='' && rigaIdx!=null) ? Number(rigaIdx) : null;
     if (rNum!=null && righe[rNum] && Array.isArray(righe[rNum].fasi) && righe[rNum].fasi.length) {
       return righe[rNum].fasi;
     }
-    return commessa.fasi || [];
+    return Array.isArray(commessa.fasi) ? commessa.fasi : [];
   }, [commessa, rigaIdx]);
 
   // Operatori
@@ -27336,7 +27309,7 @@ var TimbraturaMobileView = function(){
     return arr.map(x => typeof x==='string'?x:x.name).filter(Boolean);
   }, [app]);
 
-  // Form State
+  // Form
   const [operatore, setOperatore] = React.useState('');
   const [faseIdx, setFaseIdx] = React.useState('');
   const [secondOp, setSecondOp] = React.useState(false);
@@ -27351,7 +27324,7 @@ var TimbraturaMobileView = function(){
     if (thirdOp) { if (secondOp) setSecondOp(false); }
   }, [secondOp, thirdOp]);
 
-  // Active Timer Logic
+  // Timer Attivo
   const ACTIVE_KEY = 'timbraturaActive';
   const [active, setActive] = React.useState(null);
   const [orphan, setOrphan] = React.useState(null);
@@ -27376,10 +27349,12 @@ var TimbraturaMobileView = function(){
     return () => clearInterval(t);
   }, [jobId]);
 
-  // Actions
+  // Start / Stop
   const start = () => {
-    if (!jobId || !operatore || faseIdx==='') return alert('Compila tutti i campi');
-    if (righe.length > 1 && (rigaIdx==='' || rigaIdx==null)) return alert('Seleziona riga');
+    if (!jobId){ alert('Inserisci o scansiona una commessa'); return; }
+    if (!operatore){ alert('Seleziona un operatore'); return; }
+    if (faseIdx===''){ alert('Seleziona una fase'); return; }
+    if (righe.length > 1 && (rigaIdx==='' || rigaIdx==null)){ alert('Seleziona la riga articolo'); return; }
     
     const payload = {
       jobId: String(jobId),
@@ -27401,14 +27376,19 @@ var TimbraturaMobileView = function(){
     if (!active) return;
     const mins = Math.round((Date.now() - new Date(active.startISO).getTime())/60000) * (active.opsCount||1);
     
-    // Suggerimento Residuo (FIX LIVE)
+    // Suggerimento Residuo (Safe)
     let sugg = 0;
-    if (!active.isGasChange && commessa) {
-      const idxNum = (active.rigaIdx != null) ? Number(active.rigaIdx) : null;
-      if (window.residualPiecesCore) {
-        sugg = window.residualPiecesCore(commessa, oreRows, idxNum); 
-      }
-    }
+    try {
+        if (!active.isGasChange && commessa) {
+          const idxNum = (active.rigaIdx != null) ? Number(active.rigaIdx) : null;
+          if (window.residualPiecesCore) {
+            sugg = window.residualPiecesCore(commessa, oreRows, idxNum); 
+          } else if (typeof residualPiecesUI === 'function') {
+            sugg = residualPiecesUI(commessa, idxNum);
+          }
+        }
+    } catch(e) { console.warn('Errore calcolo residuo', e); }
+
     setQtyVal(sugg > 0 ? String(sugg) : '');
     setAskQty({ mins, snapshot: {...active} });
     setActive(null);
@@ -27421,14 +27401,20 @@ var TimbraturaMobileView = function(){
     
     // Salva Ore
     const idObj = window.nextIdUnique ? window.nextIdUnique('ore','O','oreRows') : {id:`O-${Date.now()}`};
+    
+    // Nome fase snapshot
+    let fLab = '';
+    try { fLab = fasi[Number(act.faseIdx)].lav || ''; } catch {}
+
     const rec = {
       id: idObj.id,
       data: nowISO.slice(0,10),
       commessaId: String(jobId),
       faseIdx: act.isGasChange ? null : Number(act.faseIdx),
+      faseLabelAtReg: fLab,
       operatore: act.operatore,
       oreMin: Math.max(1, askQty.mins),
-      oreHHMM: '',
+      oreHHMM: '', 
       qtaPezzi: act.isGasChange ? 0 : qty,
       note: act.isGasChange ? 'Cambio Bombola Gas' : '',
       rigaIdx: act.rigaIdx,
@@ -27438,39 +27424,41 @@ var TimbraturaMobileView = function(){
     const nextOre = [...oreRows, rec];
     lsSet('oreRows', nextOre);
 
-    // Aggiorna qtaProdotta su Commessa
-    if (!act.isGasChange) {
-      const allC = lsGet('commesseRows', []);
-      const ix = allC.findIndex(c => String(c.id) === String(jobId));
-      if (ix >= 0) {
-        const cUpd = { ...allC[ix] };
-        if (window.producedPiecesCore) {
-          cUpd.qtaProdotta = window.producedPiecesCore(cUpd, nextOre);
+    // Aggiorna qtaProdotta su Commessa (Fondamentale)
+    try {
+        if (!act.isGasChange) {
+          const allC = lsGet('commesseRows', []);
+          const ix = allC.findIndex(c => String(c.id) === String(jobId));
+          if (ix >= 0) {
+            const cUpd = { ...allC[ix] };
+            if (window.producedPiecesCore) {
+              cUpd.qtaProdotta = window.producedPiecesCore(cUpd, nextOre);
+            }
+            // Aggiorna anche la fase specifica se serve (legacy fallback)
+            if (Array.isArray(cUpd.fasi) && cUpd.fasi[Number(act.faseIdx)]) {
+               const f = cUpd.fasi[Number(act.faseIdx)];
+               f.qtaProdotta = (Number(f.qtaProdotta)||0) + qty;
+            }
+            cUpd.updatedAt = nowISO;
+            allC[ix] = cUpd;
+            lsSet('commesseRows', allC);
+          }
         }
-        if (Array.isArray(cUpd.fasi) && cUpd.fasi[Number(act.faseIdx)]) {
-           const f = cUpd.fasi[Number(act.faseIdx)];
-           f.qtaProdotta = (Number(f.qtaProdotta)||0) + qty;
-        }
-        cUpd.updatedAt = nowISO;
-        allC[ix] = cUpd;
-        lsSet('commesseRows', allC);
-      }
-    }
+    } catch(e) { console.warn('Err update commessa', e); }
 
     localStorage.removeItem(ACTIVE_KEY);
     setAskQty(null);
     setRefresh(r=>r+1);
     
-    // Sync cloud (non bloccante)
+    // Sync cloud (non bloccante, try-catch per sicurezza)
     try { if (window.syncExportToCloud) window.syncExportToCloud(); } catch {}
     alert('Salvato ✅');
   };
 
-  // --- UI RENDER ---
+  // --- UI RENDER SAFE ---
   const [scanOpen, setScanOpen] = React.useState(false);
   const [isOnline, setIsOnline] = React.useState(navigator.onLine);
   
-  // Listeners stato rete
   React.useEffect(()=>{
      const go = ()=>setIsOnline(true);
      const off= ()=>setIsOnline(false);
@@ -27487,19 +27475,23 @@ var TimbraturaMobileView = function(){
     if (m) return m[0];
     return String(str).trim();
   }
+  
   function openScanner(){
     if (!(window.Html5Qrcode || window.Html5QrcodeScanner)) {
-      alert('Librerie Scanner non caricate.');
+      alert('Scanner non disponibile. Assicurati di essere online o di aver caricato i vendor.');
       return;
     }
     setScanOpen(true);
   }
+  
   React.useEffect(()=>{
     if (!scanOpen) return;
     const elId = 'qr-reader';
     const start = async ()=>{
       try{
+        // Safe check for mobile
         const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        
         if (isMobile && window.Html5Qrcode){
           const h5 = new window.Html5Qrcode(elId);
           await h5.start(
@@ -27517,6 +27509,7 @@ var TimbraturaMobileView = function(){
           );
           scannerRef.current = h5;
         } else if (window.Html5QrcodeScanner){
+          // Fallback desktop o libreria alternativa
           const scanner = new window.Html5QrcodeScanner(elId, { fps: 10, qrbox: 240 }, false);
           scanner.render((decodedText)=>{
              const jid = extractJobId(decodedText);
@@ -27526,9 +27519,13 @@ var TimbraturaMobileView = function(){
           });
           scannerRef.current = scanner;
         }
-      }catch(e){ console.warn('QR error', e); }
+      }catch(e){ 
+          console.warn('QR error', e); 
+          alert('Impossibile avviare la fotocamera: ' + e.message);
+          setScanOpen(false);
+      }
     };
-    setTimeout(start, 100);
+    setTimeout(start, 200); // Ritardo leggermente maggiore per rendering DOM
     return ()=>{ 
       try{ 
         if(scannerRef.current?.stop) scannerRef.current.stop(); 
@@ -27538,30 +27535,31 @@ var TimbraturaMobileView = function(){
   }, [scanOpen]);
 
 
+  // === RENDER ===
   return e('div', {className:'page timbratura'},
-    // Warning orfana
+    // Orphan Warning
     orphan && e('div', {className:'card', style:{borderColor:'orange', marginBottom:12}},
-      e('div', null, `Timbratura attiva su ${orphan.jobId}`),
+      e('div', {className:'muted'}, `Timbratura attiva su ${orphan.jobId}`),
       e('div', {className:'row', style:{marginTop:8}},
         e('button', {className:'btn btn-sm', onClick:()=>{ setJobId(orphan.jobId); }}, 'Vai'),
         e('button', {className:'btn btn-sm btn-outline', onClick:()=>{ localStorage.removeItem(ACTIVE_KEY); setOrphan(null); }}, 'Elimina')
       )
     ),
 
-    // Header Utente + Stato
-    e('div', {style:{marginBottom:12}},
-       headerUser && e('div',{className:'muted', style:{marginBottom:4, fontSize:12}}, headerUser),
-       e('div', {className:'row', style:{justifyContent:'space-between', alignItems:'center'}},
-         e('button', {className:'btn btn-outline', onClick:()=> {
-             if(history.length>1) history.back(); else location.hash='#/dashboard';
-         }}, '⬅ Indietro'),
-         e('span', {className:'badge', style:{background: isOnline?'#16a34a':'#dc2626', color:'#fff'}}, 
-           isOnline?'ONLINE':'OFFLINE')
+    // Header Actions (Ripristino pulsanti layout mobile)
+    e('div', {className:'actions', style:{justifyContent:'space-between', flexWrap:'wrap', marginBottom:12}},
+       e('button', {className:'btn btn-outline', onClick:()=> {
+           if(history.length>1) history.back(); else location.hash='#/dashboard';
+       }}, '⬅ Indietro'),
+       
+       e('div', {className:'row', style:{gap:4}},
+         e('span', {className:'badge', style:{background: isOnline?'#16a34a':'#dc2626', color:'#fff'}}, isOnline?'ON':'OFF'),
+         !user && e('button', {className:'btn btn-sm btn-primary', onClick:()=>location.hash='#/login'}, 'Login')
        )
     ),
-    
-    // RESTORED: Pulsanti Import/Export/Etichette (Mobile friendly)
-    e('div', {className:'actions', style:{justifyContent:'flex-start', flexWrap:'wrap', gap:8, marginBottom:12}},
+
+    // Pulsanti Sync / Utility (Ripristinati)
+    e('div', {className:'actions', style:{justifyContent:'flex-end', flexWrap:'wrap', gap:8, marginBottom:12}},
        commessa && e('button', {className:'btn btn-sm btn-outline', onClick:()=>window.triggerEtichetteFor && window.triggerEtichetteFor(commessa, {})}, '🖨 Etichette'),
        e('button', {className:'btn btn-sm btn-outline', onClick:()=>window.syncImportFromCloud && window.syncImportFromCloud()}, '⬇ Importa'),
        e('button', {className:'btn btn-sm btn-outline', onClick:()=>window.syncExportToCloud && window.syncExportToCloud()}, '⬆ Esporta')
@@ -27576,15 +27574,17 @@ var TimbraturaMobileView = function(){
         
         const totUI = hasRow ? Math.max(1, Number(rSel?.qta || totComm)) : totComm;
         
-        // Calcolo LIVE
-        const residUIraw = window.residualPiecesCore 
-            ? window.residualPiecesCore(commessa, oreRows, rIdxNum) 
-            : (typeof residualPiecesUI === 'function' ? residualPiecesUI(commessa, rIdxNum) : 0);
+        // Calcolo LIVE Safe
+        let residUI = 0;
+        try {
+            const residUIraw = window.residualPiecesCore 
+                ? window.residualPiecesCore(commessa, oreRows, rIdxNum) 
+                : (typeof residualPiecesUI === 'function' ? residualPiecesUI(commessa, rIdxNum) : 0);
+            residUI = Math.max(0, Math.min(totUI, Number(residUIraw) || 0));
+        } catch { residUI = 0; }
 
-        const residUI = Math.max(0, Math.min(totUI, Number(residUIraw) || 0));
         const prodUI  = Math.max(0, totUI - residUI);
         
-        // Titolo
         const rowLabel = hasRow ? (rSel.codice || `Riga ${rIdxNum+1}`) : '';
         const title = commessa.descrizione + (rowLabel ? ` — ${rowLabel}` : '');
 
@@ -27690,6 +27690,8 @@ var TimbraturaMobileView = function(){
     )
   );
 };
+
+
 
 // === STUB + ROUTES REPAIR (idempotente, incolla in fondo) ==================
 (function ensureRoutesAndStubs(){
