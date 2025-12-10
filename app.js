@@ -4476,8 +4476,30 @@ function mergeAppSettings(localApp, remoteApp){
 };
 
   window.syncExportToCloud = async function(){
-  try { await exportAll(); console.info('[cloud] Dati inviati'); }
-  catch(e){ console.warn('[cloud] Errore export:', e); }
+    try {
+      await exportAll();
+      const now = Date.now();
+      window.__anima_lastPush = now;
+
+      const prev = window.__cloudSync__ || {};
+      window.__cloudSync__ = {
+        ...prev,
+        enabled: true,
+        lastPush: now,
+        lastError: null
+      };
+
+      console.info('[cloud] Dati inviati');
+    } catch(e){
+      console.warn('[cloud] Errore export:', e);
+      const msg = e && e.message ? e.message : String(e);
+      window.__cloud_lastErr = msg;
+      const prev = window.__cloudSync__ || {};
+      window.__cloudSync__ = {
+        ...prev,
+        lastError: msg
+      };
+    }
   };
 
   // ========== IMPORT CLOUD (override): MERGE per id, con priorità a record più recenti (anche deletedAt) ==========
@@ -4591,13 +4613,31 @@ window.syncImportFromCloud = async function(){
       localStorage.setItem('appSettings', JSON.stringify(nextApp));
     }
 
+        const nowPull = Date.now();
+    window.__anima_lastPull = nowPull;
+    const prevState = window.__cloudSync__ || {};
+    window.__cloudSync__ = {
+      ...prevState,
+      enabled: true,
+      lastPull: nowPull,
+      lastError: null
+    };
+
     console.info('Import cloud completato (merge, senza cancellazioni).');
 
   }catch(e){
     console.error(e);
-    alert('Errore import cloud: ' + (e && e.message ? e.message : e));
+    const msg = e && e.message ? e.message : String(e);
+    window.__cloud_lastErr = msg;
+    const prev = window.__cloudSync__ || {};
+    window.__cloudSync__ = {
+      ...prev,
+      lastError: msg
+    };
+    alert('Errore import cloud: ' + msg);
   }
 };
+
   // opzionale: export selettivo senza alert (per timbratura)
   window.syncExportToCloudOnly = async function(keys){
     try { await exportOnly(keys); } catch(e){ console.warn(e); }
@@ -4611,8 +4651,15 @@ window.syncImportFromCloud = async function(){
     async function tick(){
     const cfg = getSettings();
     const ready = sbReady(cfg);
-    // aggiorna stato visibile in Dashboard
-    window.__cloudSync__ = { enabled: !!ready };
+    // aggiorna stato visibile in Dashboard (senza perdere le info già note)
+    const prevState = window.__cloudSync__ || {};
+    window.__cloudSync__ = {
+      ...prevState,
+      enabled: !!ready,
+      lastPush: window.__anima_lastPush || prevState.lastPush || null,
+      lastPull: window.__anima_lastPull || prevState.lastPull || null,
+      lastError: window.__cloud_lastErr || prevState.lastError || null
+    };
 
     if (!ready) {
       setTimeout(tick, INTERVAL_MS);
@@ -13848,10 +13895,14 @@ const counters0 = lsGet('counters', {}) || {};
       console.warn('[Impostazioni] sync svuotaCestinoDDT fallita', e);
     }
 
-    alert(`Cestino DDT svuotato.\nDDT rimossi definitivamente: ${removed}.`);
+  alert(`Cestino DDT svuotato.\nDDT rimossi definitivamente: ${removed}.`);
   }
 
   const autosync = !!(window.__cloudSync__ && window.__cloudSync__.enabled);
+  const cloudState = window.__cloudSync__ || {};
+  const lastPushStr = cloudState.lastPush ? new Date(cloudState.lastPush).toLocaleString() : 'n/d';
+  const lastPullStr = cloudState.lastPull ? new Date(cloudState.lastPull).toLocaleString() : 'n/d';
+  const lastErrStr  = cloudState.lastError ? ` · Ultimo errore: ${cloudState.lastError}` : '';
 
   // UI
   return e('div', {className:'page', style:{display:'grid', gap:16}},
@@ -14164,7 +14215,7 @@ const counters0 = lsGet('counters', {}) || {};
         e('button', {type:'button', className:'btn', onClick:exportCloud}, '⬆️ Esporta ora')
       ),
       e('div', {className:'muted', style:{marginTop:6}},
-        `Stato: ${form.cloudEnabled ? 'Abilitato' : 'Disabilitato'} · Auto-sync: ${!!(window.__cloudSync__ && window.__cloudSync__.enabled) ? 'attivo' : 'spento'}`
+        `Stato: ${form.cloudEnabled ? 'Abilitato' : 'Disabilitato'} · Auto-sync: ${autosync ? 'attivo' : 'spento'} · Ultimo export: ${lastPushStr} · Ultimo import: ${lastPullStr}${lastErrStr}`
       )
     ),
 
@@ -26188,45 +26239,43 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
 
     window.addOrderParser({
       id  : 'steel-systems',
-      name: 'Ordini STEEL SYSTEMS',
+      name: 'Ordini STEEL SYSTEMS / ERGOMEC',
       test: (txt, name='') => {
         const t = String(txt || '');
 
-        // Modulo STEEL / ERGOMEC con tabella Pos./Codice
+        // Modulo STEEL o ERGOMEC con tabella Pos./Codice
         const isSteel   = /STEEL\s+SYSTEMS/i.test(t);
         const isErgomec = /ERGOMEC\s*S\.?R\.?L\.?/i.test(t);
 
-        // Se non è né STEEL né ERGOMEC → questo parser non vale
         if (!isSteel && !isErgomec) return false;
 
-        // Stesso layout: ordine di acquisto con tabella Pos./Codice/Rev./Descrizione/UM/Q.tà/Prezzo Unitario...
+        // Stesso layout: Ord. acq. ... con tabella Pos./Codice/Rev./Descrizione/UM/Q.tà/Prezzo Unitario...
         return /Ord\.\s*acq\./i.test(t)
           && /Pos\.\s+Codice\s+Rev\.\s+Descrizione\s+UM\s+Q\.tà\s+Prezzo\s+Unitario/i.test(t);
       },
 
       extract: (txt, name='') => {
-        // Testo appiattito come in extractPdfText
         const flat = String(txt || '').replace(/\s+/g,' ').trim();
+        const isErgomec = /ERGOMEC\s*S\.?R\.?L\.?/i.test(flat);
 
         const righe    = [];
         const consegne = [];
 
-        // Righe tipo:
-        // 10 50821823 00 TRAMOGGIA ... M1 PZ 2 430,00 860,00 18/12/25
-        // 20 50901760 00 CONO DIFFUSORE ... M1 PZ 2 1,00 2,00 01/12/25
+        // Righe tipo (anche per ERGOMEC):
+        // 80 50100174 00 TELAIO ... PZ 2 150,00 300,00 15/12/25
         const rowRe = /\b(\d{1,3})\s+([0-9]{6,})\s+([0-9]{2})\s+(.+?)\s+([A-Z0-9]{1,3})\s+([0-9.]+,[0-9]+|\d+)\s+([0-9.]+,[0-9]+)\s+([0-9.]+,[0-9]+)\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/g;
 
         let m;
         while ((m = rowRe.exec(flat))) {
-          const pos      = m[1];           // 10, 20, 30...
-          const codice   = m[2];           // 50821823 ...
-          const rev      = m[3];           // 00
-          let descr      = m[4] || '';     // descrizione lunga
-          const umRaw    = m[5] || 'PZ';   // UM
-          const qtaStr   = m[6];           // Q.tà
-          const unitStr  = m[7];           // Prezzo unitario (non usato)
-          const totStr   = m[8];           // Totale (non usato)
-          const consegna = m[9];           // data consegna
+          const pos      = m[1];
+          const codice   = m[2];
+          const rev      = m[3];
+          let descr      = m[4] || '';
+          const umRaw    = m[5] || 'PZ';
+          const qtaStr   = m[6];
+          const unitStr  = m[7];
+          const totStr   = m[8];
+          const consegna = m[9];
 
           if (!/^\d{1,3}$/.test(pos)) continue;
           if (!codice) continue;
@@ -26268,8 +26317,6 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
           scadenza = consegne.slice().sort().slice(-1)[0];
         }
 
-        const isErgomec = /ERGOMEC\s*S\.?R\.?L\.?/i.test(flat);
-        const isErgomec = /ERGOMEC\s*S\.?R\.?L\.?/i.test(flat);
         const cliente   = isErgomec ? 'ERGOMEC S.R.L.' : 'STEEL SYSTEMS S.r.l.';
         const baseDescr = isErgomec ? 'Ordine cliente ERGOMEC' : 'Ordine c/lavoro STEEL';
         const descr     = (`${baseDescr} ${rifNumero || ''}`).trim();
