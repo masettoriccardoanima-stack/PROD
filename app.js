@@ -27218,102 +27218,51 @@ window.getHashParam = window.getHashParam || function(name){
   }catch{ return ''; }
 };
 
-/* ================== TIMBRATURA MOBILE — versione unica ==================
-   - Timer start/stop
-   - x2 / x3 operatori
-   - Cambio bombola gas (extra)
-   - Aggiorna oreRows + commesseRows (qtaProdotta + totale)
-   - Riga articolo (multi-articolo) con rigaIdx e prompt “Dettaglio…”
-   - QR scanner integrato (Html5Qrcode / Html5QrcodeScanner, se presenti)
-   - FIX: Aggiornamento LIVE residuo (residUIraw usa oreRows aggiornate)
-========================================================================= */
+/* ================== TIMBRATURA MOBILE (Logica Completa + Fix Login/Residuo) ================== */
 var TimbraturaMobileView = function(){
   const e = React.createElement;
 
-  // RBAC sola lettura (accountant / viewer / mobile)
-  const readOnly = (typeof window.isReadOnlyUser === 'function'
-    ? !!window.isReadOnlyUser()
-    : !!(window.__USER && window.__USER.role === 'accountant'));
-
-  const roBtnProps = () =>
-    (window.roProps ? window.roProps() : (readOnly ? {
-      disabled: true,
-      title: 'Sola lettura'
-    } : {}));
-
-  // Utente corrente + label ruolo
-  const user = (typeof window !== 'undefined' && window.__USER) ? window.__USER : null;
-  const rawRole = user && user.role ? String(user.role).toLowerCase() : '';
-  let roleLabel = '';
-  if (rawRole === 'admin') roleLabel = 'Admin';
-  else if (rawRole === 'worker') roleLabel = 'Operatore (timbratura/etichette)';
-  else if (rawRole === 'mobile') roleLabel = 'Mobile (solo consultazione)';
-  else if (rawRole === 'accountant') roleLabel = 'Accountant (solo lettura)';
-  else if (rawRole === 'viewer') roleLabel = 'Viewer (solo consultazione)';
-
-  const userLabel = user ? (user.name || user.username || user.email || user.user || '') : '';
-  const headerUser = (userLabel && roleLabel) ? `${userLabel} — ${roleLabel}` : (userLabel || roleLabel || '');
-
-  // ---- Helpers LocalStorage sicuri ----
-  const lsGet = (window.lsGet) || ((k,d)=>{ try{ return JSON.parse(localStorage.getItem(k)) ?? d; }catch{ return d; }});
-  const lsSet = (window.lsSet) || ((k,v)=>{ try{ localStorage.setItem(k, JSON.stringify(v)); window.__anima_dirty = true; }catch{} });
-
-  // ---- Tempo ----
-  const todayISO = () => new Date().toISOString().slice(0,10);
-  const _toMin = (s) => {
-    if (s == null) return 0;
-    const t = String(s).trim();
-    const m = t.match(/^(\d{1,4})(?::([0-5]?\d))?$/);
-    if (!m) return Math.max(0, Number(t) || 0);
-    const h = parseInt(m[1] || '0', 10) || 0;
-    const mm = parseInt(m[2] || '0', 10) || 0;
-    return h * 60 + mm;
-  };
-  const fmtHHMM = (mins) => {
-    const t = Math.max(0, Math.round(Number(mins)||0));
-    const h = Math.floor(t/60), m=t%60;
-    return `${h}:${String(m).padStart(2,'0')}`;
-  };
-  const fmtHMS = (ms) => {
-    const s = Math.max(0, Math.floor(ms/1000));
-    const hh = String(Math.floor(s/3600)).padStart(2,'0');
-    const mm = String(Math.floor((s%3600)/60)).padStart(2,'0');
-    const ss = String(s%60).padStart(2,'0');
-    return `${hh}:${mm}:${ss}`;
-  };
-
-  // State: Refresh per re-render al cambio dati
-  const [refresh, setRefresh] = React.useState(0);
-  
-  // JobID da hash
-  const [jobId, setJobId] = React.useState('');
-  React.useEffect(()=>{
-    function refreshJob(){
-      const h = window.location.hash || '';
-      const qs = h.split('?')[1] || '';
-      const params = new URLSearchParams(qs);
-      const fromHash = params.get('job') || '';
-      if (fromHash) { setJobId(fromHash); return; }
+  // --- 1. Login Guard (Fondamentale per mobile/worker) ---
+  const [user, setUser] = React.useState(window.__USER || null);
+  React.useEffect(() => {
+    // Se non loggato, prova requireLogin o rimanda al login
+    const check = async () => {
       try {
-        const tmp = JSON.parse(localStorage.getItem('qrJob') || 'null');
-        if (tmp) setJobId(String(tmp));
-      } catch {}
-    }
-    refreshJob();
-    window.addEventListener('hashchange', refreshJob);
-    return ()=> window.removeEventListener('hashchange', refreshJob);
+        const u = await window.requireLogin();
+        setUser(u);
+      } catch {
+        // Se requireLogin fallisce, location.hash è già cambiato in #/login
+      }
+    };
+    if (!window.__USER) check();
+  }, []);
+
+  // Se non c'è utente, schermata di attesa (evita crash)
+  if (!user && !window.__USER) return e('div', {className:'page'}, 'Caricamento utente...');
+
+  // --- 2. Logica Completa Timbratura ---
+  
+  // Helpers e State
+  const lsGet = window.lsGet || ((k,d)=>JSON.parse(localStorage.getItem(k)||'null')||d);
+  const lsSet = window.lsSet || ((k,v)=>{localStorage.setItem(k,JSON.stringify(v));window.__anima_dirty=true;});
+  
+  const [refresh, setRefresh] = React.useState(0);
+  const [jobId, setJobId] = React.useState('');
+  
+  // Restore Job da hash
+  React.useEffect(()=>{
+    const h = window.location.hash || '';
+    const qs = h.split('?')[1] || '';
+    const j = new URLSearchParams(qs).get('job');
+    if(j) setJobId(j);
   },[]);
 
-  // Dati (letti ad ogni refresh)
-  const app      = React.useMemo(()=> lsGet('appSettings', {}) || {}, [refresh]);
-  const commesse = React.useMemo(()=> lsGet('commesseRows', []), [refresh]);
-  const oreRows  = React.useMemo(()=> lsGet('oreRows', []), [refresh]); // IMPORTANTE: oreRows aggiornato
+  // Dati
+  const app = lsGet('appSettings', {}) || {};
+  const commesse = lsGet('commesseRows', []) || [];
+  const oreRows = lsGet('oreRows', []) || []; // <-- Importante: letto fresco ad ogni refresh
 
-  // Commessa corrente
-  const commessa = React.useMemo(
-    ()=> (Array.isArray(commesse)?commesse:[]).find(c=>String(c.id)===String(jobId)) || null,
-    [commesse, jobId]
-  );
+  const commessa = commesse.find(c => String(c.id) === String(jobId));
 
   // Normalizzazione commessa (fasi per riga)
   React.useEffect(() => {
@@ -27321,452 +27270,289 @@ var TimbraturaMobileView = function(){
     try {
       const normIds = window.ensureCommessaRowIds ? window.ensureCommessaRowIds(commessa) : commessa;
       const norm = window.ensureCommessaRowFasi ? window.ensureCommessaRowFasi(normIds) : normIds;
-      if (norm === commessa) return;
-      
-      const raw = lsGet('commesseRows', []);
-      const all = Array.isArray(raw) ? raw.slice() : [];
-      const ix = all.findIndex(x => String(x.id) === String(commessa.id));
-      if (ix >= 0) {
-        all[ix] = norm;
-        lsSet('commesseRows', all);
-        setRefresh(r => r + 1);
+      if (norm !== commessa) {
+        const all = lsGet('commesseRows', []);
+        const ix = all.findIndex(x => String(x.id) === String(commessa.id));
+        if (ix >= 0) { all[ix] = norm; lsSet('commesseRows', all); setRefresh(r=>r+1); }
       }
-    } catch (e) {}
+    } catch {}
   }, [commessa]);
 
-  // Righe articolo
-  const righe = React.useMemo(() => {
-    if (!commessa) return [];
-    return commessa.righeArticolo || commessa.righe || [];
-  }, [commessa]);
-
-  // Riga selezionata
+  // Righe
+  const righe = commessa ? (commessa.righeArticolo || commessa.righe || []) : [];
   const [rigaIdx, setRigaIdx] = React.useState('');
+  
+  // Auto-selezione riga unica
   React.useEffect(() => {
-    if (!commessa) { setRigaIdx(''); return; }
-    // Auto-select se c'è 1 sola riga "significativa"
-    const valid = Array.isArray(righe) ? righe.filter(r => String(r?.codice||'').trim() || String(r?.descrizione||'').trim()) : [];
-    if (valid.length === 1) {
-       const idx = righe.indexOf(valid[0]);
-       if (idx >= 0) setRigaIdx(String(idx));
-    }
+    if (commessa && righe.length === 1 && rigaIdx==='') setRigaIdx('0');
   }, [commessa, righe]);
 
-  // Fasi effettive (per-riga o globali)
+  // Fasi
   const fasi = React.useMemo(() => {
     if (!commessa) return [];
-    const idx = (rigaIdx !== '' && rigaIdx != null) ? Number(rigaIdx) : null;
-    if (Number.isFinite(idx) && righe[idx] && Array.isArray(righe[idx].fasi) && righe[idx].fasi.length){
-      return righe[idx].fasi;
+    const rNum = (rigaIdx!=='' && rigaIdx!=null) ? Number(rigaIdx) : null;
+    if (rNum!=null && righe[rNum] && Array.isArray(righe[rNum].fasi) && righe[rNum].fasi.length) {
+      return righe[rNum].fasi;
     }
-    // Fallback: fasi globali commessa
     return commessa.fasi || [];
-  }, [commessa, righe, rigaIdx]);
+  }, [commessa, rigaIdx]);
 
   // Operatori
   const operators = React.useMemo(() => {
     let arr = Array.isArray(app.operators) ? app.operators : [];
-    if (!arr.length && Array.isArray(app.users)) {
-      arr = app.users.map(u => u.name || u.label || u.email || '').filter(Boolean);
-    }
-    return arr.map(o => typeof o==='string'?o.trim():(o.name||'')).filter(Boolean);
+    if (!arr.length && Array.isArray(app.users)) arr = app.users.map(u=>u.name||u.username||'');
+    return arr.map(x => typeof x==='string'?x:x.name).filter(Boolean);
   }, [app]);
 
-  // Stato form
+  // Form State
   const [operatore, setOperatore] = React.useState('');
-  const [faseIdx, setFaseIdx]     = React.useState('');
-  
-  React.useEffect(()=>{ if (!operatore && operators.length===1) setOperatore(operators[0]); }, [operators, operatore]);
-  React.useEffect(()=>{ if (commessa && fasi.length && (faseIdx==='' || faseIdx==null)){ setFaseIdx('0'); } }, [commessa, fasi]);
-
-  // Opzioni Timbratura
-  const [secondOp, setSecondOp]   = React.useState(false);
-  const [thirdOp,  setThirdOp]    = React.useState(false);
+  const [faseIdx, setFaseIdx] = React.useState('');
+  const [secondOp, setSecondOp] = React.useState(false);
+  const [thirdOp, setThirdOp] = React.useState(false);
   const [gasChange, setGasChange] = React.useState(false);
-  const [opsCount, setOpsCount]   = React.useState(1);
-  
-  React.useEffect(()=>{
-    if (thirdOp)      { if (secondOp) setSecondOp(false); setOpsCount(3); }
-    else if (secondOp){ setOpsCount(2); }
-    else              { setOpsCount(1); }
-  }, [secondOp, thirdOp]);
+  const opsCount = thirdOp ? 3 : (secondOp ? 2 : 1);
 
+  // Active Timer Logic
   const ACTIVE_KEY = 'timbraturaActive';
   const [active, setActive] = React.useState(null);
-  const [orphanActive, setOrphanActive] = React.useState(null);
-
-  // Restore attivo
-  React.useEffect(()=>{
-    const raw = lsGet(ACTIVE_KEY, null);
-    if (raw && raw.jobId){
-      if (String(raw.jobId) === String(jobId)){
-        setActive(raw);
-        setOperatore(raw.operatore||'');
-        setFaseIdx(String(raw.faseIdx ?? ''));
-        const oc = Number(raw.opsCount||1);
-        setSecondOp(oc===2); setThirdOp(oc===3); setOpsCount(Math.min(3, Math.max(1, oc)));
-        setGasChange(!!raw.isGasChange);
-        if (typeof raw.rigaIdx === 'number') setRigaIdx(String(raw.rigaIdx));
-        setOrphanActive(null);
-      } else {
-        setOrphanActive(raw);
-      }
-    } else {
-      setOrphanActive(null);
-    }
-  },[jobId]);
-
-  // Timer
+  const [orphan, setOrphan] = React.useState(null);
   const [now, setNow] = React.useState(Date.now());
-  React.useEffect(()=>{ if (!active) return; const t = setInterval(()=> setNow(Date.now()), 1000); return ()=> clearInterval(t); },[active]);
 
-  // Minuti effettivi fase
-  const effMinsPhase = React.useMemo(() => {
-    if (!commessa || faseIdx === '' || !Array.isArray(oreRows)) return 0;
-    const idx = Number(faseIdx);
-    return oreRows
-      .filter(o => {
-        if (!o || o.deletedAt) return false;
-        if (String(o.commessaId) !== String(commessa.id)) return false;
-        if (Number(o.faseIdx) === idx) return true;
-        return false;
-      })
-      .reduce((sum, o) => sum + Math.max(0, (Number(o.oreMin)||0) || _toMin(o.oreHHMM||0)), 0);
-  }, [oreRows, commessa, faseIdx]);
-
-  const plannedMinsOfPhase = (f) => {
-    if (!f) return 0;
-    const candidates = [f.oreMin, f.minuti, f.min, f.oreHHMM, f.ore];
-    for (const v of candidates) { const n = _toMin(v); if (n > 0) return n; }
-    return 0;
-  };
+  React.useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    const raw = lsGet(ACTIVE_KEY, null);
+    if (raw && raw.jobId) {
+      if (String(raw.jobId) === String(jobId)) {
+        setActive(raw);
+        setOperatore(raw.operatore);
+        setFaseIdx(String(raw.faseIdx));
+        if (typeof raw.rigaIdx==='number') setRigaIdx(String(raw.rigaIdx));
+        setSecondOp(raw.opsCount===2); setThirdOp(raw.opsCount===3);
+        setGasChange(!!raw.isGasChange);
+        setOrphan(null);
+      } else {
+        setOrphan(raw);
+      }
+    }
+    return () => clearInterval(t);
+  }, [jobId]);
 
   // Actions
-  function selectRiga(){
-    if (!commessa || !righe.length) return;
-    const txt = righe.map((r,i)=> `${i+1}) ${r.codice||''} ${r.descrizione||''}`).join('\n');
-    const idx = prompt('Seleziona riga:\n'+txt, '1');
-    if(idx){
-        const n = parseInt(idx)-1;
-        if(righe[n]) setRigaIdx(String(n));
-    }
-  }
-
-  function start(){
-    if (!jobId){ alert('Commessa non valida'); return; }
-    if (!operatore){ alert('Seleziona operatore'); return; }
-    if (faseIdx===''){ alert('Seleziona fase'); return; }
+  const start = () => {
+    if (!jobId || !operatore || faseIdx==='') return alert('Compila tutti i campi');
+    if (righe.length > 1 && (rigaIdx==='' || rigaIdx==null)) return alert('Seleziona riga');
     
-    // Se ci sono più righe, forza selezione
-    if (righe.length > 1 && (rigaIdx==='' || rigaIdx==null)){
-       alert('Seleziona la riga articolo'); return;
-    }
-
     const payload = {
       jobId: String(jobId),
       faseIdx: Number(faseIdx),
-      operatore: String(operatore),
-      opsCount: Math.min(3, Math.max(1, Number(opsCount)||1)),
-      startISO: new Date().toISOString(),
-      isGasChange: !!gasChange,
-      rigaIdx: (rigaIdx===''||rigaIdx==null) ? null : Number(rigaIdx)
+      operatore,
+      opsCount,
+      isGasChange: gasChange,
+      rigaIdx: (rigaIdx===''||rigaIdx==null) ? null : Number(rigaIdx),
+      startISO: new Date().toISOString()
     };
     lsSet(ACTIVE_KEY, payload);
     setActive(payload);
-  }
+  };
 
-  // Chiusura con quantità
   const [askQty, setAskQty] = React.useState(null);
   const [qtyVal, setQtyVal] = React.useState('');
 
-  function stop(){
+  const stop = () => {
     if (!active) return;
-    const startMs = new Date(active.startISO).getTime();
-    let mins = Math.round((Date.now() - startMs)/60000);
-    mins = Math.max(1, mins) * Number(active.opsCount||1);
-
-    // Suggerimento quantità residua
-    let suggested = 0;
-    if (commessa && !active.isGasChange) {
-       const idxNum = (active.rigaIdx != null) ? Number(active.rigaIdx) : null;
-       
-       // Usa helper globale residualPiecesCore passando oreRows fresche per calcolo LIVE
-       if (window.residualPiecesCore) {
-           suggested = window.residualPiecesCore(commessa, oreRows, idxNum); 
-       } else if (typeof residualPiecesUI === 'function') {
-           // Fallback se window.residualPiecesCore non esiste (ma dovrebbe)
-           suggested = residualPiecesUI(commessa, idxNum);
-       }
-    }
+    const mins = Math.round((Date.now() - new Date(active.startISO).getTime())/60000) * (active.opsCount||1);
     
-    setQtyVal(suggested > 0 ? String(suggested) : '');
-    setAskQty({ minsEff: mins, snapshot: {...active} });
+    // Suggerimento Residuo (FIX LIVE)
+    let sugg = 0;
+    if (!active.isGasChange && commessa) {
+      const idxNum = (active.rigaIdx != null) ? Number(active.rigaIdx) : null;
+      // Usa residualPiecesCore se disponibile, altrimenti fallback
+      if (window.residualPiecesCore) {
+        sugg = window.residualPiecesCore(commessa, oreRows, idxNum); // Passiamo oreRows aggiornate!
+      } else if (typeof residualPiecesUI === 'function') {
+        sugg = residualPiecesUI(commessa, idxNum);
+      }
+    }
+    setQtyVal(sugg > 0 ? String(sugg) : '');
+    setAskQty({ mins, snapshot: {...active} });
     setActive(null);
-  }
+  };
 
-  function confirmStop(){
-    if (!askQty) return;
-    const qty = Math.max(0, Math.floor(Number(qtyVal)||0));
+  const confirmStop = () => {
     const act = askQty.snapshot;
+    const qty = Math.max(0, Math.floor(Number(qtyVal)||0));
+    const nowISO = new Date().toISOString();
     
-    const oreMin  = askQty.minsEff;
-    const oreHHMM = fmtHHMM(oreMin);
-    const nowISO  = new Date().toISOString();
+    // Salva Ore
+    const idObj = window.nextIdUnique ? window.nextIdUnique('ore','O','oreRows') : {id:`O-${Date.now()}`};
+    const rec = {
+      id: idObj.id,
+      data: nowISO.slice(0,10),
+      commessaId: String(jobId),
+      faseIdx: act.isGasChange ? null : Number(act.faseIdx),
+      operatore: act.operatore,
+      oreMin: Math.max(1, askQty.mins),
+      oreHHMM: '', // calc dopo se vuoi
+      qtaPezzi: act.isGasChange ? 0 : qty,
+      note: act.isGasChange ? 'Cambio Bombola Gas' : '',
+      rigaIdx: act.rigaIdx,
+      __createdAt: nowISO, updatedAt: nowISO
+    };
     
-    // Gestione EXTRA (Gas)
-    if (act.isGasChange) {
-       const recExtra = {
-          id: (window.nextIdUnique ? window.nextIdUnique('ore','O','oreRows').id : `O-GAS-${Date.now()}`),
-          data: nowISO.slice(0,10),
-          commessaId: String(jobId),
-          operatore: act.operatore,
-          oreMin, oreHHMM, note:'Cambio Bombola Gas', qtaPezzi:0,
-          __createdAt: nowISO, updatedAt: nowISO
-       };
-       const nxt = [...oreRows, recExtra];
-       lsSet('oreRows', nxt);
-       alert('Gas salvato');
-    } else {
-       // Standard
-       const nid = (window.nextIdUnique ? window.nextIdUnique('ore','O','oreRows').id : `O-${Date.now()}`);
-       
-       // Nome fase snapshot
-       let fLab = '';
-       try { fLab = fasi[Number(act.faseIdx)].lav || ''; } catch {}
+    // Scrivi oreRows
+    const nextOre = [...oreRows, rec];
+    lsSet('oreRows', nextOre);
 
-       const rec = {
-         id: nid,
-         data: nowISO.slice(0,10),
-         commessaId: String(jobId),
-         faseIdx: Number(act.faseIdx),
-         faseLabelAtReg: fLab,
-         operatore: act.operatore,
-         oreMin, oreHHMM,
-         qtaPezzi: qty,
-         note: '',
-         __createdAt: nowISO, updatedAt: nowISO
-       };
-       
-       // Info riga
-       if (act.rigaIdx != null && righe[act.rigaIdx]) {
-          const rr = righe[act.rigaIdx];
-          rec.rigaIdx = act.rigaIdx;
-          rec.rigaCodice = rr.codice;
-          rec.rigaDescrizione = rr.descrizione;
-       }
-
-       // 1. Salva ORE
-       const nxtOre = [...oreRows, rec];
-       lsSet('oreRows', nxtOre);
-
-       // 2. Aggiorna COMMESSA (qtaProdotta)
-       try {
-         const allC = lsGet('commesseRows', []);
-         const ix = allC.findIndex(c => String(c.id)===String(jobId));
-         if (ix >= 0) {
-            const cUpd = { ...allC[ix] };
-            const fIdx = Number(act.faseIdx);
-            
-            // A) Per riga
-            if (act.rigaIdx != null && Array.isArray(cUpd.righeArticolo) && cUpd.righeArticolo[act.rigaIdx]) {
-                const riga = cUpd.righeArticolo[act.rigaIdx];
-                if (Array.isArray(riga.fasi) && riga.fasi[fIdx]) {
-                    const oldQ = Number(riga.fasi[fIdx].qtaProdotta||0);
-                    const maxQ = Number(riga.qta || cUpd.qtaPezzi || 1);
-                    riga.fasi[fIdx].qtaProdotta = Math.min(maxQ, oldQ + qty);
-                }
-            }
-            // B) Globale (fallback)
-            if (Array.isArray(cUpd.fasi) && cUpd.fasi[fIdx]) {
-                const oldQ = Number(cUpd.fasi[fIdx].qtaProdotta||0);
-                const maxQ = Number(cUpd.qtaPezzi || 1);
-                cUpd.fasi[fIdx].qtaProdotta = Math.min(maxQ, oldQ + qty);
-            }
-
-            // C) Ricalcolo totale commessa
-            if (window.producedPieces) {
-                // Passiamo le ore aggiornate per il calcolo preciso
-                cUpd.qtaProdotta = window.producedPiecesCore 
-                   ? window.producedPiecesCore(cUpd, nxtOre) 
-                   : window.producedPieces(cUpd);
-            }
-
-            cUpd.updatedAt = nowISO;
-            allC[ix] = cUpd;
-            lsSet('commesseRows', allC);
-         }
-       } catch(e) { console.warn('Update commessa fail', e); }
-       
-       alert('Salvato ✅');
+    // Aggiorna qtaProdotta su Commessa (Fondamentale per smartphone)
+    if (!act.isGasChange) {
+      const allC = lsGet('commesseRows', []);
+      const ix = allC.findIndex(c => String(c.id) === String(jobId));
+      if (ix >= 0) {
+        const cUpd = { ...allC[ix] };
+        // Aggiorna totale prodotto usando la funzione core e le NUOVE ore
+        if (window.producedPiecesCore) {
+          cUpd.qtaProdotta = window.producedPiecesCore(cUpd, nextOre);
+        }
+        // Aggiorna anche la fase specifica se serve (legacy fallback)
+        if (Array.isArray(cUpd.fasi) && cUpd.fasi[Number(act.faseIdx)]) {
+           const f = cUpd.fasi[Number(act.faseIdx)];
+           f.qtaProdotta = (Number(f.qtaProdotta)||0) + qty;
+        }
+        cUpd.updatedAt = nowISO;
+        allC[ix] = cUpd;
+        lsSet('commesseRows', allC);
+      }
     }
 
-    setAskQty(null);
     localStorage.removeItem(ACTIVE_KEY);
-    // Trigger refresh UI immediato
-    setRefresh(r => r+1);
+    setAskQty(null);
+    setRefresh(r=>r+1);
+    alert('Salvato ✅');
+  };
+
+  // --- UI ---
+  // Calcolo dati "Live" per la card di riepilogo
+  const summaryUI = React.useMemo(() => {
+    if (!commessa) return null;
+    const totComm = Math.max(1, Number(commessa.qtaPezzi || 1));
+    const rNum = (rigaIdx !== '' && rigaIdx != null) ? Number(rigaIdx) : null;
+    const rSel = (rNum != null && righe[rNum]) ? righe[rNum] : null;
     
-    // Sync cloud (non bloccante)
-    try { if (window.syncExportToCloud) window.syncExportToCloud(); } catch {}
-  }
+    const totUI = rSel ? Math.max(1, Number(rSel.qta || totComm)) : totComm;
+    
+    // Residuo LIVE (basato sulle ore attuali)
+    let resid = 0;
+    if (window.residualPiecesCore) {
+       resid = window.residualPiecesCore(commessa, oreRows, rNum);
+    }
+    const prod = Math.max(0, totUI - resid);
 
-  // --- RENDER ---
-  const [isOnline, setIsOnline] = React.useState(navigator.onLine);
-  React.useEffect(()=>{
-     window.addEventListener('online', ()=>setIsOnline(true));
-     window.addEventListener('offline', ()=>setIsOnline(false));
-  },[]);
+    return { tot: totUI, prod, resid, label: rSel ? (rSel.codice || 'Riga '+(rNum+1)) : commessa.descrizione };
+  }, [commessa, rigaIdx, oreRows]); // ricalcola se cambiano le ore!
 
-  // Scan QR
   const [scanOpen, setScanOpen] = React.useState(false);
-  function openScanner(){ setScanOpen(true); }
-
+  const [isOnline, setIsOnline] = React.useState(navigator.onLine);
+  
   return e('div', {className:'page timbratura'},
-    // Warning orfana
-    orphanActive && e('div', {className:'card', style:{marginBottom:12, borderColor:'#f59e0b'}},
-        e('div', {className:'muted'}, `Trovata timbratura attiva su ${orphanActive.jobId}`),
-        e('button', {className:'btn btn-sm', onClick:()=>{
-            localStorage.removeItem(ACTIVE_KEY); setOrphanActive(null);
-        }}, 'Ignora'),
-        e('button', {className:'btn btn-sm btn-outline', style:{marginLeft:8}, onClick:()=>{
-            setJobId(orphanActive.jobId);
-        }}, 'Vai')
+    // Orphan Warning
+    orphan && e('div', {className:'card', style:{borderColor:'orange', marginBottom:12}},
+      e('div', null, `Timbratura attiva su ${orphan.jobId}`),
+      e('div', {className:'row', style:{marginTop:8}},
+        e('button', {className:'btn btn-sm', onClick:()=>{ setJobId(orphan.jobId); }}, 'Vai'),
+        e('button', {className:'btn btn-sm btn-outline', onClick:()=>{ localStorage.removeItem(ACTIVE_KEY); setOrphan(null); }}, 'Elimina')
+      )
     ),
 
-    // Header Actions
-    e('div', {className:'actions', style:{justifyContent:'space-between', marginBottom:12}},
-       e('button', {className:'btn btn-outline', onClick:()=> {
-           if(history.length>1) history.back(); else location.hash='#/dashboard';
-       }}, '⬅ Indietro'),
-       e('span', {className:'badge', style:{background: isOnline?'#16a34a':'#dc2626', color:'#fff'}}, 
-         isOnline?'ONLINE':'OFFLINE')
-    ),
-    
-    // Import/Export rapidi
-    e('div', {className:'actions', style:{justifyContent:'flex-end', marginBottom:12}},
-       e('button', {className:'btn btn-sm btn-outline', onClick:()=>window.syncImportFromCloud && window.syncImportFromCloud()}, '⬇ Importa'),
-       e('button', {className:'btn btn-sm btn-outline', onClick:()=>window.syncExportToCloud && window.syncExportToCloud()}, '⬆ Esporta')
+    // Header
+    e('div', {className:'row', style:{justifyContent:'space-between', marginBottom:12}},
+      e('button', {className:'btn btn-outline', onClick:()=>{ location.hash='#/dashboard'; }}, '⬅ Home'),
+      e('div', {className:'badge', style:{background:isOnline?'#16a34a':'#dc2626', color:'#fff'}}, isOnline?'ONLINE':'OFFLINE')
     ),
 
-    // CARD COMMESSA & STATISTICHE (Fix Quantità LIVE)
-    commessa && (function(){
-        // CALCOLO DINAMICO (LIVE) che usa oreRows aggiornate dallo state
-        
-        // 1. Totale commessa
-        const totComm = Math.max(1, Number(commessa?.qtaPezzi || 1));
-        
-        // 2. Riga selezionata?
-        const rIdxNum = (rigaIdx===''||rigaIdx==null) ? null : Number(rigaIdx);
-        const hasRow  = Number.isFinite(rIdxNum) && Array.isArray(commessa?.righeArticolo) && commessa.righeArticolo[rIdxNum];
-        const rSel    = hasRow ? commessa.righeArticolo[rIdxNum] : null;
-        
-        // 3. Totale riferimento (della riga o della commessa)
-        const totUI = hasRow ? Math.max(1, Number(rSel?.qta || totComm)) : totComm;
-
-        // 4. Residuo LIVE: usa la funzione che scansiona le oreRows attuali
-        //    (Assicurati che oreRows sia aggiornato dal sync cloud prima di questo render)
-        const residUIraw = window.residualPiecesCore 
-            ? window.residualPiecesCore(commessa, oreRows, rIdxNum) 
-            : (typeof residualPiecesUI === 'function' ? residualPiecesUI(commessa, rIdxNum) : 0);
-
-        const residUI = Math.max(0, Math.min(totUI, Number(residUIraw) || 0));
-        const prodUI  = Math.max(0, totUI - residUI);
-
-        // UI Title
-        const rowLabel = hasRow ? (rSel.codice || `Riga ${rIdxNum+1}`) : '';
-        const title = commessa.descrizione + (rowLabel ? ` — ${rowLabel}` : '');
-
-        return e('div', {className:'card timbratura-summary', style:{marginBottom:12, padding:10}},
-           e('div', {style:{fontSize:12, color:'#666'}}, `Commessa ${commessa.id}`),
-           e('div', {style:{fontWeight:'bold', fontSize:14, marginBottom:8}}, title),
-           
-           e('div', {style:{display:'flex', gap:8}},
-              e('div', {style:{flex:1, border:'1px solid #ddd', borderRadius:6, padding:6, background:'#f9fafb'}},
-                 e('div',{style:{fontSize:10, color:'#666'}}, 'TOTALE'),
-                 e('div',{style:{fontSize:18, fontWeight:'bold'}}, totUI)
-              ),
-              e('div', {style:{flex:1, border:'1px solid #ddd', borderRadius:6, padding:6, background:'#f9fafb'}},
-                 e('div',{style:{fontSize:10, color:'#666'}}, 'FATTI'),
-                 e('div',{style:{fontSize:18, fontWeight:'bold'}}, prodUI)
-              ),
-              e('div', {style:{flex:1, border:'1px solid #ddd', borderRadius:6, padding:6, background:'#fee2e2'}},
-                 e('div',{style:{fontSize:10, color:'#b91c1c'}}, 'RESIDUO'),
-                 e('div',{style:{fontSize:18, fontWeight:'bold', color:'#b91c1c'}}, residUI)
-              )
-           )
-        );
-    })(),
-
-    // Input Commessa
-    e('div', {className:'card', style:{marginBottom:12}},
-       e('label', null, 'Commessa'),
-       e('div', {className:'row', style:{gap:8}},
-         e('input', {value:jobId, onChange:ev=>setJobId(ev.target.value), placeholder:'C-2025-xxx', style:{fontSize:16, fontWeight:'bold'}}),
-         e('button', {className:'btn btn-outline', onClick:openScanner}, '📷')
-       )
+    // Commessa & Summary
+    commessa ? e('div', {className:'card', style:{marginBottom:12}},
+      e('div', {style:{fontSize:12, color:'#666'}}, `Commessa ${commessa.id}`),
+      e('div', {style:{fontWeight:'bold', fontSize:14, marginBottom:6}}, summaryUI.label),
+      e('div', {className:'row', style:{gap:4}},
+         e('div', {style:{flex:1, background:'#f3f4f6', padding:6, borderRadius:6}}, 
+            e('div',{style:{fontSize:10}}, 'TOT'), e('div',{style:{fontWeight:'bold'}}, summaryUI.tot)),
+         e('div', {style:{flex:1, background:'#f3f4f6', padding:6, borderRadius:6}}, 
+            e('div',{style:{fontSize:10}}, 'FATTI'), e('div',{style:{fontWeight:'bold'}}, summaryUI.prod)),
+         e('div', {style:{flex:1, background:'#fee2e2', padding:6, borderRadius:6}}, 
+            e('div',{style:{fontSize:10, color:'#b91c1c'}}, 'RESIDUO'), e('div',{style:{fontWeight:'bold', color:'#b91c1c'}}, summaryUI.resid))
+      )
+    ) : e('div', {className:'card', style:{marginBottom:12}},
+      e('label', null, 'Inserisci Commessa'),
+      e('div', {className:'row'},
+        e('input', {value:jobId, onChange:ev=>setJobId(ev.target.value), placeholder:'C-2025-xxx', style:{flex:1}}),
+        e('button', {className:'btn btn-outline', onClick:()=>setScanOpen(true)}, '📷')
+      )
     ),
 
-    // Select Riga (se multi)
+    // Riga (se multi)
     (commessa && righe.length > 1) && e('div', {className:'card', style:{marginBottom:12}},
-       e('label', null, 'Riga Articolo'),
-       e('div', {className:'row', style:{gap:8}},
-         e('select', {value:rigaIdx, onChange:ev=>setRigaIdx(ev.target.value), style:{fontSize:16}},
-            e('option', {value:''}, '— Seleziona riga —'),
-            righe.map((r,i)=> e('option', {key:i, value:String(i)}, `${i+1}) ${r.codice} ${r.descrizione}`))
-         ),
-         e('button', {className:'btn btn-outline', onClick:selectRiga}, 'Elenco')
+       e('label', null, 'Seleziona Riga'),
+       e('select', {value:rigaIdx, onChange:ev=>setRigaIdx(ev.target.value), style:{width:'100%', padding:10}},
+         e('option', {value:''}, '— Seleziona —'),
+         righe.map((r,i)=> e('option',{key:i, value:String(i)}, `${i+1}) ${r.codice} ${r.descrizione}`))
        )
     ),
 
     // Operatore & Fase
     e('div', {className:'card', style:{marginBottom:12}},
        e('label', null, 'Operatore'),
-       operators.length 
-         ? e('select', {value:operatore, onChange:ev=>setOperatore(ev.target.value), style:{fontSize:16, marginBottom:12}},
-             e('option', {value:''}, '— Seleziona —'),
-             operators.map((o,i)=>e('option',{key:i,value:o},o))
-           )
-         : e('input', {value:operatore, onChange:ev=>setOperatore(ev.target.value), style:{marginBottom:12}}),
+       operators.length
+        ? e('select', {value:operatore, onChange:ev=>setOperatore(ev.target.value), style:{width:'100%', marginBottom:12}},
+            e('option', {value:''}, '— Seleziona —'),
+            operators.map((o,i)=>e('option',{key:i,value:o},o))
+          )
+        : e('input', {value:operatore, onChange:ev=>setOperatore(ev.target.value), style:{width:'100%', marginBottom:12}}),
        
        e('label', null, 'Fase'),
-       e('select', {value:faseIdx, onChange:ev=>setFaseIdx(ev.target.value), style:{fontSize:16}},
+       e('select', {value:faseIdx, onChange:ev=>setFaseIdx(ev.target.value), style:{width:'100%'}},
           e('option', {value:''}, '— Seleziona —'),
-          fasi.map((f,i)=>e('option', {key:i, value:String(i)}, f.lav || `Fase ${i+1}`))
+          fasi.map((f,i)=>e('option',{key:i, value:String(i)}, f.lav || `Fase ${i+1}`))
+       ),
+
+       e('div', {className:'row', style:{marginTop:12, gap:12}},
+         e('label', {className:'row'}, e('input',{type:'checkbox', checked:secondOp, onChange:ev=>setSecondOp(ev.target.checked)}), 'x2'),
+         e('label', {className:'row'}, e('input',{type:'checkbox', checked:thirdOp, onChange:ev=>setThirdOp(ev.target.checked)}), 'x3'),
+         e('label', {className:'row'}, e('input',{type:'checkbox', checked:gasChange, onChange:ev=>setGasChange(ev.target.checked)}), 'Gas')
        )
     ),
 
     // Pulsantone
-    e('div', {className:'card', style:{padding:20, textAlign:'center'}},
-       e('div', {style:{fontSize:32, fontWeight:'bold', marginBottom:16, fontFamily:'monospace'}},
-          active ? fmtHMS(Date.now() - new Date(active.startISO).getTime()) : '00:00:00'
+    e('div', {className:'card', style:{textAlign:'center', padding:20}},
+       e('div', {style:{fontSize:32, fontFamily:'monospace', marginBottom:16}},
+         active ? fmtHMS(Date.now() - new Date(active.startISO).getTime()) : '00:00:00'
        ),
        !active
-         ? e('button', {className:'btn btn-lg btn-primary', style:{width:'100%', padding:16, fontSize:20}, onClick:start}, '▶ INIZIO')
-         : e('button', {className:'btn btn-lg btn-danger', style:{width:'100%', padding:16, fontSize:20}, onClick:stop}, '⏹ FINE')
+         ? e('button', {className:'btn btn-lg', style:{width:'100%', background:'#16a34a'}, onClick:start}, '▶ INIZIO')
+         : e('button', {className:'btn btn-lg', style:{width:'100%', background:'#dc2626'}, onClick:stop}, '⏹ FINE')
     ),
 
-    // Modale Qta
+    // Modal Qta
     askQty && e('div', {className:'modal-backdrop'},
-       e('div', {className:'modal-card'},
-          e('h3', null, 'Quantità prodotta'),
-          e('div', {className:'muted', style:{marginBottom:12}}, 'Inserisci i pezzi fatti in questa sessione (o 0).'),
-          e('input', {
-             type:'number', autoFocus:true,
-             value:qtyVal, onChange:ev=>setQtyVal(ev.target.value),
-             style:{fontSize:24, textAlign:'center', width:'100%', padding:10}
-          }),
-          e('div', {className:'actions', style:{marginTop:20, justifyContent:'space-between'}},
-             e('button', {className:'btn btn-outline', onClick:()=>setAskQty(null)}, 'Annulla'),
-             e('button', {className:'btn btn-primary', onClick:confirmStop}, 'Conferma')
-          )
-       )
+      e('div', {className:'modal-card'},
+        e('h3', null, 'Pezzi prodotti?'),
+        e('input', {
+          type:'number', autoFocus:true,
+          value:qtyVal, onChange:ev=>setQtyVal(ev.target.value),
+          style:{fontSize:24, textAlign:'center', width:'100%', margin:'10px 0'}
+        }),
+        e('div', {className:'row', style:{justifyContent:'space-between'}},
+          e('button', {className:'btn btn-outline', onClick:()=>setAskQty(null)}, 'Annulla'),
+          e('button', {className:'btn', onClick:confirmStop}, 'Conferma')
+        )
+      )
     ),
-
+    
     // Scanner
     scanOpen && e('div', {className:'modal-backdrop'},
        e('div', {className:'modal-card'},
-          e('h3', null, 'Scan QR'),
-          e('div', {id:'qr-reader', style:{width:'100%', height:300, background:'#000'}}),
-          e('button', {className:'btn btn-outline', style:{marginTop:10, width:'100%'}, onClick:()=>setScanOpen(false)}, 'Chiudi')
+         e('h3', null, 'Scanner QR'),
+         e('div', {id:'qr-reader', style:{width:'100%', height:300, background:'#000'}}),
+         e('button', {className:'btn btn-outline', style:{width:'100%', marginTop:10}, onClick:()=>setScanOpen(false)}, 'Chiudi')
        )
     )
   );
