@@ -27218,34 +27218,72 @@ window.getHashParam = window.getHashParam || function(name){
   }catch{ return ''; }
 };
 
-/* ================== TIMBRATURA MOBILE (Logica Completa + Fix Login/Residuo) ================== */
+/* ================== TIMBRATURA MOBILE (VISTA COMPLETA + FIX LIVE) ================== */
 var TimbraturaMobileView = function(){
   const e = React.createElement;
 
-  // --- 1. Login Guard (Fondamentale per mobile/worker) ---
+  // --- 1. Login Guard Robusto (Fix schermata bianca) ---
   const [user, setUser] = React.useState(window.__USER || null);
+  const [loadingAuth, setLoadingAuth] = React.useState(!window.__USER);
+
   React.useEffect(() => {
-    // Se non loggato, prova requireLogin o rimanda al login
+    // Se abbiamo già l'utente globale, usiamolo e stop
+    if (window.__USER) {
+      setUser(window.__USER);
+      setLoadingAuth(false);
+      return;
+    }
+    
+    // Altrimenti proviamo a recuperarlo
     const check = async () => {
       try {
-        const u = await window.requireLogin();
-        setUser(u);
-      } catch {
-        // Se requireLogin fallisce, location.hash è già cambiato in #/login
+        if (window.requireLogin) {
+          const u = await window.requireLogin();
+          setUser(u);
+        }
+      } catch (err) {
+        // Se fallisce (es. redirect a login), non facciamo nulla, ci pensa il router
+        console.warn('Auth check failed', err);
+      } finally {
+        setLoadingAuth(false);
       }
     };
-    if (!window.__USER) check();
+    check();
   }, []);
 
-  // Se non c'è utente, schermata di attesa (evita crash)
-  if (!user && !window.__USER) return e('div', {className:'page'}, 'Caricamento utente...');
+  // Se sta caricando, mostra uno spinner o testo semplice, ma non bloccare per sempre
+  if (loadingAuth) return e('div', {className:'page'}, 'Caricamento...');
 
-  // --- 2. Logica Completa Timbratura ---
-  
-  // Helpers e State
+  // --- RBAC e Utils ---
+  const readOnly = (typeof window.isReadOnlyUser === 'function' ? !!window.isReadOnlyUser() : false);
+  const roBtnProps = () => (window.roProps ? window.roProps() : {});
+
+  // Header User Label
+  const rawRole = user && user.role ? String(user.role).toLowerCase() : '';
+  let roleLabel = '';
+  if (rawRole === 'admin') roleLabel = 'Admin';
+  else if (rawRole === 'worker') roleLabel = 'Operatore';
+  else if (rawRole === 'mobile') roleLabel = 'Mobile';
+  const userLabel = user ? (user.name || user.username || user.email || user.user || '') : '';
+  const headerUser = (userLabel && roleLabel) ? `${userLabel} — ${roleLabel}` : (userLabel || roleLabel || '');
+
+  // Helpers
   const lsGet = window.lsGet || ((k,d)=>JSON.parse(localStorage.getItem(k)||'null')||d);
   const lsSet = window.lsSet || ((k,v)=>{localStorage.setItem(k,JSON.stringify(v));window.__anima_dirty=true;});
-  
+  const fmtHHMM = (mins) => {
+    const t = Math.max(0, Math.round(Number(mins)||0));
+    const h = Math.floor(t/60), m=t%60;
+    return `${h}:${String(m).padStart(2,'0')}`;
+  };
+  const fmtHMS = (ms) => {
+    const s = Math.max(0, Math.floor(ms/1000));
+    const hh = String(Math.floor(s/3600)).padStart(2,'0');
+    const mm = String(Math.floor((s%3600)/60)).padStart(2,'0');
+    const ss = String(s%60).padStart(2,'0');
+    return `${hh}:${mm}:${ss}`;
+  };
+
+  // State
   const [refresh, setRefresh] = React.useState(0);
   const [jobId, setJobId] = React.useState('');
   
@@ -27253,30 +27291,24 @@ var TimbraturaMobileView = function(){
   React.useEffect(()=>{
     const h = window.location.hash || '';
     const qs = h.split('?')[1] || '';
-    const j = new URLSearchParams(qs).get('job');
+    const params = new URLSearchParams(qs);
+    const j = params.get('job');
     if(j) setJobId(j);
-  },[]);
+    else {
+      // Fallback: se non c'è hash, prova localStorage (utile per refresh pagina)
+      try {
+        const stored = JSON.parse(localStorage.getItem('qrJob'));
+        if (stored) setJobId(String(stored));
+      } catch {}
+    }
+  }, []);
 
   // Dati
   const app = lsGet('appSettings', {}) || {};
   const commesse = lsGet('commesseRows', []) || [];
-  const oreRows = lsGet('oreRows', []) || []; // <-- Importante: letto fresco ad ogni refresh
+  const oreRows = lsGet('oreRows', []) || []; 
 
   const commessa = commesse.find(c => String(c.id) === String(jobId));
-
-  // Normalizzazione commessa (fasi per riga)
-  React.useEffect(() => {
-    if (!commessa) return;
-    try {
-      const normIds = window.ensureCommessaRowIds ? window.ensureCommessaRowIds(commessa) : commessa;
-      const norm = window.ensureCommessaRowFasi ? window.ensureCommessaRowFasi(normIds) : normIds;
-      if (norm !== commessa) {
-        const all = lsGet('commesseRows', []);
-        const ix = all.findIndex(x => String(x.id) === String(commessa.id));
-        if (ix >= 0) { all[ix] = norm; lsSet('commesseRows', all); setRefresh(r=>r+1); }
-      }
-    } catch {}
-  }, [commessa]);
 
   // Righe
   const righe = commessa ? (commessa.righeArticolo || commessa.righe || []) : [];
@@ -27311,6 +27343,13 @@ var TimbraturaMobileView = function(){
   const [thirdOp, setThirdOp] = React.useState(false);
   const [gasChange, setGasChange] = React.useState(false);
   const opsCount = thirdOp ? 3 : (secondOp ? 2 : 1);
+
+  React.useEffect(()=>{ if (!operatore && operators.length===1) setOperatore(operators[0]); }, [operators, operatore]);
+  React.useEffect(()=>{ if (commessa && fasi.length && (faseIdx==='' || faseIdx==null)){ setFaseIdx('0'); } }, [commessa, fasi]);
+  
+  React.useEffect(()=>{
+    if (thirdOp) { if (secondOp) setSecondOp(false); }
+  }, [secondOp, thirdOp]);
 
   // Active Timer Logic
   const ACTIVE_KEY = 'timbraturaActive';
@@ -27366,11 +27405,8 @@ var TimbraturaMobileView = function(){
     let sugg = 0;
     if (!active.isGasChange && commessa) {
       const idxNum = (active.rigaIdx != null) ? Number(active.rigaIdx) : null;
-      // Usa residualPiecesCore se disponibile, altrimenti fallback
       if (window.residualPiecesCore) {
-        sugg = window.residualPiecesCore(commessa, oreRows, idxNum); // Passiamo oreRows aggiornate!
-      } else if (typeof residualPiecesUI === 'function') {
-        sugg = residualPiecesUI(commessa, idxNum);
+        sugg = window.residualPiecesCore(commessa, oreRows, idxNum); 
       }
     }
     setQtyVal(sugg > 0 ? String(sugg) : '');
@@ -27392,28 +27428,25 @@ var TimbraturaMobileView = function(){
       faseIdx: act.isGasChange ? null : Number(act.faseIdx),
       operatore: act.operatore,
       oreMin: Math.max(1, askQty.mins),
-      oreHHMM: '', // calc dopo se vuoi
+      oreHHMM: '',
       qtaPezzi: act.isGasChange ? 0 : qty,
       note: act.isGasChange ? 'Cambio Bombola Gas' : '',
       rigaIdx: act.rigaIdx,
       __createdAt: nowISO, updatedAt: nowISO
     };
     
-    // Scrivi oreRows
     const nextOre = [...oreRows, rec];
     lsSet('oreRows', nextOre);
 
-    // Aggiorna qtaProdotta su Commessa (Fondamentale per smartphone)
+    // Aggiorna qtaProdotta su Commessa
     if (!act.isGasChange) {
       const allC = lsGet('commesseRows', []);
       const ix = allC.findIndex(c => String(c.id) === String(jobId));
       if (ix >= 0) {
         const cUpd = { ...allC[ix] };
-        // Aggiorna totale prodotto usando la funzione core e le NUOVE ore
         if (window.producedPiecesCore) {
           cUpd.qtaProdotta = window.producedPiecesCore(cUpd, nextOre);
         }
-        // Aggiorna anche la fase specifica se serve (legacy fallback)
         if (Array.isArray(cUpd.fasi) && cUpd.fasi[Number(act.faseIdx)]) {
            const f = cUpd.fasi[Number(act.faseIdx)];
            f.qtaProdotta = (Number(f.qtaProdotta)||0) + qty;
@@ -27427,34 +27460,86 @@ var TimbraturaMobileView = function(){
     localStorage.removeItem(ACTIVE_KEY);
     setAskQty(null);
     setRefresh(r=>r+1);
+    
+    // Sync cloud (non bloccante)
+    try { if (window.syncExportToCloud) window.syncExportToCloud(); } catch {}
     alert('Salvato ✅');
   };
 
-  // --- UI ---
-  // Calcolo dati "Live" per la card di riepilogo
-  const summaryUI = React.useMemo(() => {
-    if (!commessa) return null;
-    const totComm = Math.max(1, Number(commessa.qtaPezzi || 1));
-    const rNum = (rigaIdx !== '' && rigaIdx != null) ? Number(rigaIdx) : null;
-    const rSel = (rNum != null && righe[rNum]) ? righe[rNum] : null;
-    
-    const totUI = rSel ? Math.max(1, Number(rSel.qta || totComm)) : totComm;
-    
-    // Residuo LIVE (basato sulle ore attuali)
-    let resid = 0;
-    if (window.residualPiecesCore) {
-       resid = window.residualPiecesCore(commessa, oreRows, rNum);
-    }
-    const prod = Math.max(0, totUI - resid);
-
-    return { tot: totUI, prod, resid, label: rSel ? (rSel.codice || 'Riga '+(rNum+1)) : commessa.descrizione };
-  }, [commessa, rigaIdx, oreRows]); // ricalcola se cambiano le ore!
-
+  // --- UI RENDER ---
   const [scanOpen, setScanOpen] = React.useState(false);
   const [isOnline, setIsOnline] = React.useState(navigator.onLine);
   
+  // Listeners stato rete
+  React.useEffect(()=>{
+     const go = ()=>setIsOnline(true);
+     const off= ()=>setIsOnline(false);
+     window.addEventListener('online', go);
+     window.addEventListener('offline', off);
+     return ()=>{ window.removeEventListener('online', go); window.removeEventListener('offline', off); };
+  },[]);
+
+  // Scanner Logic
+  const scannerRef = React.useRef(null);
+  function extractJobId(str){
+    if (!str) return '';
+    const m = String(str).match(/[A-Z]-\d{4}-\d{3}/);
+    if (m) return m[0];
+    return String(str).trim();
+  }
+  function openScanner(){
+    if (!(window.Html5Qrcode || window.Html5QrcodeScanner)) {
+      alert('Librerie Scanner non caricate.');
+      return;
+    }
+    setScanOpen(true);
+  }
+  React.useEffect(()=>{
+    if (!scanOpen) return;
+    const elId = 'qr-reader';
+    const start = async ()=>{
+      try{
+        const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        if (isMobile && window.Html5Qrcode){
+          const h5 = new window.Html5Qrcode(elId);
+          await h5.start(
+            { facingMode: "environment" },
+            { fps: 10, qrbox: 240 },
+            (decodedText)=>{
+              const jid = extractJobId(decodedText);
+              if (jid){
+                setJobId(jid);
+                try{ localStorage.setItem('qrJob', JSON.stringify(jid)); }catch{}
+              }
+              setScanOpen(false);
+              h5.stop().then(()=> h5.clear());
+            }
+          );
+          scannerRef.current = h5;
+        } else if (window.Html5QrcodeScanner){
+          const scanner = new window.Html5QrcodeScanner(elId, { fps: 10, qrbox: 240 }, false);
+          scanner.render((decodedText)=>{
+             const jid = extractJobId(decodedText);
+             if (jid){ setJobId(jid); try{ localStorage.setItem('qrJob', JSON.stringify(jid)); }catch{} }
+             setScanOpen(false);
+             scanner.clear();
+          });
+          scannerRef.current = scanner;
+        }
+      }catch(e){ console.warn('QR error', e); }
+    };
+    setTimeout(start, 100);
+    return ()=>{ 
+      try{ 
+        if(scannerRef.current?.stop) scannerRef.current.stop(); 
+        if(scannerRef.current?.clear) scannerRef.current.clear(); 
+      }catch{} 
+    };
+  }, [scanOpen]);
+
+
   return e('div', {className:'page timbratura'},
-    // Orphan Warning
+    // Warning orfana
     orphan && e('div', {className:'card', style:{borderColor:'orange', marginBottom:12}},
       e('div', null, `Timbratura attiva su ${orphan.jobId}`),
       e('div', {className:'row', style:{marginTop:8}},
@@ -27463,55 +27548,102 @@ var TimbraturaMobileView = function(){
       )
     ),
 
-    // Header
-    e('div', {className:'row', style:{justifyContent:'space-between', marginBottom:12}},
-      e('button', {className:'btn btn-outline', onClick:()=>{ location.hash='#/dashboard'; }}, '⬅ Home'),
-      e('div', {className:'badge', style:{background:isOnline?'#16a34a':'#dc2626', color:'#fff'}}, isOnline?'ONLINE':'OFFLINE')
+    // Header Utente + Stato
+    e('div', {style:{marginBottom:12}},
+       headerUser && e('div',{className:'muted', style:{marginBottom:4, fontSize:12}}, headerUser),
+       e('div', {className:'row', style:{justifyContent:'space-between', alignItems:'center'}},
+         e('button', {className:'btn btn-outline', onClick:()=> {
+             if(history.length>1) history.back(); else location.hash='#/dashboard';
+         }}, '⬅ Indietro'),
+         e('span', {className:'badge', style:{background: isOnline?'#16a34a':'#dc2626', color:'#fff'}}, 
+           isOnline?'ONLINE':'OFFLINE')
+       )
+    ),
+    
+    // RESTORED: Pulsanti Import/Export/Etichette (Mobile friendly)
+    e('div', {className:'actions', style:{justifyContent:'flex-start', flexWrap:'wrap', gap:8, marginBottom:12}},
+       commessa && e('button', {className:'btn btn-sm btn-outline', onClick:()=>window.triggerEtichetteFor && window.triggerEtichetteFor(commessa, {})}, '🖨 Etichette'),
+       e('button', {className:'btn btn-sm btn-outline', onClick:()=>window.syncImportFromCloud && window.syncImportFromCloud()}, '⬇ Importa'),
+       e('button', {className:'btn btn-sm btn-outline', onClick:()=>window.syncExportToCloud && window.syncExportToCloud()}, '⬆ Esporta')
     ),
 
-    // Commessa & Summary
-    commessa ? e('div', {className:'card', style:{marginBottom:12}},
-      e('div', {style:{fontSize:12, color:'#666'}}, `Commessa ${commessa.id}`),
-      e('div', {style:{fontWeight:'bold', fontSize:14, marginBottom:6}}, summaryUI.label),
-      e('div', {className:'row', style:{gap:4}},
-         e('div', {style:{flex:1, background:'#f3f4f6', padding:6, borderRadius:6}}, 
-            e('div',{style:{fontSize:10}}, 'TOT'), e('div',{style:{fontWeight:'bold'}}, summaryUI.tot)),
-         e('div', {style:{flex:1, background:'#f3f4f6', padding:6, borderRadius:6}}, 
-            e('div',{style:{fontSize:10}}, 'FATTI'), e('div',{style:{fontWeight:'bold'}}, summaryUI.prod)),
-         e('div', {style:{flex:1, background:'#fee2e2', padding:6, borderRadius:6}}, 
-            e('div',{style:{fontSize:10, color:'#b91c1c'}}, 'RESIDUO'), e('div',{style:{fontWeight:'bold', color:'#b91c1c'}}, summaryUI.resid))
-      )
-    ) : e('div', {className:'card', style:{marginBottom:12}},
-      e('label', null, 'Inserisci Commessa'),
-      e('div', {className:'row'},
-        e('input', {value:jobId, onChange:ev=>setJobId(ev.target.value), placeholder:'C-2025-xxx', style:{flex:1}}),
-        e('button', {className:'btn btn-outline', onClick:()=>setScanOpen(true)}, '📷')
-      )
+    // CARD COMMESSA & STATISTICHE (Fix Quantità LIVE)
+    commessa && (function(){
+        const totComm = Math.max(1, Number(commessa?.qtaPezzi || 1));
+        const rIdxNum = (rigaIdx===''||rigaIdx==null) ? null : Number(rigaIdx);
+        const hasRow  = Number.isFinite(rIdxNum) && Array.isArray(commessa?.righeArticolo) && commessa.righeArticolo[rIdxNum];
+        const rSel    = hasRow ? commessa.righeArticolo[rIdxNum] : null;
+        
+        const totUI = hasRow ? Math.max(1, Number(rSel?.qta || totComm)) : totComm;
+        
+        // Calcolo LIVE
+        const residUIraw = window.residualPiecesCore 
+            ? window.residualPiecesCore(commessa, oreRows, rIdxNum) 
+            : (typeof residualPiecesUI === 'function' ? residualPiecesUI(commessa, rIdxNum) : 0);
+
+        const residUI = Math.max(0, Math.min(totUI, Number(residUIraw) || 0));
+        const prodUI  = Math.max(0, totUI - residUI);
+        
+        // Titolo
+        const rowLabel = hasRow ? (rSel.codice || `Riga ${rIdxNum+1}`) : '';
+        const title = commessa.descrizione + (rowLabel ? ` — ${rowLabel}` : '');
+
+        return e('div', {className:'card timbratura-summary', style:{marginBottom:12, padding:10}},
+           e('div', {style:{fontSize:12, color:'#666'}}, `Commessa ${commessa.id}`),
+           e('div', {style:{fontWeight:'bold', fontSize:14, marginBottom:8}}, title),
+           
+           e('div', {style:{display:'flex', gap:8}},
+              e('div', {style:{flex:1, border:'1px solid #ddd', borderRadius:6, padding:6, background:'#f9fafb'}},
+                 e('div',{style:{fontSize:10, color:'#666'}}, 'TOTALE'),
+                 e('div',{style:{fontSize:18, fontWeight:'bold'}}, totUI)
+              ),
+              e('div', {style:{flex:1, border:'1px solid #ddd', borderRadius:6, padding:6, background:'#f9fafb'}},
+                 e('div',{style:{fontSize:10, color:'#666'}}, 'FATTI'),
+                 e('div',{style:{fontSize:18, fontWeight:'bold'}}, prodUI)
+              ),
+              e('div', {style:{flex:1, border:'1px solid #ddd', borderRadius:6, padding:6, background:'#fee2e2'}},
+                 e('div',{style:{fontSize:10, color:'#b91c1c'}}, 'RESIDUO'),
+                 e('div',{style:{fontSize:18, fontWeight:'bold', color:'#b91c1c'}}, residUI)
+              )
+           )
+        );
+    })(),
+
+    // Input Commessa
+    e('div', {className:'card', style:{marginBottom:12}},
+       e('label', null, 'Commessa'),
+       e('div', {className:'row', style:{gap:8}},
+         e('input', {value:jobId, onChange:ev=>setJobId(ev.target.value), placeholder:'C-2025-xxx', style:{fontSize:16, fontWeight:'bold', flex:1}}),
+         e('button', {className:'btn btn-outline', onClick:openScanner}, '📷 Scan')
+       )
     ),
 
-    // Riga (se multi)
+    // Select Riga (se multi)
     (commessa && righe.length > 1) && e('div', {className:'card', style:{marginBottom:12}},
-       e('label', null, 'Seleziona Riga'),
-       e('select', {value:rigaIdx, onChange:ev=>setRigaIdx(ev.target.value), style:{width:'100%', padding:10}},
-         e('option', {value:''}, '— Seleziona —'),
-         righe.map((r,i)=> e('option',{key:i, value:String(i)}, `${i+1}) ${r.codice} ${r.descrizione}`))
+       e('label', null, 'Riga Articolo'),
+       e('div', {className:'row', style:{gap:8}},
+         e('select', {value:rigaIdx, onChange:ev=>setRigaIdx(ev.target.value), style:{width:'100%', padding:10, fontSize:16}},
+            e('option', {value:''}, '— Seleziona riga —'),
+            righe.map((r,i)=> e('option', {key:i, value:String(i)}, `${i+1}) ${r.codice} ${r.descrizione}`))
+         ),
+         e('button', {className:'btn btn-outline', onClick:selectRiga}, 'Elenco')
        )
     ),
 
     // Operatore & Fase
     e('div', {className:'card', style:{marginBottom:12}},
        e('label', null, 'Operatore'),
-       operators.length
-        ? e('select', {value:operatore, onChange:ev=>setOperatore(ev.target.value), style:{width:'100%', marginBottom:12}},
-            e('option', {value:''}, '— Seleziona —'),
-            operators.map((o,i)=>e('option',{key:i,value:o},o))
-          )
-        : e('input', {value:operatore, onChange:ev=>setOperatore(ev.target.value), style:{width:'100%', marginBottom:12}}),
+       operators.length 
+         ? e('select', {value:operatore, onChange:ev=>setOperatore(ev.target.value), style:{width:'100%', marginBottom:12, padding:10, fontSize:16}},
+             e('option', {value:''}, '— Seleziona —'),
+             operators.map((o,i)=>e('option',{key:i,value:o},o))
+           )
+         : e('input', {value:operatore, onChange:ev=>setOperatore(ev.target.value), style:{width:'100%', marginBottom:12, fontSize:16}}),
        
        e('label', null, 'Fase'),
-       e('select', {value:faseIdx, onChange:ev=>setFaseIdx(ev.target.value), style:{width:'100%'}},
+       e('select', {value:faseIdx, onChange:ev=>setFaseIdx(ev.target.value), style:{width:'100%', padding:10, fontSize:16}},
           e('option', {value:''}, '— Seleziona —'),
-          fasi.map((f,i)=>e('option',{key:i, value:String(i)}, f.lav || `Fase ${i+1}`))
+          fasi.map((f,i)=>e('option', {key:i, value:String(i)}, f.lav || `Fase ${i+1}`))
        ),
 
        e('div', {className:'row', style:{marginTop:12, gap:12}},
@@ -27522,32 +27654,33 @@ var TimbraturaMobileView = function(){
     ),
 
     // Pulsantone
-    e('div', {className:'card', style:{textAlign:'center', padding:20}},
-       e('div', {style:{fontSize:32, fontFamily:'monospace', marginBottom:16}},
-         active ? fmtHMS(Date.now() - new Date(active.startISO).getTime()) : '00:00:00'
+    e('div', {className:'card', style:{padding:20, textAlign:'center'}},
+       e('div', {style:{fontSize:32, fontWeight:'bold', marginBottom:16, fontFamily:'monospace'}},
+          active ? fmtHMS(Date.now() - new Date(active.startISO).getTime()) : '00:00:00'
        ),
        !active
-         ? e('button', {className:'btn btn-lg', style:{width:'100%', background:'#16a34a'}, onClick:start}, '▶ INIZIO')
-         : e('button', {className:'btn btn-lg', style:{width:'100%', background:'#dc2626'}, onClick:stop}, '⏹ FINE')
+         ? e('button', {className:'btn btn-lg btn-primary', style:{width:'100%', padding:16, fontSize:20, background:'#16a34a'}, onClick:start}, '▶ INIZIO')
+         : e('button', {className:'btn btn-lg btn-danger', style:{width:'100%', padding:16, fontSize:20, background:'#dc2626'}, onClick:stop}, '⏹ FINE')
     ),
 
     // Modal Qta
     askQty && e('div', {className:'modal-backdrop'},
-      e('div', {className:'modal-card'},
-        e('h3', null, 'Pezzi prodotti?'),
-        e('input', {
-          type:'number', autoFocus:true,
-          value:qtyVal, onChange:ev=>setQtyVal(ev.target.value),
-          style:{fontSize:24, textAlign:'center', width:'100%', margin:'10px 0'}
-        }),
-        e('div', {className:'row', style:{justifyContent:'space-between'}},
-          e('button', {className:'btn btn-outline', onClick:()=>setAskQty(null)}, 'Annulla'),
-          e('button', {className:'btn', onClick:confirmStop}, 'Conferma')
-        )
-      )
+       e('div', {className:'modal-card'},
+          e('h3', null, 'Quantità prodotta'),
+          e('div', {className:'muted', style:{marginBottom:12}}, 'Inserisci i pezzi fatti in questa sessione (o 0).'),
+          e('input', {
+             type:'number', autoFocus:true,
+             value:qtyVal, onChange:ev=>setQtyVal(ev.target.value),
+             style:{fontSize:24, textAlign:'center', width:'100%', padding:10}
+          }),
+          e('div', {className:'actions', style:{marginTop:20, justifyContent:'space-between'}},
+             e('button', {className:'btn btn-outline', onClick:()=>setAskQty(null)}, 'Annulla'),
+             e('button', {className:'btn btn-primary', onClick:confirmStop}, 'Conferma')
+          )
+       )
     ),
     
-    // Scanner
+    // Scanner Modal
     scanOpen && e('div', {className:'modal-backdrop'},
        e('div', {className:'modal-card'},
          e('h3', null, 'Scanner QR'),
@@ -27557,8 +27690,6 @@ var TimbraturaMobileView = function(){
     )
   );
 };
-
-
 
 // === STUB + ROUTES REPAIR (idempotente, incolla in fondo) ==================
 (function ensureRoutesAndStubs(){
