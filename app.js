@@ -26447,7 +26447,6 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
     });
   })();
 
-
   // ================== PARSER STEEL SYSTEMS ===============================
   (function registerSteel(){
     try{
@@ -26456,7 +26455,12 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
       return;
     }
 
-    if (window.__orderParsers.some(p => p && p.id === 'steel-systems')) return;
+    // Elimina eventuali versioni legacy del parser STEEL già registrate
+    try{
+      window.__orderParsers = window.__orderParsers.filter(function(p){
+        return !p || String(p.id || '').toLowerCase() !== 'steel-systems';
+      });
+    }catch(e){}
 
     function toNum(s){
       if (s == null) return 0;
@@ -26491,10 +26495,10 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
     window.addOrderParser({
       id  : 'steel-systems',
       name: 'Ordini STEEL SYSTEMS / ERGOMEC',
+
       test: (txt, name='') => {
         const t = String(txt || '');
 
-        // Modulo STEEL o ERGOMEC con tabella Pos./Codice
         const isSteel   = /STEEL\s+SYSTEMS/i.test(t);
         const isErgomec = /ERGOMEC\s*S\.?R\.?L\.?/i.test(t);
 
@@ -26548,7 +26552,7 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
           if (dataIso) consegne.push(dataIso);
         }
 
-        // Se nessuna riga valida → lascia spazio ai fallback
+        // Se nessuna riga valida → fallback, commessa vuota
         if (!righe.length) {
           return { cliente:'', descrizione:'', righe:[] };
         }
@@ -26570,12 +26574,12 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
 
         const cliente   = isErgomec ? 'ERGOMEC S.R.L.' : 'STEEL SYSTEMS S.r.l.';
         const baseDescr = isErgomec ? 'Ordine cliente ERGOMEC' : 'Ordine c/lavoro STEEL';
-        const descr     = (`${baseDescr} ${rifNumero || ''}`).trim();
+        const descrComm = (`${baseDescr} ${rifNumero || ''}`).trim();
         const qtaPezzi  = righe.reduce((s,r)=> s + (r.qta || 0), 0) || 1;
 
         return {
           cliente,
-          descrizione: descr || (isErgomec
+          descrizione: descrComm || (isErgomec
             ? 'Commessa da ordine ERGOMEC'
             : 'Commessa da ordine STEEL SYSTEMS'),
           righe,
