@@ -4173,7 +4173,7 @@ window.ensureXLSX = window.ensureXLSX || (function () {
   }
 
 
-    const SYNC_KEYS = [
+const SYNC_KEYS = [
     'appSettings',
     'commesseRows',
     'oreRows',
@@ -4183,6 +4183,7 @@ window.ensureXLSX = window.ensureXLSX || (function () {
     'magMovimenti',
     'fattureRows',
     'ddtRows',
+    'allegatiRows',
     // contatori: li esportiamo, ma non li forzeremo in pull (vedi applySnapshot)
     'counters',
     'clientiRows',
@@ -4337,10 +4338,11 @@ function mergeAppSettings(localApp, remoteApp){
     const KEYS = [
       'commesseRows','oreRows',
       'magArticoli','magazzinoArticoli','magMovimenti',
-      'fattureRows','ddtRows',
+      'fattureRows','ddtRows','allegatiRows',
       'clientiRows','fornitoriRows','ordiniFornitoriRows',
       'preventiviRows'
     ];
+
   // 1) appSettings: prendi quello con updatedAt più recente
   if ('appSettings' in snap) {
     const localApp = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; }catch{return{}} })();
@@ -11069,6 +11071,7 @@ window.delCommessa     = window.delCommessa     || delCommessa;
         } else if (typeof window.parseOrderText === 'function') {
           parsed = window.parseOrderText(raw, fileName) || {};
         }
+        console.log('[DEBUG IMPORT PDF]', { parsed });
 
                 // 2) Normalizza righe: accettiamo righe con codice O descrizione
         let righe = Array.isArray(parsed.righe)
