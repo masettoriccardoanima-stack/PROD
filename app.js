@@ -19310,6 +19310,13 @@ const ORD_KEY = window.__OF_KEY || (window.__OF_KEY = 'ordiniFornitoriRows');
   const [showForm, setShowForm] = React.useState(false);
   const [draft, setDraft] = React.useState(null);
 
+    const [allegatoOFForm, setAllegatoOFForm] = React.useState({
+    tipo: 'ALTRO',
+    descrizione: '',
+    path: '',
+    url: ''
+  });
+
     // ===== Dropdown articoli su CODICE (OF) =====
   const [openArtMenuRow, setOpenArtMenuRow] = React.useState(null); // index riga aperta
   const [artMenuQuery, setArtMenuQuery] = React.useState('');
@@ -19728,7 +19735,25 @@ setTimeout(()=>{ try{ alert('Ordine salvato.'); }catch{} }, 0);
     return String(b.id||'').localeCompare(String(a.id||''));
   };
 
+  // Mappa rapida degli ordini che hanno almeno un allegato (entityType = 'OF')
+  let ofIdsWithAllegati = new Set();
+  try {
+    const allAllegati = lsGet('allegatiRows', []) || [];
+    if (Array.isArray(allAllegati)) {
+      ofIdsWithAllegati = new Set(
+        allAllegati
+          .filter(a =>
+            a && !a.deletedAt &&
+            String(a.entityType || '').toUpperCase() === 'OF' &&
+            a.entityId
+          )
+          .map(a => String(a.entityId))
+      );
+    }
+  } catch {}
+
   const frows = (rows||[])
+
   // nascondi ordini soft-delete
   .filter(r => !r?.deletedAt)
   .map(o => ({ ...o, statoCalc: (function(){
@@ -19827,8 +19852,13 @@ setTimeout(()=>{ try{ alert('Ordine salvato.'); }catch{} }, 0);
     e('tbody', null,
       frows.length
         ? frows.map(r => 
-            e('tr', { key: r.id },
-              e('td', null, r.id, (r.confermaFileDataUrl ? ' 📎' : '')),
+              e('tr', { key: r.id },
+              e('td', null,
+                r.id,
+                (r.confermaFileDataUrl || ofIdsWithAllegati.has(String(r.id || '')))
+                  ? ' 📎'
+                  : ''
+              ),
               e('td', null, r.data || ''),
               e('td', null, r.fornitoreRagione || r.fornitoreId || ''),
               e('td', null, (r.righe || []).length),
@@ -20170,7 +20200,221 @@ e('div', {
           const iva = tot - imp;
           const fmt = v => v.toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});
           return `Imponibile: € ${fmt(imp)}  —  IVA: € ${fmt(iva)}  —  Totale: € ${fmt(tot)}`;
-        })())
+        })()),
+        (function(){
+          const entityId = draft && draft.id ? String(draft.id) : '';
+          const isSaved = entityId && Array.isArray(rows) && rows.some(r => String(r.id || '') === entityId);
+          const all = lsGet('allegatiRows', []) || [];
+          const rowsAllegati = (isSaved && entityId)
+            ? (Array.isArray(all) ? all : []).filter(a =>
+                a && !a.deletedAt &&
+                String(a.entityType || '').toUpperCase() === 'OF' &&
+                String(a.entityId || '') === entityId
+              )
+            : [];
+
+          function nextAllegatoId(existing){
+            const now  = new Date();
+            const year = now.getFullYear();
+            let maxSeq = 0;
+            const arr = Array.isArray(existing) ? existing : [];
+            for (const r of arr) {
+              if (!r || !r.id) continue;
+              const m = String(r.id).match(/^ALG-(\d{4})-(\d{4})$/);
+              if (m && Number(m[1]) === year) {
+                const seq = Number(m[2]) || 0;
+                if (seq > maxSeq) maxSeq = seq;
+              }
+            }
+            const next = String(maxSeq + 1).padStart(4,'0');
+            return `ALG-${year}-${next}`;
+          }
+
+          const onChangeField = (field, value) => {
+            if (typeof setAllegatoOFForm !== 'function') return;
+            setAllegatoOFForm(prev => ({
+              ...(prev || { tipo:'ALTRO', descrizione:'', path:'', url:'' }),
+              [field]: value
+            }));
+          };
+
+          const onAddAllegato = () => {
+            const f = allegatoOFForm || {};
+            const tipo  = (f.tipo || 'ALTRO').trim() || 'ALTRO';
+            const descr = (f.descrizione || '').trim();
+            const path  = (f.path || '').trim();
+            const url   = (f.url  || '').trim();
+
+            if (!isSaved) {
+              alert('Salva l\'ordine prima di aggiungere allegati.');
+              return;
+            }
+            if (!path && !url) {
+              alert('Inserisci almeno il percorso o l\'URL.');
+              return;
+            }
+
+            let allRows = [];
+            try { allRows = lsGet('allegatiRows', []) || []; } catch(e) { allRows = []; }
+            if (!Array.isArray(allRows)) allRows = [];
+
+            const id = nextAllegatoId(allRows);
+            const nowIso = new Date().toISOString();
+
+            const newRow = {
+              id,
+              createdAt: nowIso,
+              updatedAt: nowIso,
+              tipo,
+              descrizione: descr || `Allegato ordine fornitore ${entityId}`,
+              path,
+              url,
+              entityType: 'OF',
+              entityId,
+              deletedAt: null
+            };
+
+            const updated = allRows.concat([newRow]);
+            lsSet('allegatiRows', updated);
+
+            if (typeof setDraft === 'function') {
+              setDraft(prev => ({ ...(prev || {}) }));
+            }
+            if (typeof setAllegatoOFForm === 'function') {
+              setAllegatoOFForm({
+                tipo:'ALTRO',
+                descrizione:'',
+                path:'',
+                url:''
+              });
+            }
+          };
+
+          const onDeleteAllegato = (row) => {
+            if (!row || !row.id) return;
+            let allRows = [];
+            try { allRows = lsGet('allegatiRows', []) || []; } catch(e) { allRows = []; }
+            if (!Array.isArray(allRows)) allRows = [];
+            const nowIso = new Date().toISOString();
+            const updated = allRows.map(r =>
+              r && r.id === row.id
+                ? { ...r, deletedAt: r.deletedAt || nowIso, updatedAt: nowIso }
+                : r
+            );
+            lsSet('allegatiRows', updated);
+            if (typeof setDraft === 'function') {
+              setDraft(prev => ({ ...(prev || {}) }));
+            }
+          };
+
+          const onCopyPath = (row) => {
+            const p = (row && row.path) ? String(row.path) : '';
+            if (!p) return;
+            if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(p).catch(() => {
+                window.prompt('Copia il percorso:', p);
+              });
+            } else {
+              window.prompt('Copia il percorso:', p);
+            }
+          };
+
+          const onOpenUrl = (row) => {
+            const u = (row && row.url) ? String(row.url) : '';
+            if (!u) return;
+            if (/^https?:\/\//i.test(u)) window.open(u, '_blank');
+          };
+
+          const f = allegatoOFForm || { tipo:'ALTRO', descrizione:'', path:'', url:'' };
+
+          return e('div', {className:'subcard', style:{marginTop:12}},
+            e('h4', null, 'Allegati ordine fornitore'),
+            !isSaved
+              ? e('p', {className:'muted'}, 'Salva l\'ordine per poter aggiungere allegati.')
+              : e(React.Fragment, null,
+                  rowsAllegati.length
+                    ? e('table', {className:'table table-sm'},
+                        e('thead', null,
+                          e('tr', null,
+                            e('th', null, 'Tipo'),
+                            e('th', null, 'Descrizione'),
+                            e('th', null, 'Percorso'),
+                            e('th', null, 'Azioni')
+                          )
+                        ),
+                        e('tbody', null,
+                          rowsAllegati.map(r => e('tr', {key:r.id || r.path || r.url || Math.random()},
+                            e('td', null, r.tipo || ''),
+                            e('td', null, r.descrizione || ''),
+                            e('td', null, r.path || ''),
+                            e('td', null,
+                              e('div', {className:'row', style:{gap:4}},
+                                r.url && /^https?:\/\//i.test(r.url||'')
+                                  ? e('button', {className:'btn btn-xs', onClick:()=>onOpenUrl(r)}, 'Apri')
+                                  : null,
+                                r.path
+                                  ? e('button', {className:'btn btn-xs', onClick:()=>onCopyPath(r)}, 'Copia percorso')
+                                  : null,
+                                !readOnly
+                                  ? e('button', {
+                                      className:'btn btn-xs btn-outline',
+                                      onClick:()=>onDeleteAllegato(r)
+                                    }, '🗑')
+                                  : null
+                              )
+                            )
+                          ))
+                        )
+                      )
+                    : e('p', {className:'muted'}, 'Nessun allegato per questo ordine.'),
+                  e('div', {className:'form-grid', style:{marginTop:8}},
+                    e('div', null,
+                      e('label', null, 'Tipo'),
+                      e('select', {
+                        value:f.tipo || 'ALTRO',
+                        onChange:ev=>onChangeField('tipo', ev.target.value),
+                        disabled: readOnly
+                      },
+                        ['FOTO_CARICO','COLLAUDO','NC_FORN','DISEGNO','ALTRO'].map(opt =>
+                          e('option', {key:opt, value:opt}, opt)
+                        )
+                      )
+                    ),
+                    e('div', null,
+                      e('label', null, 'Descrizione'),
+                      e('input', {
+                        value:f.descrizione || '',
+                        onChange:ev=>onChangeField('descrizione', ev.target.value),
+                        disabled: readOnly
+                      })
+                    ),
+                    e('div', null,
+                      e('label', null, 'Percorso file (NAS / locale)'),
+                      e('input', {
+                        value:f.path || '',
+                        onChange:ev=>onChangeField('path', ev.target.value),
+                        disabled: readOnly
+                      })
+                    ),
+                    e('div', null,
+                      e('label', null, 'URL (opzionale)'),
+                      e('input', {
+                        value:f.url || '',
+                        onChange:ev=>onChangeField('url', ev.target.value),
+                        disabled: readOnly
+                      })
+                    )
+                  ),
+                  e('div', {className:'actions'},
+                    e('button', {
+                      className:'btn',
+                      onClick:onAddAllegato,
+                      disabled: readOnly
+                    }, '➕ Aggiungi allegato')
+                  )
+                )
+          );
+        })()
       )
     ),
 
