@@ -26447,150 +26447,157 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
     });
   })();
 
-  // ================== PARSER STEEL SYSTEMS ===============================
+
+// ================== PARSER STEEL SYSTEMS ===============================
   (function registerSteel(){
+    // 1. Inizializzazione sicura
     try{
       if (!Array.isArray(window.__orderParsers)) window.__orderParsers = [];
-    }catch(e){
-      return;
-    }
+    }catch(e){ return; }
 
-    // Elimina eventuali versioni legacy del parser STEEL già registrate
-    try{
-      window.__orderParsers = window.__orderParsers.filter(function(p){
-        return !p || String(p.id || '').toLowerCase() !== 'steel-systems';
-      });
-    }catch(e){}
+    // 2. RIMUOVI SEMPRE la versione vecchia per forzare l'aggiornamento (fix cache localStorage)
+    window.__orderParsers = window.__orderParsers.filter(function(p){
+      return !p || String(p.id || '').toLowerCase() !== 'steel-systems';
+    });
 
+    // Helper locali per il parsing numerico/data
     function toNum(s){
       if (s == null) return 0;
-      const t = String(s).replace(/\./g,'').replace(',', '.');
-      const n = Number(t);
+      // Rimuovi punti migliaia, sostituisci virgola con punto
+      var t = String(s).replace(/\./g,'').replace(',', '.');
+      var n = Number(t);
       return Number.isFinite(n) ? n : 0;
     }
 
     function parseData(s){
-      const str = String(s || '').trim();
+      var str = String(s || '').trim();
       if (!str) return '';
+      // Formato YYYY-MM-DD ok
       if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-
+      
+      // Fallback helper globale
       if (typeof window.parseITDate === 'function') {
-        const iso = window.parseITDate(str);
+        var iso = window.parseITDate(str);
         if (iso) return iso;
       }
 
-      const m = str.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
+      // Parsing manuale dd.mm.yy o dd-mm-yy
+      var m = str.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
       if (!m) return '';
-      let [_, dd, mm, yy] = m;
-      dd = dd.padStart(2,'0');
-      mm = mm.padStart(2,'0');
+      var dd = m[1].padStart(2,'0');
+      var mm = m[2].padStart(2,'0');
+      var yy = m[3];
       if (yy.length === 2) {
-        const yNum = Number(yy);
+        var yNum = Number(yy);
         yy = String(2000 + (Number.isFinite(yNum) ? yNum : 0));
       }
       yy = yy.padStart(4,'0');
-      return `${yy}-${mm}-${dd}`;
+      return yy + '-' + mm + '-' + dd;
     }
 
+    // 3. Registra il nuovo parser aggiornato
     window.addOrderParser({
-      id  : 'steel-systems',
-      name: 'Ordini STEEL SYSTEMS / ERGOMEC',
-
-      test: (txt, name='') => {
-        const t = String(txt || '');
-
-        const isSteel   = /STEEL\s+SYSTEMS/i.test(t);
-        const isErgomec = /ERGOMEC\s*S\.?R\.?L\.?/i.test(t);
-
-        if (!isSteel && !isErgomec) return false;
-
-        // Stesso layout: Ord. acq. ... con tabella Pos./Codice/Rev./Descrizione/UM/Q.tà/Prezzo Unitario...
-        return /Ord\.\s*acq\./i.test(t)
-          && /Pos\.\s+Codice\s+Rev\.\s+Descrizione\s+UM\s+Q\.tà\s+Prezzo\s+Unitario/i.test(t);
+      id: 'steel-systems',
+      name: 'Ordini STEEL SYSTEMS / ERGOMEC (Universal)',
+      
+      test: function(txt, name){
+        var t = String(txt || '');
+        // Riconosci STEEL o ERGOMEC
+        var isSteel = /STEEL\s+SYSTEMS/i.test(t);
+        var isErgo  = /ERGOMEC\s*S\.?R\.?L\.?/i.test(t);
+        
+        // Verifica anche la presenza della struttura tabellare tipica
+        var hasTable = /Ord\.\s*acq\./i.test(t) || /Pos\.\s+Codice\s+Rev\./i.test(t);
+        
+        return (isSteel || isErgo) && hasTable;
       },
 
-      extract: (txt, name='') => {
-        const flat = String(txt || '').replace(/\s+/g,' ').trim();
-        const isErgomec = /ERGOMEC\s*S\.?R\.?L\.?/i.test(flat);
+      extract: function(txt, name){
+        // Appiattisci il testo per facilitare la Regex
+        var flat = String(txt || '').replace(/\s+/g,' ').trim();
+        var isErgomec = /ERGOMEC\s*S\.?R\.?L\.?/i.test(flat);
 
-        const righe    = [];
-        const consegne = [];
+        var righe    = [];
+        var consegne = [];
 
-        // Righe tipo (anche per ERGOMEC):
-        // 80 50100174 00 TELAIO ... PZ 2 150,00 300,00 15/12/25
-        const rowRe = /\b(\d{1,3})\s+([0-9]{6,})\s+([0-9]{2})\s+(.+?)\s+(\d*[A-Z0-9]{1,3})\s+([0-9.]+,[0-9]+|\d+)\s+([0-9.]+,[0-9]+)\s+([0-9.]+,[0-9]+)\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/g;
+        // REGEX RIGHE: Pos | Codice | Rev | Descrizione | UM | Q.tà | Prezzo | Totale | Consegna
+        // Es: 80 50100174 00 TELAIO ... PZ 2 150,00 300,00 15/12/25
+        var rowRe = /\b(\d{1,4})\s+([0-9]{5,})\s+([0-9]{2})\s+(.+?)\s+(PZ|NR|KG|M|L)\s+([0-9]+(?:[.,][0-9]+)?)\s+([0-9]+(?:[.,][0-9]+)?)\s+([0-9]+(?:[.,][0-9]+)?)\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/gi;
 
-        let m;
+        var m;
         while ((m = rowRe.exec(flat))) {
-          const pos      = m[1];
-          const codice   = m[2];
-          const rev      = m[3];
-          let descr      = m[4] || '';
-          const umRaw    = m[5] || 'PZ';
-          const qtaStr   = m[6];
-          const unitStr  = m[7];
-          const totStr   = m[8];
-          const consegna = m[9];
+          var codice   = m[2];
+          var descrRaw = m[4];
+          var umRaw    = m[5];
+          var qtaStr   = m[6]; // Q.tà
+          // m[7] è prezzo unitario, m[8] è totale
+          var dataStr  = m[9];
 
-          if (!/^\d{1,3}$/.test(pos)) continue;
           if (!codice) continue;
 
-          descr = descr.replace(/\s+/g,' ').trim();
-          const um      = (umRaw || 'PZ').replace(/[^A-Z]/gi,'').toUpperCase() || 'PZ';
-          const qta     = toNum(qtaStr);
-          const dataIso = parseData(consegna);
+          // Pulizia descrizione e UM
+          var descr = descrRaw.trim();
+          var um    = (umRaw || 'PZ').toUpperCase();
+          
+          // Parsing quantità
+          var qta = toNum(qtaStr);
+          
+          // Parsing data
+          var dataIso = parseData(dataStr);
 
-          if (!qta) continue;
-
-          righe.push({
-            codice,
-            descrizione: descr || 'Riga ordine STEEL',
-            um,
-            qta
-          });
-
-          if (dataIso) consegne.push(dataIso);
+          if (qta > 0) {
+            righe.push({
+              codice: codice,
+              descrizione: descr,
+              um: um,
+              qta: qta
+            });
+            if (dataIso) consegne.push(dataIso);
+          }
         }
 
-        // Se nessuna riga valida → fallback, commessa vuota
-        if (!righe.length) {
-          return { cliente:'', descrizione:'', righe:[] };
-        }
+        // Recupero Numero Ordine e Data Ordine dall'intestazione
+        // Es: "Numero 4500295580 ... Data 09.12.2025"
+        var rifNumero = '';
+        var rifDataIso = '';
+        
+        var mNum = flat.match(/Numero\s+([0-9]+)/i);
+        if (mNum) rifNumero = mNum[1];
 
-        // Numero e data ordine (es. "Numero 4700046279 Data 28.11.2025")
-        let rifNumero  = '';
-        let rifDataIso = '';
-        const hdr = flat.match(/Numero\s+(\d+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/);
-        if (hdr) {
-          rifNumero  = (hdr[1] || '').trim();
-          rifDataIso = parseData(hdr[2] || '');
-        }
+        var mData = flat.match(/Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i);
+        if (mData) rifDataIso = parseData(mData[1]);
 
-        // Scadenza = data consegna massima tra le righe
-        let scadenza = '';
+        // Scadenza = data di consegna massima tra le righe
+        var scadenza = '';
         if (consegne.length) {
-          scadenza = consegne.slice().sort().slice(-1)[0];
+          consegne.sort();
+          scadenza = consegne[consegne.length - 1];
         }
 
-        const cliente   = isErgomec ? 'ERGOMEC S.R.L.' : 'STEEL SYSTEMS S.r.l.';
-        const baseDescr = isErgomec ? 'Ordine cliente ERGOMEC' : 'Ordine c/lavoro STEEL';
-        const descrComm = (`${baseDescr} ${rifNumero || ''}`).trim();
-        const qtaPezzi  = righe.reduce((s,r)=> s + (r.qta || 0), 0) || 1;
+        // Costruzione dati finali
+        var cliente = isErgomec ? 'ERGOMEC S.R.L.' : 'STEEL SYSTEMS S.r.l.';
+        var baseDescr = isErgomec ? 'Ordine cliente ERGOMEC' : 'Ordine c/lavoro STEEL';
+        
+        // Descrizione composta: "Ordine cliente ERGOMEC 4500295580"
+        var descrComm = baseDescr + (rifNumero ? ' ' + rifNumero : '');
+        
+        // Totale pezzi
+        var qtaPezzi = righe.reduce(function(acc, r){ return acc + (r.qta || 0); }, 0) || 1;
 
         return {
-          cliente,
-          descrizione: descrComm || (isErgomec
-            ? 'Commessa da ordine ERGOMEC'
-            : 'Commessa da ordine STEEL SYSTEMS'),
-          righe,
-          qtaPezzi,
-          scadenza,
+          cliente: cliente,
+          descrizione: descrComm,
+          righe: righe,
+          qtaPezzi: qtaPezzi,
+          scadenza: scadenza,
           rifCliente: rifNumero
             ? { tipo:'ordine', numero: rifNumero, data: rifDataIso || scadenza || '' }
             : null
         };
       }
     });
+    
+    console.log('[registerSteel] Parser STEEL/ERGOMEC aggiornato (v2).');
   })();
 
     // ================== PARSER BLAUWER v1 (Ord. acq. Standard) ====================
