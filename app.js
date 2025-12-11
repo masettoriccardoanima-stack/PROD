@@ -26924,18 +26924,24 @@ window.findCommessaById = window.findCommessaById || function(id){
     return e('aside', { className: 'sidebar' }, e('nav', { className: 'nav' }, nodes));
   }
 
-// ---------------- pickView centralizzato (con Dashboard sbloccata) ----------------
+// ---------------- pickView centralizzato (PARANOICO: Sicuro di default) ----------------
   window.pickView = function () {
     const raw = (location.hash || '#/dashboard').toLowerCase();
-    let h = raw.split('?')[0]; // ignora query es. #/timbratura?job=...
+    let h = raw.split('?')[0]; 
 
-    // 1. SICUREZZA ASSOLUTA: Login richiesto se attivo in impostazioni
+    // 1. SICUREZZA: Leggi impostazioni. 
+    // SE authRequired non è definito (PC nuovo/Incognito), assumiamo TRUE per sicurezza.
     const settings = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}'); }catch{return {};} })();
+    
+    // Default paranoico: se il campo manca, è TRUE (richiedi login). 
+    // Solo se è esplicitamente false (impostato dall'admin) lasciamo passare.
+    const isAuthRequired = (settings.authRequired !== false); 
+
     const user = window.__USER || window.currentUser || null;
     
-    if (settings.authRequired && !user) {
+    if (isAuthRequired && !user) {
       if (h !== '#/login') {
-        console.warn('Accesso negato: Login richiesto.');
+        console.warn('Accesso negato: Login richiesto (Default Sicuro).');
         location.hash = '#/login';
         return function(){ return e('div', {className:'page'}, 'Accesso riservato. Reindirizzamento al login...'); };
       }
@@ -26948,23 +26954,23 @@ window.findCommessaById = window.findCommessaById || function(id){
     }
 
     // 3. RBAC: Controllo Ruoli (worker, viewer, ecc.)
-    const role = (user && String(user.role || '').toLowerCase()) || 'admin';
+    // Se l'utente c'è, usiamo il suo ruolo. Se NON c'è (caso raro offline senza auth), degradalo a 'worker' NON admin.
+    const role = (user && String(user.role || '').toLowerCase()) || 'worker'; // <--- FIX WORKER SU PC
     const isAdmin = (role === 'admin');
     const isMobileLike = (role === 'viewer' || role === 'mobile');
 
     if (!isAdmin) {
-      // Lista delle pagine permesse ai NON-admin (AGGIUNTA DASHBOARD)
+      // Definisci qui le pagine permesse ai "non-admin"
       const allowed = new Set([
-        '#/dashboard',   // <--- ORA PERMESSA
+        '#/dashboard',
         '#/timbratura', 
         '#/commesse', 
         '#/ddt', 
         '#/login',
-        '#/report'       // Spesso utile anche ai worker per vedere i propri tempi
+        '#/report'
       ]);
 
       if (!allowed.has(h)) {
-        // Se provano ad andare in pagine vietate (es. Impostazioni, Fatture), li mandiamo alla Dashboard
         console.warn('Accesso negato a rotta:', h);
         if (h !== '#/dashboard') location.hash = '#/dashboard';
         h = '#/dashboard';
