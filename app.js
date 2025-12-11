@@ -27218,33 +27218,53 @@ window.getHashParam = window.getHashParam || function(name){
   }catch{ return ''; }
 };
 
-/* ================== TIMBRATURA MOBILE (SAFE MODE - FIX IPHONE) ================== */
+/* ================== TIMBRATURA MOBILE (SAFARI SAFE MODE) ================== */
 var TimbraturaMobileView = function(){
   const e = React.createElement;
 
-  // --- 1. Sicurezza e Login ---
+  // --- 1. Login Guard Sicuro ---
   const [user, setUser] = React.useState(window.__USER || null);
-  
-  // Effetto Auth sicuro: non blocca il rendering
+  const [loadingAuth, setLoadingAuth] = React.useState(!window.__USER);
+
   React.useEffect(() => {
+    let mounted = true;
     if (window.__USER) {
-      setUser(window.__USER);
+      if(mounted) { setUser(window.__USER); setLoadingAuth(false); }
       return;
     }
-    // Tentativo di recupero sessione
-    if (typeof window.requireLogin === 'function') {
-      window.requireLogin()
-        .then(u => setUser(u))
-        .catch(() => {
-           // Se fallisce, non fare nulla qui, l'utente vedrà pulsante login o verrà reindirizzato
-           // Evitiamo loop infiniti o schermate bianche
-        });
-    }
+    const check = async () => {
+      try {
+        if (window.requireLogin) {
+          const u = await window.requireLogin();
+          if(mounted) setUser(u);
+        }
+      } catch (err) {
+        console.warn('Auth check', err);
+      } finally {
+        if(mounted) setLoadingAuth(false);
+      }
+    };
+    check();
+    return () => { mounted = false; };
   }, []);
 
-  // --- 2. Helpers sicuri ---
-  const lsGet = window.lsGet || ((k,d)=>{ try{ return JSON.parse(localStorage.getItem(k))||d; }catch{return d;} });
-  const lsSet = window.lsSet || ((k,v)=>{ try{ localStorage.setItem(k, JSON.stringify(v)); window.__anima_dirty=true; }catch{} });
+  if (loadingAuth) return e('div', {className:'page', style:{padding:20}}, 'Caricamento...');
+
+  // --- Helpers & RBAC ---
+  const readOnly = (typeof window.isReadOnlyUser === 'function' ? !!window.isReadOnlyUser() : false);
+  const roBtnProps = () => (window.roProps ? window.roProps() : {});
+  
+  // Header User info
+  const rawRole = user && user.role ? String(user.role).toLowerCase() : '';
+  let roleLabel = 'Utente';
+  if (rawRole === 'admin') roleLabel = 'Admin';
+  else if (rawRole === 'worker') roleLabel = 'Operatore';
+  else if (rawRole === 'mobile') roleLabel = 'Mobile';
+  const userLabel = user ? (user.name || user.username || user.email || '') : '';
+  const headerUser = (userLabel && roleLabel) ? `${userLabel} — ${roleLabel}` : (userLabel || roleLabel || '');
+
+  const lsGet = window.lsGet || ((k,d)=>{ try{return JSON.parse(localStorage.getItem(k))||d;}catch{return d;} });
+  const lsSet = window.lsSet || ((k,v)=>{ try{localStorage.setItem(k,JSON.stringify(v));window.__anima_dirty=true;}catch{} });
 
   const fmtHHMM = (mins) => {
     const t = Math.max(0, Math.round(Number(mins)||0));
@@ -27259,11 +27279,10 @@ var TimbraturaMobileView = function(){
     return `${hh}:${mm}:${ss}`;
   };
 
-  // --- 3. Stato ---
+  // --- Dati ---
   const [refresh, setRefresh] = React.useState(0);
   const [jobId, setJobId] = React.useState('');
-  
-  // Recupero Job da URL o memoria
+
   React.useEffect(()=>{
     try {
       const h = window.location.hash || '';
@@ -27271,24 +27290,34 @@ var TimbraturaMobileView = function(){
       const params = new URLSearchParams(qs);
       const j = params.get('job');
       if(j) { setJobId(j); return; }
-      
       const stored = JSON.parse(localStorage.getItem('qrJob'));
       if (stored) setJobId(String(stored));
     } catch {}
   }, []);
 
-  // Lettura dati (protetta da crash)
   const app = lsGet('appSettings', {}) || {};
   const commesse = Array.isArray(lsGet('commesseRows', [])) ? lsGet('commesseRows', []) : [];
   const oreRows  = Array.isArray(lsGet('oreRows', [])) ? lsGet('oreRows', []) : [];
 
   const commessa = commesse.find(c => String(c.id) === String(jobId));
 
-  // Righe e Fasi
+  // Normalizzazione commessa
+  React.useEffect(() => {
+    if (!commessa) return;
+    try {
+      const normIds = window.ensureCommessaRowIds ? window.ensureCommessaRowIds(commessa) : commessa;
+      const norm = window.ensureCommessaRowFasi ? window.ensureCommessaRowFasi(normIds) : normIds;
+      if (norm !== commessa) {
+        const all = lsGet('commesseRows', []);
+        const ix = all.findIndex(x => String(x.id) === String(commessa.id));
+        if (ix >= 0) { all[ix] = norm; lsSet('commesseRows', all); setRefresh(r=>r+1); }
+      }
+    } catch {}
+  }, [commessa]);
+
   const righe = commessa ? (commessa.righeArticolo || commessa.righe || []) : [];
   const [rigaIdx, setRigaIdx] = React.useState('');
 
-  // Auto-selezione riga unica
   React.useEffect(() => {
     if (commessa && righe.length === 1 && rigaIdx==='') setRigaIdx('0');
   }, [commessa, righe]);
@@ -27302,14 +27331,13 @@ var TimbraturaMobileView = function(){
     return Array.isArray(commessa.fasi) ? commessa.fasi : [];
   }, [commessa, rigaIdx]);
 
-  // Operatori
   const operators = React.useMemo(() => {
     let arr = Array.isArray(app.operators) ? app.operators : [];
     if (!arr.length && Array.isArray(app.users)) arr = app.users.map(u=>u.name||u.username||'');
     return arr.map(x => typeof x==='string'?x:x.name).filter(Boolean);
   }, [app]);
 
-  // Form
+  // Form State
   const [operatore, setOperatore] = React.useState('');
   const [faseIdx, setFaseIdx] = React.useState('');
   const [secondOp, setSecondOp] = React.useState(false);
@@ -27319,12 +27347,9 @@ var TimbraturaMobileView = function(){
 
   React.useEffect(()=>{ if (!operatore && operators.length===1) setOperatore(operators[0]); }, [operators, operatore]);
   React.useEffect(()=>{ if (commessa && fasi.length && (faseIdx==='' || faseIdx==null)){ setFaseIdx('0'); } }, [commessa, fasi]);
-  
-  React.useEffect(()=>{
-    if (thirdOp) { if (secondOp) setSecondOp(false); }
-  }, [secondOp, thirdOp]);
+  React.useEffect(()=>{ if (thirdOp) { if (secondOp) setSecondOp(false); } }, [secondOp, thirdOp]);
 
-  // Timer Attivo
+  // Timer
   const ACTIVE_KEY = 'timbraturaActive';
   const [active, setActive] = React.useState(null);
   const [orphan, setOrphan] = React.useState(null);
@@ -27349,12 +27374,12 @@ var TimbraturaMobileView = function(){
     return () => clearInterval(t);
   }, [jobId]);
 
-  // Start / Stop
+  // Actions
   const start = () => {
-    if (!jobId){ alert('Inserisci o scansiona una commessa'); return; }
-    if (!operatore){ alert('Seleziona un operatore'); return; }
-    if (faseIdx===''){ alert('Seleziona una fase'); return; }
-    if (righe.length > 1 && (rigaIdx==='' || rigaIdx==null)){ alert('Seleziona la riga articolo'); return; }
+    if (!jobId){ alert('Manca ID Commessa'); return; }
+    if (!operatore){ alert('Seleziona Operatore'); return; }
+    if (faseIdx===''){ alert('Seleziona Fase'); return; }
+    if (righe.length > 1 && (rigaIdx==='' || rigaIdx==null)){ alert('Seleziona Riga'); return; }
     
     const payload = {
       jobId: String(jobId),
@@ -27376,7 +27401,6 @@ var TimbraturaMobileView = function(){
     if (!active) return;
     const mins = Math.round((Date.now() - new Date(active.startISO).getTime())/60000) * (active.opsCount||1);
     
-    // Suggerimento Residuo (Safe)
     let sugg = 0;
     try {
         if (!active.isGasChange && commessa) {
@@ -27387,7 +27411,7 @@ var TimbraturaMobileView = function(){
             sugg = residualPiecesUI(commessa, idxNum);
           }
         }
-    } catch(e) { console.warn('Errore calcolo residuo', e); }
+    } catch(e) { console.warn(e); }
 
     setQtyVal(sugg > 0 ? String(sugg) : '');
     setAskQty({ mins, snapshot: {...active} });
@@ -27399,12 +27423,8 @@ var TimbraturaMobileView = function(){
     const qty = Math.max(0, Math.floor(Number(qtyVal)||0));
     const nowISO = new Date().toISOString();
     
-    // Salva Ore
     const idObj = window.nextIdUnique ? window.nextIdUnique('ore','O','oreRows') : {id:`O-${Date.now()}`};
-    
-    // Nome fase snapshot
-    let fLab = '';
-    try { fLab = fasi[Number(act.faseIdx)].lav || ''; } catch {}
+    let fLab = ''; try { fLab = fasi[Number(act.faseIdx)].lav || ''; } catch {}
 
     const rec = {
       id: idObj.id,
@@ -27424,17 +27444,14 @@ var TimbraturaMobileView = function(){
     const nextOre = [...oreRows, rec];
     lsSet('oreRows', nextOre);
 
-    // Aggiorna qtaProdotta su Commessa (Fondamentale)
     try {
         if (!act.isGasChange) {
           const allC = lsGet('commesseRows', []);
           const ix = allC.findIndex(c => String(c.id) === String(jobId));
           if (ix >= 0) {
             const cUpd = { ...allC[ix] };
-            if (window.producedPiecesCore) {
-              cUpd.qtaProdotta = window.producedPiecesCore(cUpd, nextOre);
-            }
-            // Aggiorna anche la fase specifica se serve (legacy fallback)
+            if (window.producedPiecesCore) cUpd.qtaProdotta = window.producedPiecesCore(cUpd, nextOre);
+            
             if (Array.isArray(cUpd.fasi) && cUpd.fasi[Number(act.faseIdx)]) {
                const f = cUpd.fasi[Number(act.faseIdx)];
                f.qtaProdotta = (Number(f.qtaProdotta)||0) + qty;
@@ -27444,18 +27461,17 @@ var TimbraturaMobileView = function(){
             lsSet('commesseRows', allC);
           }
         }
-    } catch(e) { console.warn('Err update commessa', e); }
+    } catch {}
 
     localStorage.removeItem(ACTIVE_KEY);
     setAskQty(null);
     setRefresh(r=>r+1);
     
-    // Sync cloud (non bloccante, try-catch per sicurezza)
     try { if (window.syncExportToCloud) window.syncExportToCloud(); } catch {}
     alert('Salvato ✅');
   };
 
-  // --- UI RENDER SAFE ---
+  // --- UI RENDER SAFE (iPhone Crash Prevention) ---
   const [scanOpen, setScanOpen] = React.useState(false);
   const [isOnline, setIsOnline] = React.useState(navigator.onLine);
   
@@ -27467,75 +27483,78 @@ var TimbraturaMobileView = function(){
      return ()=>{ window.removeEventListener('online', go); window.removeEventListener('offline', off); };
   },[]);
 
-  // Scanner Logic
+  // Scanner Logic: caricamento differito per non bloccare il rendering
   const scannerRef = React.useRef(null);
-  function extractJobId(str){
-    if (!str) return '';
-    const m = String(str).match(/[A-Z]-\d{4}-\d{3}/);
-    if (m) return m[0];
-    return String(str).trim();
-  }
-  
-  function openScanner(){
-    if (!(window.Html5Qrcode || window.Html5QrcodeScanner)) {
-      alert('Scanner non disponibile. Assicurati di essere online o di aver caricato i vendor.');
-      return;
-    }
-    setScanOpen(true);
-  }
   
   React.useEffect(()=>{
     if (!scanOpen) return;
     const elId = 'qr-reader';
+    let h5 = null;
+    let scanner = null;
+
     const start = async ()=>{
+      // Ritardo di sicurezza per il DOM
+      await new Promise(r => setTimeout(r, 300));
+      
       try{
-        // Safe check for mobile
+        if (!document.getElementById(elId)) return; // Se chiuso nel frattempo
+
         const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
         
         if (isMobile && window.Html5Qrcode){
-          const h5 = new window.Html5Qrcode(elId);
+          h5 = new window.Html5Qrcode(elId);
           await h5.start(
             { facingMode: "environment" },
-            { fps: 10, qrbox: 240 },
+            { fps: 10, qrbox: 250 },
             (decodedText)=>{
-              const jid = extractJobId(decodedText);
-              if (jid){
-                setJobId(jid);
-                try{ localStorage.setItem('qrJob', JSON.stringify(jid)); }catch{}
+              if(decodedText){
+                 // Estrai job ID
+                 const m = String(decodedText).match(/[A-Z]-\d{4}-\d{3}/);
+                 const jid = m ? m[0] : String(decodedText).trim();
+                 if (jid){
+                   setJobId(jid);
+                   try{ localStorage.setItem('qrJob', JSON.stringify(jid)); }catch{}
+                 }
+                 setScanOpen(false);
               }
-              setScanOpen(false);
-              h5.stop().then(()=> h5.clear());
-            }
+            },
+            (errorMessage) => { /* ignore scan errors */ }
           );
           scannerRef.current = h5;
         } else if (window.Html5QrcodeScanner){
-          // Fallback desktop o libreria alternativa
-          const scanner = new window.Html5QrcodeScanner(elId, { fps: 10, qrbox: 240 }, false);
+          scanner = new window.Html5QrcodeScanner(elId, { fps: 10, qrbox: 250 }, false);
           scanner.render((decodedText)=>{
-             const jid = extractJobId(decodedText);
-             if (jid){ setJobId(jid); try{ localStorage.setItem('qrJob', JSON.stringify(jid)); }catch{} }
+             const m = String(decodedText).match(/[A-Z]-\d{4}-\d{3}/);
+             const jid = m ? m[0] : String(decodedText).trim();
+             if (jid){ 
+                setJobId(jid); 
+                try{ localStorage.setItem('qrJob', JSON.stringify(jid)); }catch{} 
+             }
              setScanOpen(false);
-             scanner.clear();
           });
           scannerRef.current = scanner;
+        } else {
+           alert('Scanner non disponibile. Inserisci manualmente.');
+           setScanOpen(false);
         }
       }catch(e){ 
-          console.warn('QR error', e); 
-          alert('Impossibile avviare la fotocamera: ' + e.message);
+          console.warn('QR start error', e); 
+          alert('Errore fotocamera: ' + e.message);
           setScanOpen(false);
       }
     };
-    setTimeout(start, 200); // Ritardo leggermente maggiore per rendering DOM
+    
+    start();
+
     return ()=>{ 
       try{ 
-        if(scannerRef.current?.stop) scannerRef.current.stop(); 
-        if(scannerRef.current?.clear) scannerRef.current.clear(); 
+        if(h5) h5.stop().then(()=>h5.clear()).catch(()=>{});
+        if(scanner) scanner.clear();
       }catch{} 
     };
   }, [scanOpen]);
 
 
-  // === RENDER ===
   return e('div', {className:'page timbratura'},
     // Orphan Warning
     orphan && e('div', {className:'card', style:{borderColor:'orange', marginBottom:12}},
@@ -27546,18 +27565,18 @@ var TimbraturaMobileView = function(){
       )
     ),
 
-    // Header Actions (Ripristino pulsanti layout mobile)
-    e('div', {className:'actions', style:{justifyContent:'space-between', flexWrap:'wrap', marginBottom:12}},
-       e('button', {className:'btn btn-outline', onClick:()=> {
-           if(history.length>1) history.back(); else location.hash='#/dashboard';
-       }}, '⬅ Indietro'),
-       
-       e('div', {className:'row', style:{gap:4}},
-         e('span', {className:'badge', style:{background: isOnline?'#16a34a':'#dc2626', color:'#fff'}}, isOnline?'ON':'OFF'),
-         !user && e('button', {className:'btn btn-sm btn-primary', onClick:()=>location.hash='#/login'}, 'Login')
+    // Header Utente
+    e('div', {style:{marginBottom:12}},
+       headerUser && e('div',{className:'muted', style:{marginBottom:4, fontSize:12}}, headerUser),
+       e('div', {className:'row', style:{justifyContent:'space-between', alignItems:'center'}},
+         e('button', {className:'btn btn-outline', onClick:()=> {
+             if(history.length>1) history.back(); else location.hash='#/dashboard';
+         }}, '⬅ Indietro'),
+         e('span', {className:'badge', style:{background: isOnline?'#16a34a':'#dc2626', color:'#fff'}}, 
+           isOnline?'ONLINE':'OFFLINE')
        )
     ),
-
+    
     // Pulsanti Sync / Utility (Ripristinati)
     e('div', {className:'actions', style:{justifyContent:'flex-end', flexWrap:'wrap', gap:8, marginBottom:12}},
        commessa && e('button', {className:'btn btn-sm btn-outline', onClick:()=>window.triggerEtichetteFor && window.triggerEtichetteFor(commessa, {})}, '🖨 Etichette'),
@@ -27565,7 +27584,7 @@ var TimbraturaMobileView = function(){
        e('button', {className:'btn btn-sm btn-outline', onClick:()=>window.syncExportToCloud && window.syncExportToCloud()}, '⬆ Esporta')
     ),
 
-    // CARD COMMESSA & STATISTICHE (Fix Quantità LIVE)
+    // CARD COMMESSA (Fix LIVE Qty)
     commessa && (function(){
         const totComm = Math.max(1, Number(commessa?.qtaPezzi || 1));
         const rIdxNum = (rigaIdx===''||rigaIdx==null) ? null : Number(rigaIdx);
@@ -27574,7 +27593,6 @@ var TimbraturaMobileView = function(){
         
         const totUI = hasRow ? Math.max(1, Number(rSel?.qta || totComm)) : totComm;
         
-        // Calcolo LIVE Safe
         let residUI = 0;
         try {
             const residUIraw = window.residualPiecesCore 
@@ -27582,7 +27600,6 @@ var TimbraturaMobileView = function(){
                 : (typeof residualPiecesUI === 'function' ? residualPiecesUI(commessa, rIdxNum) : 0);
             residUI = Math.max(0, Math.min(totUI, Number(residUIraw) || 0));
         } catch { residUI = 0; }
-
         const prodUI  = Math.max(0, totUI - residUI);
         
         const rowLabel = hasRow ? (rSel.codice || `Riga ${rIdxNum+1}`) : '';
@@ -27614,11 +27631,11 @@ var TimbraturaMobileView = function(){
        e('label', null, 'Commessa'),
        e('div', {className:'row', style:{gap:8}},
          e('input', {value:jobId, onChange:ev=>setJobId(ev.target.value), placeholder:'C-2025-xxx', style:{fontSize:16, fontWeight:'bold', flex:1}}),
-         e('button', {className:'btn btn-outline', onClick:openScanner}, '📷 Scan')
+         e('button', {className:'btn btn-outline', onClick:()=>setScanOpen(true)}, '📷 Scan')
        )
     ),
 
-    // Select Riga (se multi)
+    // Select Riga
     (commessa && righe.length > 1) && e('div', {className:'card', style:{marginBottom:12}},
        e('label', null, 'Riga Articolo'),
        e('div', {className:'row', style:{gap:8}},
@@ -27626,7 +27643,11 @@ var TimbraturaMobileView = function(){
             e('option', {value:''}, '— Seleziona riga —'),
             righe.map((r,i)=> e('option', {key:i, value:String(i)}, `${i+1}) ${r.codice} ${r.descrizione}`))
          ),
-         e('button', {className:'btn btn-outline', onClick:selectRiga}, 'Elenco')
+         e('button', {className:'btn btn-outline', onClick:()=>{
+            const txt = righe.map((r,i)=> `${i+1}) ${r.codice||''} ${r.descrizione||''}`).join('\n');
+            const idx = prompt('Riga:\n'+txt, '1');
+            if(idx) setRigaIdx(String(parseInt(idx)-1));
+         }}, 'Elenco')
        )
     ),
 
@@ -27680,7 +27701,7 @@ var TimbraturaMobileView = function(){
        )
     ),
     
-    // Scanner Modal
+    // Scanner Modal Safe
     scanOpen && e('div', {className:'modal-backdrop'},
        e('div', {className:'modal-card'},
          e('h3', null, 'Scanner QR'),
@@ -27690,6 +27711,8 @@ var TimbraturaMobileView = function(){
     )
   );
 };
+
+
 
 // === STUB + ROUTES REPAIR (idempotente, incolla in fondo) ==================
 (function ensureRoutesAndStubs(){
