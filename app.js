@@ -24951,9 +24951,10 @@ function MagazzinoView(props){
 
     setEditArt(null);
   }
-  function delArt(a){
+function delArt(a){
     if (!confirm(`Eliminare articolo ${a.codice}?`)) return;
-    const next = (articoli||[]).filter(x=> x !== a);
+    // FIX: confronto per CODICE univoco, non per riferimento oggetto
+    const next = (articoli||[]).filter(x => String(x.codice).toLowerCase() !== String(a.codice).toLowerCase());
     setArticoli(next);
     persistArticoli(next);
   }
@@ -25155,7 +25156,7 @@ function MagazzinoView(props){
     )
   ),
 
-    // form edit/nuovo
+// form edit/nuovo
     !editArt ? null : e('div', {className:'card', style:{marginTop:8}},
       e('div', {className:'card-title'}, 'Articolo'),
       e('div', {className:'grid grid-2'},
@@ -25177,20 +25178,41 @@ function MagazzinoView(props){
             onChange: ev => setEditArt({...editArt, descrizione: ev.target.value})
           })
         ),
-        e('label', null, 'Prezzo',
+        e('label', null, 'Prezzo (€)',
           e('input', {
-            type:'number',
-            step:'0.01',
-            value: editArt.prezzo || 0,
-            onChange: ev => setEditArt({...editArt, prezzo: Number(ev.target.value || 0)})
+            type:'text',             // FIX: text per gestire la virgola manualmente
+            inputMode: 'decimal',    // FIX: tastierino numerico su mobile
+            placeholder: '0.00',
+            value: editArt.prezzo || '',
+            onChange: ev => {
+              // Sostituisce virgola con punto, permette scrittura libera
+              const val = ev.target.value.replace(',', '.');
+              // Validazione lasca mentre scrivi (permette "10." o "10.5")
+              if (isNaN(Number(val)) && val !== '' && val !== '.') return; 
+              setEditArt({...editArt, prezzo: val});
+            },
+            onBlur: ev => {
+              // Formatta pulito quando esci dal campo
+              const n = parseFloat(ev.target.value.replace(',','.'));
+              setEditArt({...editArt, prezzo: isNaN(n) ? 0 : n});
+            }
           })
         ),
-        e('label', null, 'Costo',
+        e('label', null, 'Costo (€)',
           e('input', {
-            type:'number',
-            step:'0.01',
-            value: (editArt.costo != null ? editArt.costo : 0),
-            onChange: ev => setEditArt({...editArt, costo: Number(ev.target.value || 0)})
+            type:'text',             // FIX: idem come sopra
+            inputMode: 'decimal',
+            placeholder: '0.00',
+            value: (editArt.costo != null ? editArt.costo : ''),
+            onChange: ev => {
+              const val = ev.target.value.replace(',', '.');
+              if (isNaN(Number(val)) && val !== '' && val !== '.') return;
+              setEditArt({...editArt, costo: val});
+            },
+            onBlur: ev => {
+              const n = parseFloat(ev.target.value.replace(',','.'));
+              setEditArt({...editArt, costo: isNaN(n) ? 0 : n});
+            }
           })
         )
       ),
