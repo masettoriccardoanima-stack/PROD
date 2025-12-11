@@ -2457,13 +2457,14 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
     const cliRag  = esc(pv?.cliente || pv?.clienteRagione || cli.ragioneSociale || cli.ragione || '');
     const cliInd  = esc(cli.sedeLegale || cli.sedeOperativa || cli.indirizzo || '');
     const cliPiva = esc(cli.piva || '');
-    const cliEmail= esc(cli.email || '');
+    // const cliEmail= esc(cli.email || '');
 
     // Dati Documento
     const docId   = esc(pv?.id || 'BOZZA');
     const docData = fmtDate(pv?.data || new Date().toISOString());
     const oggetto = esc(pv?.oggetto || pv?.descrizione || '');
-    const validita= '30 giorni'; // Standard, o aggiungi campo nel form se serve
+    // Se vuoi la validità variabile, puoi aggiungerla al form preventivi in futuro. Per ora standard 30gg.
+    const validita= '30 giorni data presente'; 
 
     // Righe
     const righe = Array.isArray(pv?.righe) ? pv.righe : (Array.isArray(pv?.righeArticolo) ? pv.righeArticolo : []);
@@ -2502,8 +2503,9 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
 
     const totaleDoc = imponibile + totIva;
 
-    // --- COSTRUZIONE PAGINE ---
-    // Header HTML (ripetuto)
+    // --- TEMPLATE PARTI COMUNI ---
+    
+    // 1. Header (Azienda + Titolo)
     const headerHTML = `
       <div class="header">
         <div class="brand">
@@ -2522,25 +2524,24 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         </div>
       </div>`;
 
-    // Info Cliente + Oggetto (ripetuto, ma potremmo metterlo solo nella prima se preferisci)
-    // Per ora lo mettiamo su ogni pagina per chiarezza, come le fatture.
+    // 2. Info Cliente + Dettagli (Pagamento/Validità)
     const metaHTML = `
       <div class="meta-grid">
         <div class="box">
-          <div class="lbl">Cliente</div>
+          <div class="lbl">Spett.le Cliente</div>
           <div class="val">${cliRag}</div>
           ${cliInd ? `<div class="muted small">${cliInd}</div>` : ''}
           ${cliPiva ? `<div class="muted small">P.IVA: ${cliPiva}</div>` : ''}
         </div>
         <div class="box">
-          <div class="lbl">Dettagli</div>
+          <div class="lbl">Dettagli offerta</div>
           ${oggetto ? `<div><b>Oggetto:</b> ${oggetto}</div>` : ''}
           <div><b>Pagamento:</b> ${esc(pv?.pagamento || app.defaultPagamento || 'Rimessa diretta')}</div>
           <div><b>Validità:</b> ${validita}</div>
         </div>
       </div>`;
 
-    // Tabella Header
+    // 3. Intestazione Tabella
     const theadHTML = `
       <thead>
         <tr>
@@ -2550,13 +2551,13 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
           <th class="ctr" style="width:50px">UM</th>
           <th class="ctr" style="width:60px">Q.tà</th>
           <th class="num" style="width:90px">Prezzo</th>
-          <th class="ctr" style="width:60px">Sc.%</th>
+          <th class="ctr" style="width:50px">Sc.%</th>
           <th class="num" style="width:100px">Totale</th>
         </tr>
       </thead>`;
 
-    // Footer (Totali + Firma) - Solo ultima pagina
-    const ivaRows = Object.keys(ivaMap).sort((a,b)=>a-b).map(k => {
+    // 4. Footer (Totali + Firma) - Solo ultima pagina
+    const ivaRows = Object.keys(ivaMap).sort((a,b)=>Number(a)-Number(b)).map(k => {
       const b = ivaMap[k];
       const i = b * (Number(k)/100);
       return `<tr>
@@ -2566,37 +2567,45 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
       </tr>`;
     }).join('');
 
+    // Note finali
+    const noteHTML = (pv.note) 
+      ? `<div class="box-note"><strong>Note:</strong> ${esc(pv.note).replace(/\n/g,'<br>')}</div>` 
+      : '';
+
     const footerLastPageHTML = `
       <div class="footer-summary">
         <div class="box iva-box">
           <div class="lbl">Riepilogo IVA</div>
           <table class="iva-table">
-            <thead><tr><th>Aliq.</th><th>Imp.</th><th>IVA</th></tr></thead>
+            <thead><tr><th>Aliq.</th><th class="num">Imp.</th><th class="num">IVA</th></tr></thead>
             <tbody>${ivaRows}</tbody>
           </table>
         </div>
         <div class="box tot-box">
-          <div class="row"><div>Imponibile:</div> <div>${fmt2(imponibile)}</div></div>
+          <div class="row"><div>Totale Netto:</div> <div>${fmt2(imponibile)}</div></div>
           <div class="row"><div>Totale IVA:</div> <div>${fmt2(totIva)}</div></div>
-          <div class="row grand-total"><div>TOTALE:</div> <div>€ ${fmt2(totaleDoc)}</div></div>
+          <div class="row grand-total"><div>TOTALE PREVENTIVO:</div> <div>€ ${fmt2(totaleDoc)}</div></div>
         </div>
       </div>
       
+      ${noteHTML}
+
       <div class="footer-sign">
-        <div class="box">
+        <div class="sign-box">
           <div class="lbl">Per accettazione (Timbro e Firma)</div>
-          <div style="margin-top:15mm; border-bottom:1px solid #ccc; width:80%"></div>
-          <div class="small muted" style="margin-top:4px">Luogo e Data: __________________________</div>
+          <div class="line"></div>
+          <div class="small muted center">Luogo e Data: __________________________</div>
         </div>
       </div>`;
 
-    // --- Paginazione ---
-    const MAX_ROWS = 14; // Righe per pagina (aggiustabile)
+    // --- PAGINAZIONE (CSS/JS logic) ---
+    // Dividiamo le righe in blocchi per garantire che header/footer non vengano tagliati.
+    // Stima: 14 righe per pagina piena.
+    const MAX_ROWS = 13; 
     const pages = [];
     
-    // Se non ci sono righe
     if (rowsData.length === 0) {
-      pages.push([ { idx:'', codice:'', descrizione:'Nessuna riga', um:'', qta:'', prezzo:'', totale:'' } ]);
+      pages.push([ { idx:'', codice:'', descrizione:'Nessuna riga inserita', um:'', qta:'', prezzo:'', totale:'' } ]);
     } else {
       for (let i = 0; i < rowsData.length; i += MAX_ROWS) {
         pages.push(rowsData.slice(i, i + MAX_ROWS));
@@ -2610,21 +2619,22 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
       
       const tbodyHTML = pRows.map(r => `
         <tr>
-          <td class="ctr">${r.idx}</td>
-          <td class="code">${r.codice}</td>
+          <td class="ctr">${r.idx || ''}</td>
+          <td class="code">${r.codice || ''}</td>
           <td>
             ${r.descrizione}
             ${r.note ? `<div class="small muted"><i>${r.note}</i></div>` : ''}
           </td>
-          <td class="ctr">${r.um}</td>
-          <td class="ctr">${r.qta||''}</td>
+          <td class="ctr">${r.um || ''}</td>
+          <td class="ctr">${r.qta || ''}</td>
           <td class="num">${r.prezzo ? fmt2(r.prezzo) : ''}</td>
           <td class="ctr">${r.sconto ? fmt2(r.sconto) : ''}</td>
           <td class="num">${r.totale ? fmt2(r.totale) : ''}</td>
         </tr>
       `).join('');
 
-      // Riempimento righe vuote per mantenere l'altezza se serve (opzionale, qui lo ometto per pulizia)
+      // Se è l'ultima pagina, ma ci sono troppe righe e il footer verrebbe schiacciato,
+      // potremmo forzare una pagina in più. Per ora lasciamo fluire (flex-layout).
 
       htmlPages += `
         <div class="page">
@@ -2635,13 +2645,14 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
               ${theadHTML}
               <tbody>${tbodyHTML}</tbody>
             </table>
+            <div class="spacer"></div>
             ${isLast ? footerLastPageHTML : ''}
           </div>
           <div class="page-num">PAGINA ${pageIdx + 1} / ${pages.length}</div>
         </div>`;
     });
 
-    // --- CSS ---
+    // --- CSS STAMPA ---
     const css = `
       <style>
         @page { size: A4; margin: 0; }
@@ -2653,11 +2664,12 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
           position: relative;
           page-break-after: always;
           padding: 12mm 10mm;
-          display: flex; flex-direction: column; justify-content: space-between;
+          display: flex; flex-direction: column; 
         }
         .page:last-child { page-break-after: auto; }
         
-        .content-wrap { flex: 1; }
+        .content-wrap { flex: 1; display: flex; flex-direction: column; }
+        .spacer { flex: 1; } /* Spinge il footer in basso solo se c'è spazio, altrimenti segue */
 
         /* Header */
         .header { display: flex; justify-content: space-between; border-bottom: 2px solid #111; padding-bottom: 10px; margin-bottom: 10px; }
@@ -2678,22 +2690,31 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         .val { font-weight: 700; font-size: 11pt; margin-bottom: 2px; }
 
         /* Main Table */
-        table { width: 100%; border-collapse: collapse; }
-        th { background: #eee; font-weight: 700; text-align: left; padding: 6px; border: 1px solid #ccc; font-size: 9pt; }
-        td { border: 1px solid #ccc; padding: 6px; vertical-align: top; font-size: 10pt; }
+        table.main-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+        table.main-table th { background: #eee; font-weight: 700; text-align: left; padding: 6px; border: 1px solid #ccc; font-size: 9pt; }
+        table.main-table td { border: 1px solid #ccc; padding: 6px; vertical-align: top; font-size: 10pt; }
         .ctr { text-align: center; }
         .num { text-align: right; }
         .code { font-family: monospace; font-weight: 600; }
         .small { font-size: 8pt; }
+        .center { text-align: center; }
 
         /* Footer Summary */
-        .footer-summary { display: grid; grid-template-columns: 1.5fr 1fr; gap: 15px; margin-top: 15px; break-inside: avoid; }
-        .iva-table th, .iva-table td { padding: 4px; font-size: 9pt; }
-        .tot-box .row { display: flex; justify-content: space-between; margin-bottom: 4px; }
-        .grand-total { border-top: 2px solid #111; margin-top: 6px; padding-top: 6px; font-weight: 800; font-size: 12pt; }
+        .footer-summary { display: grid; grid-template-columns: 1.5fr 1fr; gap: 15px; margin-top: 10px; break-inside: avoid; }
+        .iva-table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+        .iva-table th, .iva-table td { border: 1px solid #eee; padding: 4px; }
+        .iva-table th { background: #f9f9f9; text-align: left; }
+        
+        .tot-box { display: flex; flex-direction: column; justify-content: center; }
+        .tot-box .row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 10pt; }
+        .grand-total { border-top: 2px solid #111; margin-top: 6px; padding-top: 6px; font-weight: 800; font-size: 13pt; }
 
-        /* Footer Sign */
-        .footer-sign { margin-top: 15px; break-inside: avoid; }
+        /* Note e Firma */
+        .box-note { margin-top: 10px; border: 1px dashed #ccc; padding: 8px; font-size: 9pt; break-inside: avoid; }
+        .footer-sign { margin-top: 15px; break-inside: avoid; page-break-inside: avoid; }
+        .sign-box { border: 1px solid #ccc; border-radius: 6px; padding: 10px; height: 35mm; position: relative; }
+        .sign-box .line { position: absolute; bottom: 10mm; left: 10%; width: 80%; border-bottom: 1px solid #000; }
+        .sign-box .center { position: absolute; bottom: 4mm; width: 100%; text-align: center; }
         
         /* Page Num */
         .page-num { text-align: right; font-size: 9pt; border-top: 1px solid #eee; padding-top: 5px; margin-top: 5px; color: #888; }
@@ -2702,20 +2723,18 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
     return `<!DOCTYPE html><html><head><meta charset="utf-8">${css}</head><body>${htmlPages}</body></html>`;
   };
 
-  // Funzione di stampa sicura (usa la cache immagini globale se presente, altrimenti fallback)
+  // Funzione di stampa sicura (usa safePrintHTMLStringWithPageNum se disponibile per coerenza)
   window.printPreventivo = function(pv){
     try {
       if (!pv || !pv.id) { alert('Preventivo non valido'); return; }
       
       const html = window.generatePreventivoHTML(pv);
       
-      // Usa il sistema di stampa sicuro (che gestisce le immagini)
       if (window.safePrintHTMLStringWithPageNum) {
         window.safePrintHTMLStringWithPageNum(html);
       } else if (window.safePrintHTMLString) {
         window.safePrintHTMLString(html);
       } else {
-        // Fallback estremo
         const w = window.open('', '_blank');
         if (w) {
           w.document.write(html);
