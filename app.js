@@ -2457,13 +2457,11 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
     const cliRag  = esc(pv?.cliente || pv?.clienteRagione || cli.ragioneSociale || cli.ragione || '');
     const cliInd  = esc(cli.sedeLegale || cli.sedeOperativa || cli.indirizzo || '');
     const cliPiva = esc(cli.piva || '');
-    // const cliEmail= esc(cli.email || '');
 
     // Dati Documento
     const docId   = esc(pv?.id || 'BOZZA');
     const docData = fmtDate(pv?.data || new Date().toISOString());
     const oggetto = esc(pv?.oggetto || pv?.descrizione || '');
-    // Se vuoi la validità variabile, puoi aggiungerla al form preventivi in futuro. Per ora standard 30gg.
     const validita= '30 giorni data presente'; 
 
     // Righe
@@ -2505,7 +2503,7 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
 
     // --- TEMPLATE PARTI COMUNI ---
     
-    // 1. Header (Azienda + Titolo)
+    // 1. Header
     const headerHTML = `
       <div class="header">
         <div class="brand">
@@ -2524,7 +2522,7 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         </div>
       </div>`;
 
-    // 2. Info Cliente + Dettagli (Pagamento/Validità)
+    // 2. Info Cliente
     const metaHTML = `
       <div class="meta-grid">
         <div class="box">
@@ -2548,7 +2546,7 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
           <th class="ctr" style="width:30px">#</th>
           <th style="width:110px">Codice</th>
           <th>Descrizione</th>
-          <th class="ctr" style="width:50px">UM</th>
+          <th class="ctr" style="width:40px">UM</th>
           <th class="ctr" style="width:60px">Q.tà</th>
           <th class="num" style="width:90px">Prezzo</th>
           <th class="ctr" style="width:50px">Sc.%</th>
@@ -2556,7 +2554,7 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         </tr>
       </thead>`;
 
-    // 4. Footer (Totali + Firma) - Solo ultima pagina
+    // 4. Footer (Totali + Firma)
     const ivaRows = Object.keys(ivaMap).sort((a,b)=>Number(a)-Number(b)).map(k => {
       const b = ivaMap[k];
       const i = b * (Number(k)/100);
@@ -2567,41 +2565,41 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
       </tr>`;
     }).join('');
 
-    // Note finali
     const noteHTML = (pv.note) 
       ? `<div class="box-note"><strong>Note:</strong> ${esc(pv.note).replace(/\n/g,'<br>')}</div>` 
       : '';
 
     const footerLastPageHTML = `
-      <div class="footer-summary">
-        <div class="box iva-box">
-          <div class="lbl">Riepilogo IVA</div>
-          <table class="iva-table">
-            <thead><tr><th>Aliq.</th><th class="num">Imp.</th><th class="num">IVA</th></tr></thead>
-            <tbody>${ivaRows}</tbody>
-          </table>
+      <div class="footer-block">
+        <div class="footer-summary">
+          <div class="box iva-box">
+            <div class="lbl">Riepilogo IVA</div>
+            <table class="iva-table">
+              <thead><tr><th>Aliq.</th><th class="num">Imp.</th><th class="num">IVA</th></tr></thead>
+              <tbody>${ivaRows}</tbody>
+            </table>
+          </div>
+          <div class="box tot-box">
+            <div class="row"><div>Totale Netto:</div> <div>${fmt2(imponibile)}</div></div>
+            <div class="row"><div>Totale IVA:</div> <div>${fmt2(totIva)}</div></div>
+            <div class="row grand-total"><div>TOTALE PREVENTIVO:</div> <div>€ ${fmt2(totaleDoc)}</div></div>
+          </div>
         </div>
-        <div class="box tot-box">
-          <div class="row"><div>Totale Netto:</div> <div>${fmt2(imponibile)}</div></div>
-          <div class="row"><div>Totale IVA:</div> <div>${fmt2(totIva)}</div></div>
-          <div class="row grand-total"><div>TOTALE PREVENTIVO:</div> <div>€ ${fmt2(totaleDoc)}</div></div>
-        </div>
-      </div>
-      
-      ${noteHTML}
+        
+        ${noteHTML}
 
-      <div class="footer-sign">
-        <div class="sign-box">
-          <div class="lbl">Per accettazione (Timbro e Firma)</div>
-          <div class="line"></div>
-          <div class="small muted center">Luogo e Data: __________________________</div>
+        <div class="footer-sign">
+          <div class="sign-box">
+            <div class="lbl">Per accettazione (Timbro e Firma)</div>
+            <div class="line"></div>
+            <div class="small muted center">Luogo e Data: __________________________</div>
+          </div>
         </div>
       </div>`;
 
-    // --- PAGINAZIONE (CSS/JS logic) ---
-    // Dividiamo le righe in blocchi per garantire che header/footer non vengano tagliati.
-    // Stima: 14 righe per pagina piena.
-    const MAX_ROWS = 13; 
+    // --- PAGINAZIONE ---
+    // Ho ridotto a 11 righe per essere sicuri che il footer ci stia
+    const MAX_ROWS = 11; 
     const pages = [];
     
     if (rowsData.length === 0) {
@@ -2633,9 +2631,6 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         </tr>
       `).join('');
 
-      // Se è l'ultima pagina, ma ci sono troppe righe e il footer verrebbe schiacciato,
-      // potremmo forzare una pagina in più. Per ora lasciamo fluire (flex-layout).
-
       htmlPages += `
         <div class="page">
           <div class="content-wrap">
@@ -2645,7 +2640,9 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
               ${theadHTML}
               <tbody>${tbodyHTML}</tbody>
             </table>
+            
             <div class="spacer"></div>
+            
             ${isLast ? footerLastPageHTML : ''}
           </div>
           <div class="page-num">PAGINA ${pageIdx + 1} / ${pages.length}</div>
@@ -2659,22 +2656,24 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         * { box-sizing: border-box; -webkit-print-color-adjust: exact; }
         body { margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; font-size: 10pt; color: #111; background: #fff; }
         
+        /* Layout Pagina Rigido */
         .page {
           width: 210mm; height: 297mm;
           position: relative;
           page-break-after: always;
-          padding: 12mm 10mm;
+          padding: 10mm 10mm 12mm 10mm; /* Un po' più di spazio sotto per il numero pagina */
           display: flex; flex-direction: column; 
+          overflow: hidden; /* Evita sbordature */
         }
         .page:last-child { page-break-after: auto; }
         
         .content-wrap { flex: 1; display: flex; flex-direction: column; }
-        .spacer { flex: 1; } /* Spinge il footer in basso solo se c'è spazio, altrimenti segue */
+        .spacer { flex: 1; } 
 
         /* Header */
-        .header { display: flex; justify-content: space-between; border-bottom: 2px solid #111; padding-bottom: 10px; margin-bottom: 10px; }
+        .header { display: flex; justify-content: space-between; border-bottom: 2px solid #111; padding-bottom: 8px; margin-bottom: 12px; }
         .brand { display: flex; gap: 15px; align-items: center; }
-        .logo { height: 60px; max-width: 180px; object-fit: contain; }
+        .logo { height: 55px; max-width: 180px; object-fit: contain; }
         .az-info { font-size: 9pt; line-height: 1.3; }
         .rs { font-size: 14pt; font-weight: 800; text-transform: uppercase; }
         .muted { color: #555; }
@@ -2685,7 +2684,7 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
 
         /* Meta Grid */
         .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px; }
-        .box { border: 1px solid #ccc; border-radius: 6px; padding: 8px; font-size: 9.5pt; }
+        .box { border: 1px solid #ccc; border-radius: 6px; padding: 6px 8px; font-size: 9.5pt; }
         .lbl { font-weight: 700; text-transform: uppercase; font-size: 8pt; color: #666; margin-bottom: 4px; }
         .val { font-weight: 700; font-size: 11pt; margin-bottom: 2px; }
 
@@ -2695,15 +2694,18 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         table.main-table td { border: 1px solid #ccc; padding: 6px; vertical-align: top; font-size: 10pt; }
         .ctr { text-align: center; }
         .num { text-align: right; }
-        .code { font-family: monospace; font-weight: 600; }
+        .code { font-family: monospace; font-weight: 600; font-size: 9.5pt; }
         .small { font-size: 8pt; }
         .center { text-align: center; }
 
+        /* Footer Block - Non si spezza mai */
+        .footer-block { break-inside: avoid; page-break-inside: avoid; }
+
         /* Footer Summary */
-        .footer-summary { display: grid; grid-template-columns: 1.5fr 1fr; gap: 15px; margin-top: 10px; break-inside: avoid; }
+        .footer-summary { display: grid; grid-template-columns: 1.5fr 1fr; gap: 15px; margin-top: 10px; }
         .iva-table { width: 100%; border-collapse: collapse; font-size: 9pt; }
-        .iva-table th, .iva-table td { border: 1px solid #eee; padding: 4px; }
-        .iva-table th { background: #f9f9f9; text-align: left; }
+        .iva-table th, .iva-table td { padding: 4px; font-size: 9pt; border: 1px solid #eee; }
+        .iva-table th { background:#f9f9f9; text-align: left; }
         
         .tot-box { display: flex; flex-direction: column; justify-content: center; }
         .tot-box .row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 10pt; }
@@ -2711,30 +2713,39 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
 
         /* Note e Firma */
         .box-note { margin-top: 10px; border: 1px dashed #ccc; padding: 8px; font-size: 9pt; break-inside: avoid; }
-        .footer-sign { margin-top: 15px; break-inside: avoid; page-break-inside: avoid; }
+        .footer-sign { margin-top: 12px; break-inside: avoid; page-break-inside: avoid; }
         .sign-box { border: 1px solid #ccc; border-radius: 6px; padding: 10px; height: 35mm; position: relative; }
         .sign-box .line { position: absolute; bottom: 10mm; left: 10%; width: 80%; border-bottom: 1px solid #000; }
         .sign-box .center { position: absolute; bottom: 4mm; width: 100%; text-align: center; }
         
-        /* Page Num */
-        .page-num { text-align: right; font-size: 9pt; border-top: 1px solid #eee; padding-top: 5px; margin-top: 5px; color: #888; }
+        /* Page Num - Assoluto in fondo */
+        .page-num { 
+          position: absolute; 
+          bottom: 10mm; 
+          right: 10mm; 
+          font-size: 9pt; 
+          color: #888; 
+          font-weight: bold;
+        }
       </style>`;
 
     return `<!DOCTYPE html><html><head><meta charset="utf-8">${css}</head><body>${htmlPages}</body></html>`;
   };
 
-  // Funzione di stampa sicura (usa safePrintHTMLStringWithPageNum se disponibile per coerenza)
+  // Funzione di stampa sicura (usa la cache immagini globale se presente, altrimenti fallback)
   window.printPreventivo = function(pv){
     try {
       if (!pv || !pv.id) { alert('Preventivo non valido'); return; }
       
       const html = window.generatePreventivoHTML(pv);
       
+      // Usa il sistema di stampa sicuro (che gestisce le immagini)
       if (window.safePrintHTMLStringWithPageNum) {
         window.safePrintHTMLStringWithPageNum(html);
       } else if (window.safePrintHTMLString) {
         window.safePrintHTMLString(html);
       } else {
+        // Fallback estremo
         const w = window.open('', '_blank');
         if (w) {
           w.document.write(html);
