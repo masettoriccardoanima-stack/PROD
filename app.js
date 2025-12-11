@@ -28862,7 +28862,70 @@ window.navigateTo = window.navigateTo || function(name){
   location.hash = h;
 };
 
+/* ================== GUARDRAIL: CONTROLLO DB VUOTO VS CLOUD PIENO ================== */
+(function guardrailEmptyDB(){
+  // Esegui solo se la pagina è appena caricata
+  if (window.__ANIMA_GUARDRAIL_RUN) return;
+  window.__ANIMA_GUARDRAIL_RUN = true;
 
+  window.addEventListener('load', async () => {
+    // 1. Controllo se siamo "vuoti" in locale
+    const commesse = (function(){ try{ return JSON.parse(localStorage.getItem('commesseRows')||'[]'); }catch{return [];} })();
+    
+    // Se ho già dati, tutto ok, non disturbo
+    if (commesse.length > 0) return;
+
+    // 2. Controllo se il cloud è configurato
+    const s = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}'); }catch{return {};} })();
+    if (!s.cloudEnabled || !s.supabaseUrl || !s.supabaseKey) return;
+
+    console.log('[Guardrail] Locale vuoto, controllo il cloud...');
+
+    // 3. Chiedo al cloud se ha dati (basta 1 riga per far scattare l'allarme)
+    try {
+      const url = s.supabaseUrl.replace(/\/+$/,'');
+      const table = s.supabaseTable || 'anima_sync';
+      // Cerco solo se esiste almeno una riga nel bucket 'local'
+      const endpoint = `${url}/rest/v1/${encodeURIComponent(table)}?select=k&bucket=eq.local&limit=1`;
+      
+      const res = await fetch(endpoint, {
+        method: 'GET',
+        headers: {
+          'apikey': s.supabaseKey,
+          'Authorization': 'Bearer ' + s.supabaseKey
+        }
+      });
+
+      if (!res.ok) return; // Errore connessione, lasciamo perdere
+      const data = await res.json();
+
+      // 4. SE il cloud ha dati (array non vuoto) E io sono vuoto -> ALLARME
+      if (Array.isArray(data) && data.length > 0) {
+        // Usa un piccolo timeout per essere sicuro che l'interfaccia sia pronta
+        setTimeout(() => {
+          const msg = 
+            "⚠️ ATTENZIONE: DATABASE LOCALE VUOTO ⚠️\n\n" +
+            "Sembra che questo dispositivo non abbia dati, ma nel Cloud sono presenti dei salvataggi.\n\n" +
+            "Vuoi SCARICARE I DATI dal Cloud ora per evitare di creare conflitti?\n" +
+            "(Consigliato: OK)";
+          
+          if (confirm(msg)) {
+            if (window.syncImportFromCloud) {
+              window.syncImportFromCloud();
+            } else {
+              alert("Funzione import non trovata. Vai in Impostazioni -> Cloud -> Importa.");
+            }
+          }
+        }, 1000);
+      } else {
+        console.log('[Guardrail] Anche il cloud sembra vuoto (o tabella nuova).');
+      }
+
+    } catch (err) {
+      console.warn('[Guardrail] check fallito:', err);
+    }
+  });
+})();
 
 
 
