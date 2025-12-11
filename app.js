@@ -24953,12 +24953,11 @@ function MagazzinoView(props){
   }
 function delArt(a){
     if (!confirm(`Eliminare articolo ${a.codice}?`)) return;
-    // FIX: confronto per CODICE univoco, non per riferimento oggetto
-    const next = (articoli||[]).filter(x => String(x.codice).toLowerCase() !== String(a.codice).toLowerCase());
+    // FIX: confronto per CODICE univoco (case-insensitive), non per riferimento oggetto in memoria
+    const next = (articoli||[]).filter(x => String(x.codice).trim().toLowerCase() !== String(a.codice).trim().toLowerCase());
     setArticoli(next);
     persistArticoli(next);
   }
-
   // ================== Movimenti ==================
   function addMov(){
     // normalizza input
@@ -25180,19 +25179,19 @@ function delArt(a){
         ),
         e('label', null, 'Prezzo (€)',
           e('input', {
-            type:'text',             // FIX: text per gestire la virgola manualmente
+            type:'text',             // FIX: text per permettere la virgola durante la digitazione
             inputMode: 'decimal',    // FIX: tastierino numerico su mobile
             placeholder: '0.00',
             value: editArt.prezzo || '',
             onChange: ev => {
-              // Sostituisce virgola con punto, permette scrittura libera
+              // Sostituisce virgola con punto al volo
               const val = ev.target.value.replace(',', '.');
-              // Validazione lasca mentre scrivi (permette "10." o "10.5")
+              // Permette di scrivere "10." o caratteri vuoti temporaneamente
               if (isNaN(Number(val)) && val !== '' && val !== '.') return; 
               setEditArt({...editArt, prezzo: val});
             },
             onBlur: ev => {
-              // Formatta pulito quando esci dal campo
+              // Converte definitivamente in numero quando esci dal campo
               const n = parseFloat(ev.target.value.replace(',','.'));
               setEditArt({...editArt, prezzo: isNaN(n) ? 0 : n});
             }
