@@ -25860,82 +25860,55 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
     lsSet('appSettings', s);
   })();
 
-    // --- Normalizzatore unico ----------------------------------------------
-    window.sanitizeOrderParsed = function sanitizeOrderParsed(out, txt, name){
+// --- Normalizzatore unico (AGGIORNATO: include PREZZO) ----------------------------------------------
+window.sanitizeOrderParsed = function sanitizeOrderParsed(out, txt, name){
 
-    const safe = (v, d)=> (v == null ? d : v);
-    const righe = Array.isArray(out?.righe) ? out.righe : [];
-    const qSum  = righe.reduce((s,r)=> s + (Number(String(r?.qta||0).replace(',','.')) || 0), 0);
+  const safe = (v, d)=> (v == null ? d : v);
+  const righe = Array.isArray(out?.righe) ? out.righe : [];
+  const qSum  = righe.reduce((s,r)=> s + (Number(String(r?.qta||0).replace(',','.')) || 0), 0);
 
-    // hardening: nessun id esterno
-    try{ if (out && 'id' in out) delete out.id; }catch{}
+  // hardening: nessun id esterno
+  try{ if (out && 'id' in out) delete out.id; }catch{}
 
-    // normalizza eventuale rifCliente (oggetto o stringa) mantenendolo in uscita
-    const rif = (function(){
-      if (!out) return null;
-
-      const src = out.rifCliente ?? out.rif_cliente ?? out.rif;
-      if (!src) return null;
-
-      // Caso 1: oggetto strutturato { tipo, numero, data? }
-      if (typeof src === 'object') {
-        const tipo = (src.tipo || 'ordine').toString().trim() || 'ordine';
-        const numero = (src.numero != null ? String(src.numero) : '').trim();
-
-        let dataISO = '';
-        const raw = src.data ?? src.dataDocumento ?? src.dataOrdine;
-        if (raw) {
-          const s = String(raw).trim();
-          if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-            dataISO = s;
-          } else if (typeof window.parseITDate === 'function') {
-            dataISO = window.parseITDate(s) || '';
-          } else {
-            const d = new Date(s);
-            if (!isNaN(d.getTime())) dataISO = d.toISOString().slice(0,10);
-          }
-        }
-
-        return { tipo, numero, data: dataISO };
+  // normalizza rifCliente
+  const rif = (function(){
+    if (!out) return null;
+    const src = out.rifCliente ?? out.rif_cliente ?? out.rif;
+    if (!src) return null;
+    if (typeof src === 'object') {
+      const tipo = (src.tipo || 'ordine').toString().trim() || 'ordine';
+      const numero = (src.numero != null ? String(src.numero) : '').trim();
+      let dataISO = '';
+      const raw = src.data ?? src.dataDocumento ?? src.dataOrdine;
+      if (raw) {
+        const s = String(raw).trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) dataISO = s;
+        else if (typeof window.parseITDate === 'function') dataISO = window.parseITDate(s) || '';
       }
+      return { tipo, numero, data: dataISO };
+    }
+    if (typeof src === 'string') {
+      return { tipo:'ordine', numero:src, data:'' };
+    }
+    return null;
+  })();
 
-      // Caso 2: stringa tipo "Ordine 123 del 12/11/2025"
-      if (typeof src === 'string') {
-        const txtR = src;
-        let dataISO = '';
-        const mData = txtR.match(/(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/);
-        if (mData && typeof window.parseITDate === 'function') {
-          dataISO = window.parseITDate(mData[1]) || '';
-        }
-
-        const mNum = txtR.match(/(?:ord(?:ine)?|order|nr\.?|n\.?)\s*[:\-]?\s*([A-Z0-9\-_/]+)/i);
-        const numero = mNum ? mNum[1].trim() : '';
-
-        return {
-          tipo  : 'ordine',
-          numero,
-          data  : dataISO
-        };
-      }
-
-      return null;
-    })();
-
-    return {
-      cliente     : safe(out?.cliente, '').trim(),
-      descrizione : safe(out?.descrizione, out?.oggetto || 'Commessa da ordine PDF').trim(),
-      scadenza    : safe(out?.scadenza, ''),
-      righe       : righe.map(r => ({
-        codice     : r?.codice || '',
-        descrizione: r?.descrizione || '',
-        um         : r?.um || 'PZ',
-        qta        : Number(String(r?.qta||0).replace(',','.')) || 0,
-      })),
-      qtaPezzi    : Number(out?.qtaPezzi) || (qSum || 1),
-      rifCliente  : rif,
-      sorgente    : { kind:'pdf', name: name||'', bytes: (txt||'').length }
-    };
+  return {
+    cliente     : safe(out?.cliente, '').trim(),
+    descrizione : safe(out?.descrizione, out?.oggetto || 'Commessa da ordine PDF').trim(),
+    scadenza    : safe(out?.scadenza, ''),
+    righe       : righe.map(r => ({
+      codice     : r?.codice || '',
+      descrizione: r?.descrizione || '',
+      um         : r?.um || 'PZ',
+      qta        : Number(String(r?.qta||0).replace(',','.')) || 0,
+      prezzo     : Number(String(r?.prezzo||0).replace(',','.')) || 0 // <--- CAMPO AGGIUNTO
+    })),
+    qtaPezzi    : Number(out?.qtaPezzi) || (qSum || 1),
+    rifCliente  : rif,
+    sorgente    : { kind:'pdf', name: name||'', bytes: (txt||'').length }
   };
+};
 
   // --- Registry unico dei parser -----------------------------------------
   window.__orderParsers = window.__orderParsers || [];
@@ -26432,10 +26405,9 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
     console.log('[registerSteel] Parser STEEL/ERGOMEC aggiornato (v2).');
   })();
 
-// ================== PARSER BLAUWER v1 (Ord. acq. Standard) - FLATTENED FIX + PREZZI ====================
+// ================== PARSER BLAUWER v1 (Ord. acq. Standard) - FINAL FIX ====================
   (function registerBlauwer(){
     try{
-      // Rimuovi versioni precedenti
       if (Array.isArray(window.__orderParsers)) {
         window.__orderParsers = window.__orderParsers.filter(function(p){
           return !p || String(p.id || '').toLowerCase() !== 'blauwer-v1';
@@ -26445,7 +26417,6 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
 
       function toNum(s){
         if (s == null) return 0;
-        // Rimuove punti migliaia e converte virgola in punto
         const t = String(s).replace(/\./g,'').replace(',', '.');
         const n = Number(t);
         return Number.isFinite(n) ? n : 0;
@@ -26459,101 +26430,107 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
           return /BLAUWER\s*S\.?P\.?A\.?/i.test(t) && /Ord\.\s*acq\./i.test(t);
         },
         extract: (txt, name='') => {
-          // 1. Appiattisci tutto
-          const raw  = String(txt || '');
-          const flat = raw.replace(/\s+/g, ' ').trim();
-
-          const righe = [];
+          let raw = String(txt || '');
           
-          // 2. Regex aggiornata: cattura anche il PREZZO (Gruppo 6)
-          // Struttura: Pos -> Codice -> Descrizione -> UM -> Qta -> PrezzoUnitario -> ... -> Data
-          const rowRe = /\b(\d{1,4})\s+([A-Z0-9._\-]{5,})\s+(.+?)\s+(PZ|NR|KG|L1|L2|L3|M|MQ|ML)\s+([0-9]+(?:[.,][0-9]+)?)\s+([0-9]+(?:[.,][0-9]+)?).*?(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/gi;
+          // 1. TAGLIO INTESTATURA: Cerco l'inizio della tabella per non confondere i dati header
+          // Cerco "Pos." seguito da "Codice"
+          const tableStartParams = raw.search(/Pos\./i);
+          let tableText = raw;
+          if (tableStartParams > -1) {
+            // Tengo solo da "Pos." in poi per cercare le righe
+            tableText = raw.substring(tableStartParams);
+          }
+
+          // Appiattisco il testo della tabella
+          const flat = tableText.replace(/\s+/g, ' ').trim();
+          
+          const righe = [];
+
+          // 2. Regex Righe: Pos -> Codice -> (Rev) -> Desc -> UM -> Qta -> Prezzo ... Data
+          // Codice: Alfanumerico (es 58008196V7031)
+          // Rev: opzionale 2 cifre (es 00)
+          const rowRe = /\b(\d{1,4})\s+([A-Z0-9._\-]{5,})\s+(?:(\d{2})\s+)?(.+?)\s+(PZ|NR|KG|L1|L2|L3|M|MQ|ML)\s+([0-9]+(?:[.,][0-9]+)?)\s+([0-9]+(?:[.,][0-9]+)?).*?(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/gi;
 
           let m;
           while ((m = rowRe.exec(flat))) {
-            // m[1] = Pos
-            const codice    = m[2];
-            let   descr     = m[3];
-            const um        = m[4].toUpperCase();
-            const qtaStr    = m[5];
-            const prezzoStr = m[6]; // <--- ECCO IL PREZZO
-            // m[7] = Data
-
-            const qta    = toNum(qtaStr);
-            const prezzo = toNum(prezzoStr);
-
+            const codice = m[2];
+            let   rev    = m[3] || '';  // es '00'
+            let   descr  = m[4];
+            const um     = m[5].toUpperCase();
+            const qta    = toNum(m[6]);
+            const prezzo = toNum(m[7]); // Prezzo Unitario
+            
             if (!codice || !qta) continue;
 
-            // Pulizia descrizione migliorata
+            // Pulizia descrizione
             descr = descr.trim();
-            // Rimuove Rev "00" o "01" se è isolata all'inizio (es: "00 TELAIO...")
-            descr = descr.replace(/^\d{2}\s+/, ''); 
-            // Rimuove Rev "00" o "01" se è isolata alla fine (es: "...AICS68 00")
-            descr = descr.replace(/\s+\d{2}$/, ''); 
+            // Se la Rev non era tra codice e descr, potrebbe essere dentro la descr (inizio o fine)
+            if (!rev) {
+              // Rimuovi '00' all'inizio se c'è
+              if (/^\d{2}\s+/.test(descr)) {
+                 descr = descr.replace(/^(\d{2})\s+/, '');
+              }
+            }
 
             righe.push({
               codice,
               descrizione: descr,
               um,
               qta,
-              prezzo // Passiamo il prezzo
+              prezzo
             });
           }
 
-          // 3. Dati Testata
+          // 3. Dati Testata (dal testo grezzo originale 'raw', non tagliato)
+          const flatFull = raw.replace(/\s+/g, ' ').trim();
           let num = '';
           let dataOrd = '';
-          let descrComm = 'Ordine Blauwer';
-
+          
           const mHead = 
-            flat.match(/Numero\s+([A-Z0-9\-\/]+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i) ||
-            flat.match(/Ord\.\s*acq\.\s*Standard.*?(\d{10})\s+.*(\d{2}\.\d{2}\.\d{4})/i);
+            flatFull.match(/Numero\s+([A-Z0-9\-\/]+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i) ||
+            flatFull.match(/Ord\.\s*acq\.\s*Standard.*?(\d{10})\s+.*(\d{2}\.\d{2}\.\d{4})/i);
 
           if (mHead) {
             num = (mHead[1] || '').trim();
             dataOrd = (mHead[2] || '').trim();
-            descrComm = `Ordine ${num} del ${dataOrd}`;
           }
 
           // 4. Scadenza
           let scad = '';
           try {
-            const dateRe = /\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/g;
-            const dates = flat.match(dateRe) || [];
+            const dates = flatFull.match(/\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/g) || [];
             const times = dates.map(d => {
               if (window.parseITDate) return new Date(window.parseITDate(d)).getTime();
               return 0;
             }).filter(t => t > 0 && !isNaN(t));
-
             if (times.length) {
               const maxTs = Math.max(...times);
               scad = new Date(maxTs).toISOString().slice(0,10);
             }
           } catch(e) {}
 
-          let rifClienteObj = null;
+          // Rif Cliente
+          let rifObj = null;
           if (num) {
-            let dataIso = '';
-            if (dataOrd && window.parseITDate) dataIso = window.parseITDate(dataOrd);
-            rifClienteObj = { tipo: 'ordine', numero: num, data: dataIso };
+            let dIso = '';
+            if (dataOrd && window.parseITDate) dIso = window.parseITDate(dataOrd);
+            rifObj = { tipo: 'ordine', numero: num, data: dIso };
           }
 
           return {
-            cliente    : 'BLAUWER S.P.A.',
-            descrizione: descrComm,
+            cliente: 'BLAUWER S.P.A.',
+            descrizione: `Ordine ${num} del ${dataOrd}`,
             righe,
-            qtaPezzi   : righe.reduce((s,r)=> s + r.qta, 0) || 1,
-            scadenza   : scad,
-            rifCliente : rifClienteObj
+            qtaPezzi: righe.reduce((s,r)=>s+r.qta, 0)||1,
+            scadenza: scad,
+            rifCliente: rifObj
           };
         }
       });
-      console.log('[blauwer-v1] Parser FLAT + PREZZI aggiornato.');
-    }catch(e){
-      console.warn('[order-parser] registerBlauwer fail', e);
-    }
+      console.log('[blauwer-v1] Parser FIX DEFINITIVO (Header Cut + Prezzi).');
+    }catch(e){ console.warn(e); }
   })();
-  
+
   // ================== PIPELINE UNICA DI IMPORT ============================
   window.importOrderFromPDFText = function(txt, name=''){
     const raw = String(txt || '');
