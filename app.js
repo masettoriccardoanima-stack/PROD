@@ -26432,10 +26432,10 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
     console.log('[registerSteel] Parser STEEL/ERGOMEC aggiornato (v2).');
   })();
 
-// ================== PARSER BLAUWER v1 (Ord. acq. Standard) - FLATTENED FIX ====================
+// ================== PARSER BLAUWER v1 (Ord. acq. Standard) - FLATTENED FIX + PREZZI ====================
   (function registerBlauwer(){
     try{
-      // Rimuovi versioni precedenti per forzare l'aggiornamento
+      // Rimuovi versioni precedenti
       if (Array.isArray(window.__orderParsers)) {
         window.__orderParsers = window.__orderParsers.filter(function(p){
           return !p || String(p.id || '').toLowerCase() !== 'blauwer-v1';
@@ -26445,7 +26445,7 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
 
       function toNum(s){
         if (s == null) return 0;
-        // Rimuove punti migliaia (es 1.000,00 -> 1000,00) e virgola in punto
+        // Rimuove punti migliaia e converte virgola in punto
         const t = String(s).replace(/\./g,'').replace(',', '.');
         const n = Number(t);
         return Number.isFinite(n) ? n : 0;
@@ -26456,57 +26456,58 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
         name: 'Blauwer Ord. acq. Standard',
         test: (txt, name='') => {
           const t = String(txt || '');
-          // Test lasco: basta che ci sia BLAUWER e Ord. acq.
           return /BLAUWER\s*S\.?P\.?A\.?/i.test(t) && /Ord\.\s*acq\./i.test(t);
         },
         extract: (txt, name='') => {
-          // 1. Appiattisci tutto il testo in un'unica riga
+          // 1. Appiattisci tutto
           const raw  = String(txt || '');
           const flat = raw.replace(/\s+/g, ' ').trim();
 
           const righe = [];
           
-          // 2. Regex "a strascico" per pescare le righe complete
-          // Struttura: Pos -> Codice -> Descrizione -> UM -> Qta -> (Prezzi/Sconti) -> Data
-          // Codice: accetta lettere e numeri (es. 58008196V7031)
-          // UM: PZ, NR, KG, M, ML, L1...
-          // Tail: cerca prezzi e data finale per "chiudere" la descrizione pigra (.+?)
-          
-          const rowRe = /\b(\d{1,4})\s+([A-Z0-9._\-]{5,})\s+(.+?)\s+(PZ|NR|KG|L1|L2|L3|M|MQ|ML)\s+([0-9]+(?:[.,][0-9]+)?)(?:\s+[0-9.,]+){1,4}\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/gi;
+          // 2. Regex aggiornata: cattura anche il PREZZO (Gruppo 6)
+          // Struttura: Pos -> Codice -> Descrizione -> UM -> Qta -> PrezzoUnitario -> ... -> Data
+          const rowRe = /\b(\d{1,4})\s+([A-Z0-9._\-]{5,})\s+(.+?)\s+(PZ|NR|KG|L1|L2|L3|M|MQ|ML)\s+([0-9]+(?:[.,][0-9]+)?)\s+([0-9]+(?:[.,][0-9]+)?).*?(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/gi;
 
           let m;
           while ((m = rowRe.exec(flat))) {
-            const posRaw = m[1]; 
-            const codice = m[2];
-            let   descr  = m[3];
-            const um     = m[4].toUpperCase();
-            const qta    = toNum(m[5]);
-            // m[6] è la data (es. 04/12/25), la usiamo per confermare che la riga è valida
+            // m[1] = Pos
+            const codice    = m[2];
+            let   descr     = m[3];
+            const um        = m[4].toUpperCase();
+            const qtaStr    = m[5];
+            const prezzoStr = m[6]; // <--- ECCO IL PREZZO
+            // m[7] = Data
+
+            const qta    = toNum(qtaStr);
+            const prezzo = toNum(prezzoStr);
 
             if (!codice || !qta) continue;
 
-            // Pulizia descrizione: spesso include "00 " (revisione) all'inizio o alla fine
+            // Pulizia descrizione migliorata
             descr = descr.trim();
-            // Rimuovi eventuale Rev "00" o "01" isolata all'inizio
+            // Rimuove Rev "00" o "01" se è isolata all'inizio (es: "00 TELAIO...")
             descr = descr.replace(/^\d{2}\s+/, ''); 
+            // Rimuove Rev "00" o "01" se è isolata alla fine (es: "...AICS68 00")
+            descr = descr.replace(/\s+\d{2}$/, ''); 
 
             righe.push({
               codice,
               descrizione: descr,
               um,
-              qta
+              qta,
+              prezzo // Passiamo il prezzo
             });
           }
 
-          // 3. Estrazione Dati Testata (Numero e Data Ordine)
-          // Cerca "Numero 4500... Data 17.11.2025"
+          // 3. Dati Testata
           let num = '';
           let dataOrd = '';
           let descrComm = 'Ordine Blauwer';
 
           const mHead = 
             flat.match(/Numero\s+([A-Z0-9\-\/]+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i) ||
-            flat.match(/Ord\.\s*acq\.\s*Standard.*?(\d{10})\s+.*(\d{2}\.\d{2}\.\d{4})/i); // Fallback
+            flat.match(/Ord\.\s*acq\.\s*Standard.*?(\d{10})\s+.*(\d{2}\.\d{2}\.\d{4})/i);
 
           if (mHead) {
             num = (mHead[1] || '').trim();
@@ -26514,21 +26515,14 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
             descrComm = `Ordine ${num} del ${dataOrd}`;
           }
 
-          // 4. Scadenza (massima data consegna trovata)
+          // 4. Scadenza
           let scad = '';
           try {
-            // Cerca tutte le date nel documento
             const dateRe = /\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/g;
             const dates = flat.match(dateRe) || [];
-            
-            // Converti in timestamp e trova la massima
             const times = dates.map(d => {
-              // Gestione DD.MM.YYYY o DD/MM/YY
               if (window.parseITDate) return new Date(window.parseITDate(d)).getTime();
-              const p = d.split(/[./-]/);
-              if (p.length !== 3) return 0;
-              let yy = p[2]; if (yy.length===2) yy='20'+yy;
-              return new Date(`${yy}-${p[1]}-${p[0]}`).getTime();
+              return 0;
             }).filter(t => t > 0 && !isNaN(t));
 
             if (times.length) {
@@ -26537,7 +26531,6 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
             }
           } catch(e) {}
 
-          // Riferimento cliente strutturato
           let rifClienteObj = null;
           if (num) {
             let dataIso = '';
@@ -26555,7 +26548,7 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
           };
         }
       });
-      console.log('[blauwer-v1] Parser FLAT aggiornato (supporto layout orizzontale).');
+      console.log('[blauwer-v1] Parser FLAT + PREZZI aggiornato.');
     }catch(e){
       console.warn('[order-parser] registerBlauwer fail', e);
     }
