@@ -26432,10 +26432,10 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
     console.log('[registerSteel] Parser STEEL/ERGOMEC aggiornato (v2).');
   })();
 
-// ================== PARSER BLAUWER v1 (Ord. acq. Standard) ====================
+// ================== PARSER BLAUWER v1 (Ord. acq. Standard) - FLATTENED FIX ====================
   (function registerBlauwer(){
     try{
-      // Rimuovi versione vecchia se presente per forzare aggiornamento
+      // Rimuovi versioni precedenti per forzare l'aggiornamento
       if (Array.isArray(window.__orderParsers)) {
         window.__orderParsers = window.__orderParsers.filter(function(p){
           return !p || String(p.id || '').toLowerCase() !== 'blauwer-v1';
@@ -26445,6 +26445,7 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
 
       function toNum(s){
         if (s == null) return 0;
+        // Rimuove punti migliaia (es 1.000,00 -> 1000,00) e virgola in punto
         const t = String(s).replace(/\./g,'').replace(',', '.');
         const n = Number(t);
         return Number.isFinite(n) ? n : 0;
@@ -26455,86 +26456,88 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
         name: 'Blauwer Ord. acq. Standard',
         test: (txt, name='') => {
           const t = String(txt || '');
-          return /BLAUWER\s*S\.?P\.?A\.?/i.test(t) && /Ord\.\s*acq\.\s*Standard/i.test(t);
+          // Test lasco: basta che ci sia BLAUWER e Ord. acq.
+          return /BLAUWER\s*S\.?P\.?A\.?/i.test(t) && /Ord\.\s*acq\./i.test(t);
         },
         extract: (txt, name='') => {
-          const raw   = String(txt || '');
-          const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+          // 1. Appiattisci tutto il testo in un'unica riga
+          const raw  = String(txt || '');
+          const flat = raw.replace(/\s+/g, ' ').trim();
 
           const righe = [];
-          let inBody = false;
+          
+          // 2. Regex "a strascico" per pescare le righe complete
+          // Struttura: Pos -> Codice -> Descrizione -> UM -> Qta -> (Prezzi/Sconti) -> Data
+          // Codice: accetta lettere e numeri (es. 58008196V7031)
+          // UM: PZ, NR, KG, M, ML, L1...
+          // Tail: cerca prezzi e data finale per "chiudere" la descrizione pigra (.+?)
+          
+          const rowRe = /\b(\d{1,4})\s+([A-Z0-9._\-]{5,})\s+(.+?)\s+(PZ|NR|KG|L1|L2|L3|M|MQ|ML)\s+([0-9]+(?:[.,][0-9]+)?)(?:\s+[0-9.,]+){1,4}\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/gi;
 
-          for (const line of lines) {
-            const norm = line.replace(/\s+/g,' ').trim();
-
-            // Rileva header tabella
-            if (!inBody) {
-              if (/Pos\./i.test(norm) && /Codice/i.test(norm) && /\bUM\b/i.test(norm)) {
-                inBody = true;
-              }
-              continue;
-            }
-
-            if (!norm) continue;
-            if (/^TOTALE\s+ORDINE/i.test(norm)) break;
-
-            // FIX: Codice ora accetta lettere e numeri (es. 58008196V7031)
-            // Regex: Pos - Codice - (Rev opzionale) - Descrizione - UM - Qta ...
-            const m = norm.match(
-              /^(\d+)\s+([A-Z0-9._\-]{5,})\s+(?:[A-Z0-9]{1,3}\s+)?(.+?)\s+(PZ|NR|KG|L1|L2|L3|M|MQ|ML)\s+([0-9]+(?:[.,][0-9]+)?)/i
-            );
-            
-            if (!m) continue;
-
+          let m;
+          while ((m = rowRe.exec(flat))) {
+            const posRaw = m[1]; 
             const codice = m[2];
-            const descr  = m[3];
+            let   descr  = m[3];
             const um     = m[4].toUpperCase();
             const qta    = toNum(m[5]);
+            // m[6] è la data (es. 04/12/25), la usiamo per confermare che la riga è valida
 
-            if (!codice || !descr || !qta) continue;
+            if (!codice || !qta) continue;
+
+            // Pulizia descrizione: spesso include "00 " (revisione) all'inizio o alla fine
+            descr = descr.trim();
+            // Rimuovi eventuale Rev "00" o "01" isolata all'inizio
+            descr = descr.replace(/^\d{2}\s+/, ''); 
 
             righe.push({
               codice,
-              descrizione: descr.trim(),
+              descrizione: descr,
               um,
               qta
             });
           }
 
-          // Descrizione commessa e Riferimenti
-          let descr = 'Ordine Blauwer';
-          let num = ''; 
+          // 3. Estrazione Dati Testata (Numero e Data Ordine)
+          // Cerca "Numero 4500... Data 17.11.2025"
+          let num = '';
           let dataOrd = '';
+          let descrComm = 'Ordine Blauwer';
 
-          const mHead =
-            raw.match(/Ord\.\s*acq\.\s*Standard[\s\S]*?Numero\s+([A-Z0-9\-\/]+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i) ||
-            raw.match(/Numero\s+([A-Z0-9\-\/]+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i);
+          const mHead = 
+            flat.match(/Numero\s+([A-Z0-9\-\/]+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i) ||
+            flat.match(/Ord\.\s*acq\.\s*Standard.*?(\d{10})\s+.*(\d{2}\.\d{2}\.\d{4})/i); // Fallback
 
           if (mHead) {
             num = (mHead[1] || '').trim();
             dataOrd = (mHead[2] || '').trim();
-            descr = `Ordine ${num} del ${dataOrd}`;
+            descrComm = `Ordine ${num} del ${dataOrd}`;
           }
 
-          // Scadenza (cerca date consegna nelle righe o nel testo)
+          // 4. Scadenza (massima data consegna trovata)
           let scad = '';
-          try{
-            const dates = raw.match(/\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/g) || [];
-            // Filtra date future rispetto alla data ordine (molto grezzo ma funzionale)
-            const times = dates
-              .map(d => (window.parseITDate ? window.parseITDate(d) : d))
-              .filter(Boolean)
-              .map(d => new Date(d).getTime())
-              .sort((a,b) => a - b); // ordine crescente
+          try {
+            // Cerca tutte le date nel documento
+            const dateRe = /\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/g;
+            const dates = flat.match(dateRe) || [];
             
-            if (times.length) {
-              // Prendi l'ultima data trovata nel documento come scadenza
-              const max = times[times.length - 1];
-              scad = new Date(max).toISOString().slice(0,10);
-            }
-          }catch(e){}
+            // Converti in timestamp e trova la massima
+            const times = dates.map(d => {
+              // Gestione DD.MM.YYYY o DD/MM/YY
+              if (window.parseITDate) return new Date(window.parseITDate(d)).getTime();
+              const p = d.split(/[./-]/);
+              if (p.length !== 3) return 0;
+              let yy = p[2]; if (yy.length===2) yy='20'+yy;
+              return new Date(`${yy}-${p[1]}-${p[0]}`).getTime();
+            }).filter(t => t > 0 && !isNaN(t));
 
-          // Costruzione riferimento cliente
+            if (times.length) {
+              const maxTs = Math.max(...times);
+              scad = new Date(maxTs).toISOString().slice(0,10);
+            }
+          } catch(e) {}
+
+          // Riferimento cliente strutturato
           let rifClienteObj = null;
           if (num) {
             let dataIso = '';
@@ -26544,15 +26547,15 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
 
           return {
             cliente    : 'BLAUWER S.P.A.',
-            descrizione: descr,
+            descrizione: descrComm,
             righe,
-            qtaPezzi   : righe.reduce((s,r)=> s + (Number(r.qta)||0), 0) || 1,
+            qtaPezzi   : righe.reduce((s,r)=> s + r.qta, 0) || 1,
             scadenza   : scad,
             rifCliente : rifClienteObj
           };
         }
       });
-      console.log('[blauwer-v1] Parser aggiornato (supporto codici alfanumerici).');
+      console.log('[blauwer-v1] Parser FLAT aggiornato (supporto layout orizzontale).');
     }catch(e){
       console.warn('[order-parser] registerBlauwer fail', e);
     }
