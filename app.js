@@ -2439,7 +2439,9 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
     return isNaN(date.getTime()) ? d : date.toLocaleDateString('it-IT');
   };
 
+  // Funzione Principale per Generare l'HTML Paginato
   window.generatePreventivoHTML = function(pv){
+    // 1. Recupero Dati
     const app = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; }catch{return{}} })();
     const clienti = (function(){ try{ return JSON.parse(localStorage.getItem('clientiRows')||'[]')||[]; }catch{return[]} })();
     
@@ -2468,7 +2470,7 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
     const righe = Array.isArray(pv?.righe) ? pv.righe : (Array.isArray(pv?.righeArticolo) ? pv.righeArticolo : []);
     const DEFAULT_IVA = Number(app.defaultIva) || 22;
 
-    // Calcolo totali
+    // 2. Calcoli Totali
     let imponibile = 0;
     let totIva = 0;
     const ivaMap = {};
@@ -2501,9 +2503,9 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
 
     const totaleDoc = imponibile + totIva;
 
-    // --- TEMPLATE PARTI COMUNI ---
-    
-    // 1. Header
+    // --- 3. TEMPLATE HTML (Parti Comuni) ---
+
+    // Header
     const headerHTML = `
       <div class="header">
         <div class="brand">
@@ -2522,7 +2524,7 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         </div>
       </div>`;
 
-    // 2. Info Cliente
+    // Info Cliente
     const metaHTML = `
       <div class="meta-grid">
         <div class="box">
@@ -2539,7 +2541,12 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         </div>
       </div>`;
 
-    // 3. Intestazione Tabella
+    // Note (solo prima pagina, sopra la tabella)
+    const noteHTML = (pv.note && pv.note.trim()) 
+      ? `<div class="box-note"><strong>Note:</strong> ${esc(pv.note).replace(/\n/g,'<br>')}</div>` 
+      : '';
+
+    // Intestazione Tabella
     const theadHTML = `
       <thead>
         <tr>
@@ -2554,7 +2561,7 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         </tr>
       </thead>`;
 
-    // 4. Footer (Totali + Firma)
+    // Footer Riepilogo (Totali + IVA) - SU OGNI PAGINA
     const ivaRows = Object.keys(ivaMap).sort((a,b)=>Number(a)-Number(b)).map(k => {
       const b = ivaMap[k];
       const i = b * (Number(k)/100);
@@ -2565,41 +2572,35 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
       </tr>`;
     }).join('');
 
-    const noteHTML = (pv.note) 
-      ? `<div class="box-note"><strong>Note:</strong> ${esc(pv.note).replace(/\n/g,'<br>')}</div>` 
-      : '';
-
-    const footerLastPageHTML = `
-      <div class="footer-block">
-        <div class="footer-summary">
-          <div class="box iva-box">
-            <div class="lbl">Riepilogo IVA</div>
-            <table class="iva-table">
-              <thead><tr><th>Aliq.</th><th class="num">Imp.</th><th class="num">IVA</th></tr></thead>
-              <tbody>${ivaRows}</tbody>
-            </table>
-          </div>
-          <div class="box tot-box">
-            <div class="row"><div>Totale Netto:</div> <div>${fmt2(imponibile)}</div></div>
-            <div class="row"><div>Totale IVA:</div> <div>${fmt2(totIva)}</div></div>
-            <div class="row grand-total"><div>TOTALE PREVENTIVO:</div> <div>€ ${fmt2(totaleDoc)}</div></div>
-          </div>
+    const footerSummaryHTML = `
+      <div class="footer-summary">
+        <div class="box iva-box">
+          <div class="lbl">Riepilogo IVA</div>
+          <table class="iva-table">
+            <thead><tr><th>Aliq.</th><th class="num">Imp.</th><th class="num">IVA</th></tr></thead>
+            <tbody>${ivaRows}</tbody>
+          </table>
         </div>
-        
-        ${noteHTML}
-
-        <div class="footer-sign">
-          <div class="sign-box">
-            <div class="lbl">Per accettazione (Timbro e Firma)</div>
-            <div class="line"></div>
-            <div class="small muted center">Luogo e Data: __________________________</div>
-          </div>
+        <div class="box tot-box">
+          <div class="row"><div>Totale Netto:</div> <div>${fmt2(imponibile)}</div></div>
+          <div class="row"><div>Totale IVA:</div> <div>${fmt2(totIva)}</div></div>
+          <div class="row grand-total"><div>TOTALE PREVENTIVO:</div> <div>€ ${fmt2(totaleDoc)}</div></div>
         </div>
       </div>`;
 
-    // --- PAGINAZIONE ---
-    // Ho ridotto a 11 righe per essere sicuri che il footer ci stia
-    const MAX_ROWS = 11; 
+    // Footer Firma (Solo ultima pagina)
+    const footerSignHTML = `
+      <div class="footer-sign">
+        <div class="sign-box">
+          <div class="lbl">Per accettazione (Timbro e Firma)</div>
+          <div class="line"></div>
+          <div class="small muted center">Luogo e Data: __________________________</div>
+        </div>
+      </div>`;
+
+    // --- 4. PAGINAZIONE ---
+    // Impostiamo 10 righe per pagina per lasciare spazio ai totali fissi
+    const MAX_ROWS = 10; 
     const pages = [];
     
     if (rowsData.length === 0) {
@@ -2613,7 +2614,8 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
     let htmlPages = '';
     
     pages.forEach((pRows, pageIdx) => {
-      const isLast = (pageIdx === pages.length - 1);
+      const isFirst = (pageIdx === 0);
+      const isLast  = (pageIdx === pages.length - 1);
       
       const tbodyHTML = pRows.map(r => `
         <tr>
@@ -2635,7 +2637,11 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         <div class="page">
           <div class="content-wrap">
             ${headerHTML}
+            
             ${metaHTML}
+            
+            ${isFirst ? noteHTML : ''}
+            
             <table class="main-table">
               ${theadHTML}
               <tbody>${tbodyHTML}</tbody>
@@ -2643,13 +2649,16 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
             
             <div class="spacer"></div>
             
-            ${isLast ? footerLastPageHTML : ''}
+            ${footerSummaryHTML}
+            
+            ${isLast ? footerSignHTML : ''}
           </div>
+          
           <div class="page-num">PAGINA ${pageIdx + 1} / ${pages.length}</div>
         </div>`;
     });
 
-    // --- CSS STAMPA ---
+    // --- 5. CSS ---
     const css = `
       <style>
         @page { size: A4; margin: 0; }
@@ -2661,16 +2670,15 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
           width: 210mm; height: 297mm;
           position: relative;
           page-break-after: always;
-          padding: 10mm 10mm 12mm 10mm; /* Un po' più di spazio sotto per il numero pagina */
+          padding: 10mm 10mm 12mm 10mm; 
           display: flex; flex-direction: column; 
-          overflow: hidden; /* Evita sbordature */
+          overflow: hidden;
         }
         .page:last-child { page-break-after: auto; }
         
         .content-wrap { flex: 1; display: flex; flex-direction: column; }
         .spacer { flex: 1; } 
 
-        /* Header */
         .header { display: flex; justify-content: space-between; border-bottom: 2px solid #111; padding-bottom: 8px; margin-bottom: 12px; }
         .brand { display: flex; gap: 15px; align-items: center; }
         .logo { height: 55px; max-width: 180px; object-fit: contain; }
@@ -2682,13 +2690,13 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         .doc-box .title { font-size: 18pt; font-weight: 800; color: #111; }
         .doc-box .num { font-size: 12pt; font-weight: bold; margin-top: 4px; }
 
-        /* Meta Grid */
-        .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px; }
+        .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 10px; }
         .box { border: 1px solid #ccc; border-radius: 6px; padding: 6px 8px; font-size: 9.5pt; }
         .lbl { font-weight: 700; text-transform: uppercase; font-size: 8pt; color: #666; margin-bottom: 4px; }
         .val { font-weight: 700; font-size: 11pt; margin-bottom: 2px; }
 
-        /* Main Table */
+        .box-note { margin-bottom: 10px; border: 1px dashed #ccc; border-radius: 6px; padding: 8px; font-size: 9pt; background: #fdfdfd; }
+
         table.main-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
         table.main-table th { background: #eee; font-weight: 700; text-align: left; padding: 6px; border: 1px solid #ccc; font-size: 9pt; }
         table.main-table td { border: 1px solid #ccc; padding: 6px; vertical-align: top; font-size: 10pt; }
@@ -2698,35 +2706,21 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         .small { font-size: 8pt; }
         .center { text-align: center; }
 
-        /* Footer Block - Non si spezza mai */
-        .footer-block { break-inside: avoid; page-break-inside: avoid; }
-
-        /* Footer Summary */
-        .footer-summary { display: grid; grid-template-columns: 1.5fr 1fr; gap: 15px; margin-top: 10px; }
+        .footer-summary { display: grid; grid-template-columns: 1.5fr 1fr; gap: 15px; margin-top: 10px; break-inside: avoid; page-break-inside: avoid; }
         .iva-table { width: 100%; border-collapse: collapse; font-size: 9pt; }
         .iva-table th, .iva-table td { padding: 4px; font-size: 9pt; border: 1px solid #eee; }
-        .iva-table th { background:#f9f9f9; text-align: left; }
+        .iva-table th { background: #f9f9f9; text-align: left; }
         
         .tot-box { display: flex; flex-direction: column; justify-content: center; }
         .tot-box .row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 10pt; }
         .grand-total { border-top: 2px solid #111; margin-top: 6px; padding-top: 6px; font-weight: 800; font-size: 13pt; }
 
-        /* Note e Firma */
-        .box-note { margin-top: 10px; border: 1px dashed #ccc; padding: 8px; font-size: 9pt; break-inside: avoid; }
         .footer-sign { margin-top: 12px; break-inside: avoid; page-break-inside: avoid; }
         .sign-box { border: 1px solid #ccc; border-radius: 6px; padding: 10px; height: 35mm; position: relative; }
         .sign-box .line { position: absolute; bottom: 10mm; left: 10%; width: 80%; border-bottom: 1px solid #000; }
         .sign-box .center { position: absolute; bottom: 4mm; width: 100%; text-align: center; }
         
-        /* Page Num - Assoluto in fondo */
-        .page-num { 
-          position: absolute; 
-          bottom: 10mm; 
-          right: 10mm; 
-          font-size: 9pt; 
-          color: #888; 
-          font-weight: bold;
-        }
+        .page-num { position: absolute; bottom: 10mm; right: 10mm; font-size: 9pt; color: #888; font-weight: bold; }
       </style>`;
 
     return `<!DOCTYPE html><html><head><meta charset="utf-8">${css}</head><body>${htmlPages}</body></html>`;
@@ -26438,11 +26432,15 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
     console.log('[registerSteel] Parser STEEL/ERGOMEC aggiornato (v2).');
   })();
 
-    // ================== PARSER BLAUWER v1 (Ord. acq. Standard) ====================
+// ================== PARSER BLAUWER v1 (Ord. acq. Standard) ====================
   (function registerBlauwer(){
     try{
-      if (Array.isArray(window.__orderParsers) &&
-          window.__orderParsers.some(p => p && p.id === 'blauwer-v1')) return;
+      // Rimuovi versione vecchia se presente per forzare aggiornamento
+      if (Array.isArray(window.__orderParsers)) {
+        window.__orderParsers = window.__orderParsers.filter(function(p){
+          return !p || String(p.id || '').toLowerCase() !== 'blauwer-v1';
+        });
+      }
       if (typeof window.addOrderParser !== 'function') return;
 
       function toNum(s){
@@ -26469,12 +26467,9 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
           for (const line of lines) {
             const norm = line.replace(/\s+/g,' ').trim();
 
-            // rileva la riga header "Pos. Codice Rev. Descrizione UM Q.tà ..."
+            // Rileva header tabella
             if (!inBody) {
-              if (/Pos\./i.test(norm) &&
-                  /Codice/i.test(norm) &&
-                  /Descrizione/i.test(norm) &&
-                  /\bUM\b/i.test(norm)) {
+              if (/Pos\./i.test(norm) && /Codice/i.test(norm) && /\bUM\b/i.test(norm)) {
                 inBody = true;
               }
               continue;
@@ -26483,10 +26478,12 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
             if (!norm) continue;
             if (/^TOTALE\s+ORDINE/i.test(norm)) break;
 
-            // es: "10 58038050 01 COPERCHIO SERBATOIO ... PZ 3 120,00 360,00 27/11/25"
+            // FIX: Codice ora accetta lettere e numeri (es. 58008196V7031)
+            // Regex: Pos - Codice - (Rev opzionale) - Descrizione - UM - Qta ...
             const m = norm.match(
-              /^(\d+)\s+([A-Z0-9][A-Z0-9._\-]{2,})\s+[A-Z0-9]{1,3}\s+(.+?)\s+(PZ|NR|KG|L1|L2|L3|M|MQ|ML)\s+([0-9]+(?:[.,][0-9]+)?)(?:\s+[0-9.,]+){1,3}\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})$/i
+              /^(\d+)\s+([A-Z0-9._\-]{5,})\s+(?:[A-Z0-9]{1,3}\s+)?(.+?)\s+(PZ|NR|KG|L1|L2|L3|M|MQ|ML)\s+([0-9]+(?:[.,][0-9]+)?)/i
             );
+            
             if (!m) continue;
 
             const codice = m[2];
@@ -26504,52 +26501,63 @@ if (!localStorage.getItem('__ANIMA_FIX_QTA_ONCE__')) {
             });
           }
 
-          // descrizione commessa
-          let descr = '';
+          // Descrizione commessa e Riferimenti
+          let descr = 'Ordine Blauwer';
+          let num = ''; 
+          let dataOrd = '';
+
           const mHead =
             raw.match(/Ord\.\s*acq\.\s*Standard[\s\S]*?Numero\s+([A-Z0-9\-\/]+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i) ||
             raw.match(/Numero\s+([A-Z0-9\-\/]+)\s+Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i);
 
           if (mHead) {
-            const num = (mHead[1] || '').trim();
-            const d   = (mHead[2] || '').trim();
-            descr = `Ordine ${num} del ${d}`;
-          } else if (righe.length === 1) {
-            descr = righe[0].descrizione;
-          } else if (righe.length > 1) {
-            descr = `Ordine Blauwer (${righe.length} righe)`;
-          } else {
-            descr = 'Commessa da ordine PDF';
+            num = (mHead[1] || '').trim();
+            dataOrd = (mHead[2] || '').trim();
+            descr = `Ordine ${num} del ${dataOrd}`;
           }
 
-          // scadenza = massima data trovata (tipicamente la "Consegna")
+          // Scadenza (cerca date consegna nelle righe o nel testo)
           let scad = '';
           try{
             const dates = raw.match(/\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/g) || [];
+            // Filtra date future rispetto alla data ordine (molto grezzo ma funzionale)
             const times = dates
               .map(d => (window.parseITDate ? window.parseITDate(d) : d))
               .filter(Boolean)
-              .map(d => new Date(d).getTime());
+              .map(d => new Date(d).getTime())
+              .sort((a,b) => a - b); // ordine crescente
+            
             if (times.length) {
-              const max = Math.max.apply(null, times);
+              // Prendi l'ultima data trovata nel documento come scadenza
+              const max = times[times.length - 1];
               scad = new Date(max).toISOString().slice(0,10);
             }
-          }catch{}
+          }catch(e){}
+
+          // Costruzione riferimento cliente
+          let rifClienteObj = null;
+          if (num) {
+            let dataIso = '';
+            if (dataOrd && window.parseITDate) dataIso = window.parseITDate(dataOrd);
+            rifClienteObj = { tipo: 'ordine', numero: num, data: dataIso };
+          }
 
           return {
             cliente    : 'BLAUWER S.P.A.',
             descrizione: descr,
             righe,
             qtaPezzi   : righe.reduce((s,r)=> s + (Number(r.qta)||0), 0) || 1,
-            scadenza   : scad
+            scadenza   : scad,
+            rifCliente : rifClienteObj
           };
         }
       });
+      console.log('[blauwer-v1] Parser aggiornato (supporto codici alfanumerici).');
     }catch(e){
       console.warn('[order-parser] registerBlauwer fail', e);
     }
   })();
-
+  
   // ================== PIPELINE UNICA DI IMPORT ============================
   window.importOrderFromPDFText = function(txt, name=''){
     const raw = String(txt || '');
