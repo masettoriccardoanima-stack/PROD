@@ -1933,12 +1933,15 @@ window.ensureMagazzinoArticoliFromRighe = window.ensureMagazzinoArticoliFromRigh
       if (!cod) return;
       const descr = String(r.descrizione || r.articoloDescr || '').trim();
       const um    = String(r.um || r.UM || 'PZ').toUpperCase();
-      candidates.push({ codice: cod, descrizione: descr, um });
+      // FIX: Leggiamo il prezzo che arriva dal parser!
+      const prezzo = Number(r.prezzo || r.prezzoUnitario || 0);
+      
+      candidates.push({ codice: cod, descrizione: descr, um, prezzo });
     });
 
     if (!candidates.length) return;
 
-    // Carica articoli esistenti: prima magArticoli_v2, poi fallback LS
+    // Carica articoli esistenti
     let existing = [];
     try{
       const rawV2 = localStorage.getItem('magArticoli_v2');
@@ -1947,9 +1950,7 @@ window.ensureMagazzinoArticoliFromRighe = window.ensureMagazzinoArticoliFromRigh
       } else if (typeof window.lsGet === 'function') {
         existing = window.lsGet('magArticoli', []) || [];
       }
-    }catch(e){
-      console.warn('[Magazzino] ensureMagazzinoArticoliFromRighe load error', e);
-    }
+    }catch(e){ console.warn('[Magazzino] load error', e); }
 
     const byCod = new Map();
     (Array.isArray(existing) ? existing : []).forEach(a => {
@@ -1963,14 +1964,16 @@ window.ensureMagazzinoArticoliFromRighe = window.ensureMagazzinoArticoliFromRigh
     candidates.forEach(a => {
       const cod = a.codice;
       if (!cod) return;
+      // Se l'articolo NON esiste, lo creiamo con il prezzo letto
       if (!byCod.has(cod)) {
         byCod.set(cod, {
           codice     : cod,
           descrizione: a.descrizione,
           um         : a.um || 'PZ',
-          prezzo     : 0,
+          prezzo     : a.prezzo || 0, // FIX: Qui salviamo il prezzo! Prima era 0 fisso.
           costo      : 0,
-          tipo       : 'CONTO LAVORO'
+          tipo       : 'CONTO LAVORO',
+          nuovoDaOrdine: true
         });
         changed = true;
       }
@@ -1982,27 +1985,18 @@ window.ensureMagazzinoArticoliFromRighe = window.ensureMagazzinoArticoliFromRigh
       .filter(a => a && cleanCod(a.codice))
       .sort((A,B) => cleanCod(A.codice).localeCompare(cleanCod(B.codice)));
 
-    // Aggiorna chiave robusta v2
+    // Salvataggio robusto
+    try{ localStorage.setItem('magArticoli_v2', JSON.stringify(out)); }catch(e){}
     try{
-      localStorage.setItem('magArticoli_v2', JSON.stringify(out));
-    }catch(e){
-      console.warn('[Magazzino] ensureMagazzinoArticoliFromRighe write magArticoli_v2 error', e);
-    }
-
-    // Mantieni compatibilità su chiavi storiche
-    try{
-      if (typeof window.saveKey === 'function') {
-        window.saveKey('magArticoli', out);
-      } else if (typeof window.lsSet === 'function') {
+      if (typeof window.lsSet === 'function') {
         window.lsSet('magArticoli', out);
         window.lsSet('magazzinoArticoli', out);
       } else {
         localStorage.setItem('magArticoli', JSON.stringify(out));
-        localStorage.setItem('magazzinoArticoli', JSON.stringify(out));
       }
-    }catch(e){
-      console.warn('[Magazzino] ensureMagazzinoArticoliFromRighe write compat error', e);
-    }
+    }catch(e){}
+    
+    console.log('[Magazzino] Nuovi articoli creati da ordine con prezzi corretti.');
   }catch(err){
     console.warn('[Magazzino] ensureMagazzinoArticoliFromRighe error', err);
   }
@@ -25179,19 +25173,16 @@ function delArt(a){
         ),
         e('label', null, 'Prezzo (€)',
           e('input', {
-            type:'text',             // FIX: text per permettere la virgola durante la digitazione
-            inputMode: 'decimal',    // FIX: tastierino numerico su mobile
+            type:'text',             // Usa text per permettere la virgola
+            inputMode: 'decimal',    // Tastierino numerico su mobile
             placeholder: '0.00',
             value: editArt.prezzo || '',
             onChange: ev => {
-              // Sostituisce virgola con punto al volo
-              const val = ev.target.value.replace(',', '.');
-              // Permette di scrivere "10." o caratteri vuoti temporaneamente
+              const val = ev.target.value.replace(',', '.'); // Virgola -> Punto
               if (isNaN(Number(val)) && val !== '' && val !== '.') return; 
               setEditArt({...editArt, prezzo: val});
             },
             onBlur: ev => {
-              // Converte definitivamente in numero quando esci dal campo
               const n = parseFloat(ev.target.value.replace(',','.'));
               setEditArt({...editArt, prezzo: isNaN(n) ? 0 : n});
             }
