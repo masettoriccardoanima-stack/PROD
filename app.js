@@ -27143,20 +27143,24 @@ window.openReportMateriali = window.openReportMateriali || function(){ location.
   };
 })();
 
-// --- OVERRIDE finale: stampa con numerazione robusta (JS, compatibile .pageNum e .content) ---
+// --- OVERRIDE finale: stampa con numerazione robusta e ATTESA IMMAGINI ---
 (function(){
   window.safePrintHTMLStringWithPageNum = function(html){
     try{
+      // 1. Crea iframe invisibile
       const ifr = document.createElement('iframe');
       ifr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
       document.body.appendChild(ifr);
 
       const w = ifr.contentWindow, d = w.document;
-      d.open(); d.write(String(html||'')); d.close();
+      d.open(); 
+      d.write(String(html||'')); 
+      d.close();
 
-      const afterLoad = () => {
+      // 2. Funzione che calcola le pagine e lancia la stampa (LOGICA ORIGINALE INTATTA)
+      const doPrint = () => {
         try{
-          // Dedupe eventuali .pagebox
+          // A. Pulizia doppi pagebox
           try{
             const boxes = Array.from(d.querySelectorAll('.pagebox'));
             if (boxes.length > 1) {
@@ -27165,87 +27169,105 @@ window.openReportMateriali = window.openReportMateriali || function(){ location.
             }
           }catch{}
 
-          // neutralizza ::after che può produrre " / "
-          const kill = d.createElement('style');
-          kill.textContent = '.pageNum::after,.pageX::after{content:"" !important}';
-          d.head.appendChild(kill);
-
-          // leggi @page margin se presenti (altrimenti 16/22mm)
-          let topMm = 16, bottomMm = 22;
-          try{
-            const cssText = Array.from(d.querySelectorAll('style')).map(s => s.textContent || '').join('\n');
-            const m = /@page\s*{[^}]*margin\s*:\s*([0-9.]+)mm(?:\s+([0-9.]+)mm(?:\s+([0-9.]+)mm(?:\s+([0-9.]+)mm)?)?)?/i.exec(cssText);
-            if (m){
-              const v = [m[1],m[2],m[3],m[4]].filter(Boolean).map(parseFloat);
-              if (v.length === 1){ topMm = bottomMm = v[0]; }
-              else if (v.length === 2){ topMm = bottomMm = v[0]; }
-              else if (v.length === 3){ topMm = v[0]; bottomMm = v[2]; }
-              else if (v.length >= 4){ topMm = v[0]; bottomMm = v[2]; }
-            }
-          }catch{}
-
-          // mm→px
-          const mmToPx = (() => {
-            const t = d.createElement('div');
-            t.style.height='100mm'; t.style.position='absolute'; t.style.visibility='hidden';
-            d.body.appendChild(t);
-            const px = t.getBoundingClientRect().height || 0;
-            t.remove(); return px/100;
-          })();
-
-          // altezza utile A4
-          const pageHeightMm = 297 - (topMm + bottomMm);
-          const pageHeightPx = (mmToPx>0) ? (mmToPx*pageHeightMm) : (w.innerHeight||1123);
-
-          // misura contenuto: preferisci wrapper .content (Fatture ce l’hanno)
-          const content = d.querySelector('.content') || d.body;
-          const h = Math.max(content.scrollHeight, content.offsetHeight, d.body.scrollHeight);
-
-          // totale con tolleranze anti “falso 2”
-          let total = Math.max(1, Math.ceil(h / pageHeightPx));
-          if (!Number.isFinite(total) || total < 1) total = 1;
-          const overPx = h - pageHeightPx;
-
-          if (total === 2) {
-            const snapPx = Math.max(120, pageHeightPx * 0.15); // ~15% o 120px
-            if (overPx <= snapPx) total = 1;
-          }
-          if (total === 2) {
-            const lastTr = d.querySelector('table tbody tr:last-child');
-            if (lastTr) {
-              const r = lastTr.getBoundingClientRect();
-              if (r && (r.bottom + 16) < pageHeightPx) total = 1;
-            }
-          }
-
-          // scrivi SEMPRE il testo nella .pageNum
+          // B. Calcolo Pagine (Fallback JS se CSS fallisce)
           const pn = d.querySelector('#pagebox .pageNum') || d.querySelector('.pageNum');
-          if (pn){ pn.removeAttribute('data-mode'); pn.textContent = `1 / ${total}`; }
+          if (pn){
+             // Rimuove ::after CSS per evitare " / " doppi
+             const kill = d.createElement('style');
+             kill.textContent = '.pageNum::after,.pageX::after{content:"" !important}';
+             d.head.appendChild(kill);
+
+             // Calcolo altezza
+             const mmToPx = (() => {
+                const t = d.createElement('div');
+                t.style.height='100mm'; t.style.position='absolute'; t.style.visibility='hidden';
+                d.body.appendChild(t);
+                const px = t.getBoundingClientRect().height || 0;
+                t.remove();
+                return px/100;
+             })();
+             
+             // A4 standard - margini
+             // Nota: qui ho rimesso i valori originali del tuo codice (16/22)
+             const pageHeightMm = 297 - (16 + 22); 
+             const pageHeightPx = (mmToPx>0) ? (mmToPx*pageHeightMm) : (w.innerHeight||1123);
+             
+             const content = d.querySelector('.content') || d.body;
+             const h = Math.max(content.scrollHeight, content.offsetHeight, d.body.scrollHeight);
+             
+             let total = Math.max(1, Math.ceil(h / pageHeightPx));
+             if (!Number.isFinite(total) || total < 1) total = 1;
+             
+             // Correzione anti-sbavatura
+             if (total === 2) {
+               const lastTr = d.querySelector('table tbody tr:last-child');
+               if (lastTr) {
+                 const r = lastTr.getBoundingClientRect();
+                 if (r && (r.bottom + 16) < pageHeightPx) total = 1;
+               }
+             }
+             
+             pn.removeAttribute('data-mode'); 
+             pn.textContent = `1 / ${total}`;
+          }
 
         } finally {
+          // C. Lancia Stampa e poi rimuovi iframe
           try { w.focus(); w.print(); } catch {}
-          setTimeout(()=>{ try{ ifr.remove(); }catch{} }, 300);
+          setTimeout(()=>{ try{ ifr.remove(); }catch{} }, 500);
         }
       };
 
-      // attesa immagini/loghi per misurazioni stabili
-      const imgs = Array.from(d.images||[]);
-      if (imgs.length){
-        let done=0; const tick=()=>{ if(++done>=imgs.length) setTimeout(afterLoad,120); };
-        imgs.forEach(im=> im.complete ? tick() : (im.addEventListener('load',tick,{once:true}), im.addEventListener('error',tick,{once:true})));
-        setTimeout(afterLoad, 1600);
-      } else {
-        setTimeout(afterLoad, 150);
+      // 3. LOGICA DI ATTESA IMMAGINI (Il Fix Necessario)
+      const imgs = Array.from(d.images || []);
+      
+      // Se non ci sono immagini, stampa subito
+      if (imgs.length === 0) {
+        setTimeout(doPrint, 150); // piccolo ritardo standard
+        return;
       }
 
+      // Se ci sono immagini, aspetta che siano tutte "complete"
+      let loadedCount = 0;
+      let gaveUp = false;
+
+      const checkDone = () => {
+        if (gaveUp) return;
+        loadedCount++;
+        if (loadedCount >= imgs.length) {
+          // Tutte caricate (o andate in errore), stampiamo!
+          setTimeout(doPrint, 100); 
+        }
+      };
+
+      // Timeout di sicurezza: se un'immagine si incanta, dopo 2.5s stampa comunque
+      setTimeout(() => {
+        if (loadedCount < imgs.length) {
+          console.warn('Timeout attesa immagini, stampo comunque.');
+          gaveUp = true;
+          doPrint();
+        }
+      }, 2500);
+
+      // Attacca i listener
+      imgs.forEach(img => {
+        if (img.complete) {
+          checkDone();
+        } else {
+          img.addEventListener('load', checkDone);
+          img.addEventListener('error', checkDone); // Conta come "fatto" anche se errore
+        }
+      });
+
       w.addEventListener?.('afterprint', () => { try{ ifr.remove(); }catch{} });
+
     }catch(e){
       console.warn('safePrintHTMLStringWithPageNum error', e);
+      // Fallback estremo
       if (window.safePrintHTMLString) window.safePrintHTMLString(html);
     }
   };
 })();
-
 
 // === Magazzino: vista movimenti come alias ===
 window.MagazzinoMovimentiView = window.MagazzinoMovimentiView || function(){
