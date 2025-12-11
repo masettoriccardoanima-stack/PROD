@@ -16858,14 +16858,16 @@ window.renderSchedaCollaudoG3HTML = function(ddt, righeOverride){
     </style></head><body>${sheetsHtml}</body></html>`;
 };
 
+/* ================== STAMPA SCHEDE COLLAUDO G3 (RAM CACHE FIX) ================== */
 if (!window.printSchedeCollaudoG3ForDDT) {
-  window.printSchedeCollaudoG3ForDDT = function(ddt){
-    try{
-      if (!ddt) {
-        alert('DDT non valido per scheda collaudo G3');
-        return;
-      }
+  // Cache globale per le immagini G3 (così le carichiamo una volta sola e non spariscono)
+  window.__G3_CACHE = window.__G3_CACHE || { logo: null, timbro: null };
 
+  window.printSchedeCollaudoG3ForDDT = async function(ddt){
+    try{
+      if (!ddt) { alert('DDT non valido per scheda collaudo G3'); return; }
+
+      // 1. Trova le righe
       const allRows = (
         Array.isArray(ddt?.righe) ? ddt.righe :
         Array.isArray(ddt?.righeDDT) ? ddt.righeDDT :
@@ -16873,58 +16875,71 @@ if (!window.printSchedeCollaudoG3ForDDT) {
         []
       ).filter(r => r && (r.codice || r.descrizione));
 
-      if (!allRows.length) {
-        alert('Nessuna riga articolo per questo DDT.');
-        return;
-      }
+      if (!allRows.length) { alert('Nessuna riga articolo per questo DDT.'); return; }
 
-      // scelta righe da stampare (come prima)
+      // 2. Chiedi quali righe stampare
       let rowsToPrint = allRows;
       if (allRows.length > 1) {
         const elenco = allRows.map((r, idx) => {
           const cod  = r.codice || r.codArt || '';
           const desc = r.descrizione || '';
-          const label = [cod, desc].filter(Boolean).join(' - ');
-          return (idx + 1) + ') ' + label;
+          return (idx + 1) + ') ' + [cod, desc].filter(Boolean).join(' - ');
         }).join('\n');
-
-        const msg =
-          'Schede collaudo G3 per DDT ' + (ddt.id || '') + '\n\n' +
-          'Digita il numero della riga che vuoi stampare (1-' + allRows.length + ')\n' +
-          'oppure scrivi T per stampare tutte le righe.\n\n' +
-          elenco + '\n\n' +
-          'Scelta (1-' + allRows.length + ' o T):';
-
-        const ansRaw = window.prompt(msg, 'T');
-        if (ansRaw === null) {
-          // Annulla = non stampare nulla
-          return;
-        }
-
+        const ansRaw = window.prompt(
+          'Schede collaudo G3\n\n' + elenco + '\n\nDigita il numero riga (1-' + allRows.length + ') oppure "T" per tutte.', 
+          'T'
+        );
+        if (ansRaw === null) return;
         const ans = String(ansRaw).trim().toUpperCase();
-
         if (ans && ans !== 'T' && ans !== 'ALL') {
           const n = parseInt(ans, 10);
-          if (!isNaN(n) && n >= 1 && n <= allRows.length) {
-            rowsToPrint = [allRows[n - 1]];
-          } else {
-            alert('Scelta non valida.');
-            return;
-          }
+          if (!isNaN(n) && n >= 1 && n <= allRows.length) rowsToPrint = [allRows[n - 1]];
+          else { alert('Scelta non valida.'); return; }
         }
-        // se ans è T/ALL/"" -> rowsToPrint resta allRows
       }
 
-      const html = window.renderSchedaCollaudoG3HTML
-        ? window.renderSchedaCollaudoG3HTML(ddt, rowsToPrint)
-        : '';
+      // 3. Pre-caricamento Immagini con CACHE IN MEMORIA (Il Fix)
+      // Se le abbiamo già in RAM, usiamole subito senza chiedere al browser/SW
+      const getImgBase64 = async (cacheKey, url) => {
+        // Se c'è in cache, ritorna subito quella
+        if (window.__G3_CACHE[cacheKey]) return window.__G3_CACHE[cacheKey];
 
-      if (!html) {
-        alert('Layout scheda collaudo G3 non disponibile');
-        return;
-      }
+        try {
+          // Aggiungo timestamp per forzare il download fresco la prima volta
+          const safeUrl = url + '?t=' + Date.now();
+          const res = await fetch(safeUrl);
+          const blob = await res.blob();
+          const b64 = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.readAsDataURL(blob);
+          });
+          
+          // Salva in cache globale per i prossimi click
+          if (b64 && b64.length > 100) {
+             window.__G3_CACHE[cacheKey] = b64;
+          }
+          return b64;
+        } catch (e) {
+          console.warn('Img load fail:', url, e);
+          return ''; 
+        }
+      };
 
-      // STAMPA (come prima)
+      const [logoB64, timbroB64] = await Promise.all([
+        getImgBase64('logo', './icons/g3-logo.png'),
+        getImgBase64('timbro', './icons/anima-timbro-firma.png')
+      ]);
+
+      // 4. Genera HTML passando i dati Base64
+      const html = window.renderSchedaCollaudoG3HTML(ddt, rowsToPrint, {
+        logoData: logoB64,
+        timbroData: timbroB64
+      });
+
+      if (!html) { alert('Errore generazione layout'); return; }
+
+      // 5. Stampa
       if (window.safePrintHTMLStringWithPageNum) {
         window.safePrintHTMLStringWithPageNum(html);
       } else if (window.safePrintHTMLString) {
@@ -16932,111 +16947,52 @@ if (!window.printSchedeCollaudoG3ForDDT) {
       } else {
         const w = window.open('', '_blank');
         if (!w) return;
-        w.document.open();
-        w.document.write(html);
-        w.document.close();
-        w.focus();
-        try { w.print(); } catch(e) {}
+        w.document.open(); w.document.write(html); w.document.close();
+        w.focus(); setTimeout(() => w.print(), 500);
       }
 
-      // --- BLOCCO NUOVO: registrazione automatica allegato COLLAUDO (opzionale) ---
+      // 6. Logica Allegati (opzionale)
+      setTimeout(() => {
+        if (!window.confirm('Vuoi registrare un allegato COLLAUDO per questo DDT?')) return;
+        
+        const yearFromDdt = (function(){
+          try { if (ddt && ddt.data) return new Date(ddt.data).getFullYear(); } catch(e){}
+          return (new Date()).getFullYear();
+        })();
+        const ddtIdTxt = ddt && ddt.id ? String(ddt.id) : '';
+        const suggestedPath = `\\\\ANIMA-SERVER\\ANIMA_DOC\\COLLAUDI\\${yearFromDdt}\\DDT-${yearFromDdt}-${ddtIdTxt}-G3-collaudo.pdf`;
+        
+        const userPath = window.prompt('Percorso del PDF salvato:', suggestedPath);
+        if (!userPath) return;
+        
+        let existing = [];
+        try { existing = JSON.parse(localStorage.getItem('allegatiRows') || '[]'); } catch {}
+        
+        const nowIso = new Date().toISOString();
+        const nextId = (function(arr){
+           let max=0; const y=new Date().getFullYear();
+           arr.forEach(r=>{ 
+             const m=String(r.id).match(/^ALG-(\d{4})-(\d+)$/);
+             if(m && +m[1]===y) max=Math.max(max, +m[2]); 
+           });
+           return `ALG-${y}-${String(max+1).padStart(4,'0')}`;
+        })(existing);
 
-      // helper locale per ID tipo "ALG-2025-0001"
-      function nextAllegatoId(existing){
-        const now  = new Date();
-        const year = now.getFullYear();
-        let maxSeq = 0;
-        (existing || []).forEach(r => {
-          const id = r && r.id ? String(r.id) : '';
-          const m = /^ALG-(\d{4})-(\d+)$/.exec(id);
-          if (m && Number(m[1]) === year) {
-            const n = parseInt(m[2], 10);
-            if (!isNaN(n) && n > maxSeq) maxSeq = n;
-          }
-        });
-        const next = String(maxSeq + 1).padStart(4, '0');
-        return 'ALG-' + year + '-' + next;
-      }
-
-      // chiedi se creare allegato
-      const conferma = window.confirm('Vuoi registrare un allegato di tipo COLLAUDO per questo DDT?');
-      if (!conferma) return;
-
-      // suggerimento di percorso (puoi adattarlo al tuo NAS)
-      const yearFromDdt = (function(){
-        try {
-          if (ddt && ddt.data) {
-            const d = new Date(ddt.data);
-            if (!isNaN(d.getTime())) return d.getFullYear();
-          }
-        } catch(e){}
-        return (new Date()).getFullYear();
-      })();
-
-      const ddtIdTxt = ddt && ddt.id ? String(ddt.id) : '';
-      const suggestedPath =
-        '\\\\ANIMA-SERVER\\ANIMA_DOC\\COLLAUDI\\' +
-        yearFromDdt +
-        '\\DDT-' + yearFromDdt + '-' + ddtIdTxt + '-G3-collaudo.pdf';
-
-      const userPath = window.prompt(
-        'Inserisci il percorso del PDF della scheda collaudo G3 appena salvata.\n' +
-        'Lascia vuoto per non registrare nulla.\n\n' +
-        'Suggerimento (puoi modificarlo):\n' + suggestedPath,
-        suggestedPath
-      );
-
-      if (!userPath) {
-        return; // utente ha lasciato vuoto o annullato
-      }
-
-      const pathTrimmed = String(userPath).trim();
-      if (!pathTrimmed) {
-        return;
-      }
-
-      // leggi allegati esistenti
-      let existing = [];
-      try {
-        const raw = localStorage.getItem('allegatiRows');
-        if (raw) existing = JSON.parse(raw) || [];
-        if (!Array.isArray(existing)) existing = [];
-      } catch(e) {
-        existing = [];
-      }
-
-      const nowIso = new Date().toISOString();
-      const newId  = nextAllegatoId(existing);
-
-      const descrBase = 'Scheda collaudo G3 DDT ' + (ddtIdTxt || '');
-      const newRow = {
-        id: newId,
-        createdAt: nowIso,
-        tipo: 'COLLAUDO',
-        descrizione: descrBase,
-        path: pathTrimmed,
-        url: '',
-        entityType: 'DDT',
-        entityId: ddt && ddt.id ? ddt.id : '',
-        note: '',
-        deletedAt: null
-      };
-
-      const updated = existing.concat([newRow]);
-      try {
-        localStorage.setItem('allegatiRows', JSON.stringify(updated));
-      } catch(e) {
-        console.error('Errore salvataggio allegatiRows', e);
-        alert('Non sono riuscito a salvare l\'allegato COLLAUDO in locale.');
-        return;
-      }
-
-      alert('Allegato COLLAUDO registrato per questo DDT.\n' +
-            'Se non lo vedi subito nella card Allegati, chiudi e riapri il DDT.');
+        const newRow = {
+          id: nextId, createdAt: nowIso, tipo: 'COLLAUDO',
+          descrizione: `Scheda collaudo G3 DDT ${ddtIdTxt}`,
+          path: String(userPath).trim(), url: '',
+          entityType: 'DDT', entityId: ddtIdTxt,
+          note: '', deletedAt: null
+        };
+        
+        localStorage.setItem('allegatiRows', JSON.stringify([...existing, newRow]));
+        alert('Allegato registrato.');
+      }, 2000); 
 
     }catch(e){
-      console.error('printSchedeCollaudoG3ForDDT error', e);
-      alert('Errore durante la stampa della scheda collaudo G3');
+      console.error(e);
+      alert('Errore stampa G3: ' + e.message);
     }
   };
 }
