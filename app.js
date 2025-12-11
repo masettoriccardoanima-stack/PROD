@@ -26748,15 +26748,31 @@ window.findCommessaById = window.findCommessaById || function(id){
 
   const e = React.createElement;
 
-  // ---------------- Sidebar (completa, con dedupe + toggle persistente) ----------------
-  window.__ALLOWED_WORKER_ROUTES = window.__ALLOWED_WORKER_ROUTES || new Set([
+// ---------------- Sidebar (REATTIVA: si aggiorna al login) ----------------
+  // Definizione rotte permesse ai worker (allineata con pickView)
+  window.__ALLOWED_WORKER_ROUTES = new Set([
+    '#/dashboard',
     '#/timbratura',
     '#/commesse',
-    '#/ddt'
+    '#/ddt',
+    '#/report',
+    '#/login'
   ]);
+
   function Sidebar({ hash }) {
     const R   = (window.ROUTES || {});
     const cur = (hash || (location.hash || '#/dashboard')).toLowerCase();
+
+    // 1. Stato User REATTIVO: ascolta il login per aggiornare il menu
+    const [u, setU] = React.useState(window.__USER || null);
+    
+    React.useEffect(() => {
+      const handler = (ev) => setU(ev.detail); // l'evento auth-change porta l'utente in .detail
+      window.addEventListener('auth-change', handler);
+      // check di sicurezza in caso di race condition all'avvio
+      if (window.__USER !== u) setU(window.__USER);
+      return () => window.removeEventListener('auth-change', handler);
+    }, []);
 
     // Stato “aperta/chiusa” persistente
     const [open, setOpen] = React.useState(() => {
@@ -26767,12 +26783,6 @@ window.findCommessaById = window.findCommessaById || function(id){
       try { localStorage.setItem('sidebarOpen', JSON.stringify(open)); } catch {}
       try { document.body.classList.toggle('sidebar-collapsed', !open); } catch {}
     }, [open]);
-    React.useEffect(() => {
-      try {
-        const v = JSON.parse(localStorage.getItem('sidebarOpen') || 'true');
-        document.body.classList.toggle('sidebar-collapsed', !v);
-      } catch {}
-    }, []);
 
     // Voci di menù (base)
     const ALL_LINKS = [
@@ -26813,12 +26823,12 @@ window.findCommessaById = window.findCommessaById || function(id){
     ];
 
     // — Filtro ruoli: worker / viewer / mobile vedono solo alcune rotte
-    const USER = window.__USER || null;
-    let role = USER && USER.role;
+    // NOTA: usiamo 'u' (lo stato reattivo) invece di window.__USER
+    let role = u && u.role;
 
     // Se non c'è utente loggato:
-    // - su schermi piccoli → trattalo come worker (menu limitato, niente Impostazioni)
-    // - su desktop → mantieni comportamento attuale (admin implicito offline)
+    // - su schermi piccoli → trattalo come worker
+    // - su desktop → mantieni comportamento attuale (admin implicito offline finché non fai login)
     if (!role) {
       const MOBILE_W = 1024;
       if (window.innerWidth <= MOBILE_W) {
@@ -26849,7 +26859,7 @@ window.findCommessaById = window.findCommessaById || function(id){
       );
     }
 
-    // Link factory (nome diverso per evitare conflitti)
+    // Link factory
     const mkLink = (h, label) =>
       e('a', {
           href: h,
@@ -26871,21 +26881,20 @@ window.findCommessaById = window.findCommessaById || function(id){
         continue;
       }
       if (href === '__section__') {
-        pendingSection = label;               // verrà resa visibile solo se segue almeno un link
+        pendingSection = label;
         continue;
       }
       // è un link
       if (String(href||'').startsWith('#/')) {
-        if (seen.has(href)) continue;         // duplicato → salta
+        if (seen.has(href)) continue;
         seen.add(href);
       }
       if (pendingSection != null) {
-        CLEAN.push(['__section__', pendingSection]); // prima volta che troviamo un link → mostriamo la sezione
+        CLEAN.push(['__section__', pendingSection]);
         pendingSection = null;
       }
       CLEAN.push([href, label]);
     }
-    // se la lista finisce con una sezione senza link, non la aggiungiamo
 
     const nodes = [];
     for (const [href, label] of CLEAN) {
