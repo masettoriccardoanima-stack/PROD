@@ -2428,260 +2428,307 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
   }catch(e){ console.warn('safePrintHTMLString', e); }
 };
 
-// ================== PREVENTIVI: STAMPA (globale) ==================
-window.generatePreventivoHTML = window.generatePreventivoHTML || function(pv){
-  const esc = (v)=> String(v ?? '').replace(/[<>&]/g, ch => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[ch]));
-  const app = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; }catch{return{}} })();
-  const clienti = (function(){ try{ return JSON.parse(localStorage.getItem('clientiRows')||'[]')||[]; }catch{return[]} })();
+// ================== PREVENTIVI: STAMPA (Multipagina Professionale) ==================
+(function(){
+  // Helper locali per escape e formattazione
+  const esc = s => String(s ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+  const fmt2 = n => Number(n||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const fmtDate = d => {
+    if (!d) return '';
+    const date = new Date(d);
+    return isNaN(date.getTime()) ? d : date.toLocaleDateString('it-IT');
+  };
 
-  const cli = clienti.find(c=> String(c.id)===String(pv?.clienteId||'')) || {};
-  const cliRag = esc(cli.ragione || cli.ragioneSociale || pv?.cliente || pv?.clienteRagione || '');
-  const cliPiva = esc(cli.piva || '');
-  const cliAddr = esc(cli.sedeLegale || cli.sedeOperativa || '');
+  window.generatePreventivoHTML = function(pv){
+    const app = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; }catch{return{}} })();
+    const clienti = (function(){ try{ return JSON.parse(localStorage.getItem('clientiRows')||'[]')||[]; }catch{return[]} })();
+    
+    // Dati Azienda (Mittente)
+    const logoUrl = app.logoDataUrl || '';
+    const ragAzi  = esc(app.ragioneSociale || 'ANIMA SRL');
+    const pivaAzi = esc(app.piva || '');
+    const sedeLeg = esc(app.sedeLegale || '');
+    const sedeOp  = esc(app.sedeOperativa || '');
+    const emailAzi= esc(app.email || '');
+    const telAzi  = esc(app.telefono || '');
 
-  const righe =
-    Array.isArray(pv?.righe) ? pv.righe :
-    Array.isArray(pv?.righeArticolo) ? pv.righeArticolo :
-    [];
+    // Dati Cliente (Destinatario)
+    const cli = clienti.find(c=> String(c.id)===String(pv?.clienteId||'')) || {};
+    const cliRag  = esc(pv?.cliente || pv?.clienteRagione || cli.ragioneSociale || cli.ragione || '');
+    const cliInd  = esc(cli.sedeLegale || cli.sedeOperativa || cli.indirizzo || '');
+    const cliPiva = esc(cli.piva || '');
+    const cliEmail= esc(cli.email || '');
 
-      // Default IVA come in PreventiviView (fallback 22%)
-  const DEFAULT_IVA = Number(app?.defaultIva) || 22;
-  const num = v => Number(v || 0);
+    // Dati Documento
+    const docId   = esc(pv?.id || 'BOZZA');
+    const docData = fmtDate(pv?.data || new Date().toISOString());
+    const oggetto = esc(pv?.oggetto || pv?.descrizione || '');
+    const validita= '30 giorni'; // Standard, o aggiungi campo nel form se serve
 
-  function getIvaPV(r){
-    const raw = r && (r.iva ?? r.ivaPerc ?? r.aliquotaIva);
-    // rispetta 0 esplicito (esente)
-    if (raw === 0 || raw === '0') return 0;
-    // vuoto / null -> default
-    if (raw == null || raw === '') return DEFAULT_IVA;
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : DEFAULT_IVA;
-  }
+    // Righe
+    const righe = Array.isArray(pv?.righe) ? pv.righe : (Array.isArray(pv?.righeArticolo) ? pv.righeArticolo : []);
+    const DEFAULT_IVA = Number(app.defaultIva) || 22;
 
-  const rowsHTML = (righe.length ? righe : [{}]).map((r,i)=>{
-    const qty = Number(r.qta||r.qty||1)||0;
-    const pr  = Number(r.prezzo||r.price||0)||0;
-    const scp = Number(r.sconto||r.scontoPerc||0)||0;
-    const iva = getIvaPV(r);
-    const base = qty*pr*(1-(scp/100));
-    return `
-      <tr>
-        <td class="ctr">${i+1}</td>
-        <td>
-          <div style="font-weight:700">${esc(r.codice||'')}</div>
-          <div>${esc(r.descrizione||r.desc||'')}</div>
-          ${(r.note||'').trim()?`<div class="muted small">Note: ${esc(r.note)}</div>`:''}
-        </td>
-        <td class="ctr">${esc((r.UM||r.um||'PZ').toUpperCase())}</td>
-        <td class="num">${qty?qty:''}</td>
-        <td class="num">${pr?pr.toFixed(2):''}</td>
-        <td class="ctr">${scp?scp.toFixed(1):''}</td>
-        <td class="ctr">${(String(r.codice||r.descrizione||r.desc||'').trim() || qty || pr) ? (iva.toFixed(0)+'%') : ''}</td>
-        <td class="num">${base?base.toFixed(2):''}</td>
-      </tr>
-    `;
-  }).join('');
+    // Calcolo totali
+    let imponibile = 0;
+    let totIva = 0;
+    const ivaMap = {};
 
-  // riepilogo IVA
-  const ivaMap = new Map();
-  righe.forEach(r=>{
-    const qty = Number(r.qta||1)||0;
-    const pr  = Number(r.prezzo||0)||0;
-    const scp = Number(r.sconto||r.scontoPerc||0)||0;
-    const iva = getIvaPV(r);
-    const impon = qty*pr*(1-(scp/100));
-    const imposta = impon*(iva/100);
-    const k = iva.toFixed(2);
-    const prev = ivaMap.get(k) || { imponibile:0, imposta:0 };
-    prev.imponibile += impon;
-    prev.imposta += imposta;
-    ivaMap.set(k, prev);
-  });
+    const rowsData = righe.map((r, i) => {
+      const qty = Number(r.qta||r.qty||1)||0;
+      const pr  = Number(r.prezzo||r.price||0)||0;
+      const sc  = Number(r.sconto||r.scontoPerc||0)||0;
+      const iva = (r.iva !== undefined && r.iva !== '') ? Number(r.iva) : DEFAULT_IVA;
+      
+      const rowBase = qty * pr * (1 - (sc/100));
+      const rowIva  = rowBase * (iva/100);
+      
+      imponibile += rowBase;
+      totIva     += rowIva;
+      ivaMap[iva] = (ivaMap[iva] || 0) + rowBase;
 
-  const ivaRows = Array.from(ivaMap.entries()).sort((a,b)=>+a[0]-+b[0]).map(([aliq, v])=>`
-    <tr>
-      <td class="ctr">${aliq}%</td>
-      <td class="num">${v.imponibile.toFixed(2)}</td>
-      <td class="num">${v.imposta.toFixed(2)}</td>
-    </tr>
-  `).join('') || `<tr><td colspan="3" class="muted ctr">—</td></tr>`;
+      return {
+        idx: i+1,
+        codice: esc(r.codice||''),
+        descrizione: esc(r.descrizione||r.desc||'').replace(/\n/g, '<br>'),
+        um: esc((r.UM||r.um||'PZ').toUpperCase()),
+        qta: qty,
+        prezzo: pr,
+        sconto: sc,
+        totale: rowBase,
+        note: esc(r.note||'')
+      };
+    });
 
-  const totaleImpon = Array.from(ivaMap.values()).reduce((s,x)=>s+x.imponibile,0);
-  const totaleIva   = Array.from(ivaMap.values()).reduce((s,x)=>s+x.imposta,0);
-  const totaleDoc   = totaleImpon + totaleIva;
+    const totaleDoc = imponibile + totIva;
 
-  const ragAzi = esc(app.ragioneSociale || app.ragione || 'ANIMA srl');
-  const pivaAzi = esc(app.piva || app.pIva || '');
-  const sedeL = esc(app.sedeLegale || (app.azienda && app.azienda.sedeLegale) || '');
-  const sedeO = esc(app.sedeOperativa || (app.azienda && app.azienda.sedeOperativa) || '');
-  const logo  = esc(app.logoDataUrl || '');
-  const telAzi   = esc(app.tel || app.telefono || '');
-  const emailAzi = esc(app.email || '');
-  const pecAzi   = esc(app.pec || '');
-
-  const id = esc(pv?.id || '');
-  const data = esc(pv?.data || pv?.createdAt?.slice(0,10) || new Date().toISOString().slice(0,10));
-  const oggetto = esc(pv?.oggetto || pv?.descrizione || '');
-
-  const style = `
-  <style>
-    @page{ size:A4; margin:10mm; }
-    body{
-      font-family:system-ui,Arial;
-      font-size:12.5px;
-      color:#111;
-    }
-    .content{
-      min-height:277mm;
-      padding-bottom:60mm; /* più spazio per non far coprire le ultime righe */
-      box-sizing:border-box;
-    }
-    .footer{
-      position:fixed;
-      left:10mm;
-      right:10mm;
-      bottom:10mm;
-      background:#fff;
-    }
-    .header{
-      position:relative;
-      top:auto; left:auto; right:auto;
-      height:auto;
-      border-bottom:2px solid #111; padding:6px 0;
-      display:flex; justify-content:space-between; align-items:center; gap:12px;
-      background:#fff;
-    }
-    .header .logo{height:80px; max-height:80px; object-fit:contain; margin-left:2mm}
-    .header .tit{ text-align:right; padding-top:4mm }
-    .doc{ font-size:18px; font-weight:800; }
-    .docTitle{ font-size:15px; font-weight:800; letter-spacing:.2px; }
-    .box{ border:1px solid #e5e7eb; padding:8px 10px; border-radius:8px; }
-    .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
-    .muted{ color:#6b7280; }
-    .small{ font-size:11px; }
-    table{ width:100%; border-collapse:collapse; margin-top:8px; }
-    th,td{ border-bottom:1px solid #eee; padding:6px 6px; vertical-align:top; }
-    th{ background:#f9fafb; text-align:left; font-weight:700; }
-    .ctr{ text-align:center; }
-    .num{ text-align:right; white-space:nowrap; }
-    .totgrid{ display:grid; grid-template-columns:auto auto; gap:4px 10px; justify-content:end; margin-top:8px; }
-  </style>`;
-
-  return `<!doctype html><html><head><meta charset="utf-8">${style}</head><body>
-    <div class="content">
-        <div class="header">
-      <div style="display:flex;gap:12px;align-items:center">
-        ${logo?`<img class="logo" src="${logo}" alt="logo">`:''}
-        <div>
-          <div class="doc">${ragAzi}</div>
-          ${pivaAzi?`<div class="muted">P.IVA: ${pivaAzi}</div>`:''}
-          ${sedeL?`<div class="muted">Sede legale: ${sedeL}</div>`:''}
-          ${sedeO?`<div class="muted">Sede operativa: ${sedeO}</div>`:''}
-          ${telAzi?`<div class="muted">Tel: ${telAzi}</div>`:''}
-          ${emailAzi?`<div class="muted">Email: ${emailAzi}</div>`:''}
-          ${pecAzi?`<div class="muted">PEC: ${pecAzi}</div>`:''}
+    // --- COSTRUZIONE PAGINE ---
+    // Header HTML (ripetuto)
+    const headerHTML = `
+      <div class="header">
+        <div class="brand">
+          ${logoUrl ? `<img src="${logoUrl}" class="logo" />` : ''}
+          <div class="az-info">
+            <div class="rs">${ragAzi}</div>
+            <div class="muted">${sedeLeg}</div>
+            ${sedeOp && sedeOp!==sedeLeg ? `<div class="muted">${sedeOp}</div>` : ''}
+            <div class="muted">P.IVA: ${pivaAzi} ${emailAzi ? '· '+emailAzi : ''}</div>
+          </div>
         </div>
-      </div>
-      <div class="tit">
-        <div class="docTitle">PREVENTIVO</div>
-        <div class="muted"><b>${id}</b></div>
-        <div class="muted">Data: <b>${data}</b></div>
-      </div>
-    </div>
-
-    <div class="grid2">
-      <div class="box">
-        <div class="muted">Cliente</div>
-        <div><strong>${cliRag}</strong></div>
-        ${cliPiva?`<div class="small">P.IVA: ${cliPiva}</div>`:''}
-        ${cliAddr?`<div class="small">${cliAddr}</div>`:''}
-      </div>
-      <div class="box">
-        ${oggetto?`<div><strong>Oggetto:</strong> ${oggetto}</div>`:''}
-        ${(pv?.note||'').trim()?`<div class="muted small" style="margin-top:6px">Note: ${esc(pv.note)}</div>`:''}
-      </div>
-    </div>
-
-    <table>
-      <thead><tr>
-        <th style="width:26px" class="ctr">#</th>
-        <th>Articolo</th>
-        <th style="width:50px" class="ctr">UM</th>
-        <th style="width:60px" class="num">Q.tà</th>
-        <th style="width:80px" class="num">Prezzo</th>
-        <th style="width:60px" class="ctr">Sc.%</th>
-        <th style="width:55px" class="ctr">IVA</th>
-        <th style="width:95px" class="num">Importo</th>
-      </tr></thead>
-      <tbody>${rowsHTML}</tbody>
-    </table>
-
-        <!-- ====== FOOTER PIÈ PAGINA: IVA + TOTALI + FIRMA ====== -->
-    <div class="footer">
-
-      <div class="box" style="margin-top:10px; page-break-inside:avoid;">
-        <div class="muted small">
-          Offerta valida 30 giorni dalla data del presente preventivo, salvo variazioni di listino o normative fiscali.
+        <div class="doc-box">
+          <div class="title">PREVENTIVO</div>
+          <div class="num">${docId}</div>
+          <div class="date">Data: ${docData}</div>
         </div>
-      </div>
+      </div>`;
 
-      <div class="grid2" style="margin-top:8px; align-items:stretch;">
-        <div class="box" style="page-break-inside:avoid;">
-          <div style="font-weight:700;margin-bottom:4px">Riepilogo IVA</div>
-          <table style="margin-top:0">
-            <thead><tr>
-              <th class="ctr" style="width:70px">Aliquota</th>
-              <th class="num">Imponibile</th>
-              <th class="num">Imposta</th>
-            </tr></thead>
+    // Info Cliente + Oggetto (ripetuto, ma potremmo metterlo solo nella prima se preferisci)
+    // Per ora lo mettiamo su ogni pagina per chiarezza, come le fatture.
+    const metaHTML = `
+      <div class="meta-grid">
+        <div class="box">
+          <div class="lbl">Cliente</div>
+          <div class="val">${cliRag}</div>
+          ${cliInd ? `<div class="muted small">${cliInd}</div>` : ''}
+          ${cliPiva ? `<div class="muted small">P.IVA: ${cliPiva}</div>` : ''}
+        </div>
+        <div class="box">
+          <div class="lbl">Dettagli</div>
+          ${oggetto ? `<div><b>Oggetto:</b> ${oggetto}</div>` : ''}
+          <div><b>Pagamento:</b> ${esc(pv?.pagamento || app.defaultPagamento || 'Rimessa diretta')}</div>
+          <div><b>Validità:</b> ${validita}</div>
+        </div>
+      </div>`;
+
+    // Tabella Header
+    const theadHTML = `
+      <thead>
+        <tr>
+          <th class="ctr" style="width:30px">#</th>
+          <th style="width:110px">Codice</th>
+          <th>Descrizione</th>
+          <th class="ctr" style="width:50px">UM</th>
+          <th class="ctr" style="width:60px">Q.tà</th>
+          <th class="num" style="width:90px">Prezzo</th>
+          <th class="ctr" style="width:60px">Sc.%</th>
+          <th class="num" style="width:100px">Totale</th>
+        </tr>
+      </thead>`;
+
+    // Footer (Totali + Firma) - Solo ultima pagina
+    const ivaRows = Object.keys(ivaMap).sort((a,b)=>a-b).map(k => {
+      const b = ivaMap[k];
+      const i = b * (Number(k)/100);
+      return `<tr>
+        <td class="ctr">${k}%</td>
+        <td class="num">${fmt2(b)}</td>
+        <td class="num">${fmt2(i)}</td>
+      </tr>`;
+    }).join('');
+
+    const footerLastPageHTML = `
+      <div class="footer-summary">
+        <div class="box iva-box">
+          <div class="lbl">Riepilogo IVA</div>
+          <table class="iva-table">
+            <thead><tr><th>Aliq.</th><th>Imp.</th><th>IVA</th></tr></thead>
             <tbody>${ivaRows}</tbody>
           </table>
         </div>
-
-        <div class="box" style="page-break-inside:avoid;">
-          <div class="totgrid">
-            <div class="muted">Imponibile</div><div class="num"><strong>${totaleImpon.toFixed(2)}</strong></div>
-            <div class="muted">IVA</div><div class="num"><strong>${totaleIva.toFixed(2)}</strong></div>
-            <div style="font-weight:800">Totale</div><div class="num" style="font-weight:800">${totaleDoc.toFixed(2)}</div>
-          </div>
+        <div class="box tot-box">
+          <div class="row"><div>Imponibile:</div> <div>${fmt2(imponibile)}</div></div>
+          <div class="row"><div>Totale IVA:</div> <div>${fmt2(totIva)}</div></div>
+          <div class="row grand-total"><div>TOTALE:</div> <div>€ ${fmt2(totaleDoc)}</div></div>
         </div>
       </div>
-
-      <div class="box" style="margin-top:8px; page-break-inside:avoid;">
-        <div style="font-weight:700; margin-bottom:6px;">Accettazione del cliente</div>
-        <div class="small">
-          Con la firma sotto, il Cliente dichiara di accettare integralmente il presente preventivo e le condizioni in esso riportate.
+      
+      <div class="footer-sign">
+        <div class="box">
+          <div class="lbl">Per accettazione (Timbro e Firma)</div>
+          <div style="margin-top:15mm; border-bottom:1px solid #ccc; width:80%"></div>
+          <div class="small muted" style="margin-top:4px">Luogo e Data: __________________________</div>
         </div>
+      </div>`;
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-top:12px;">
-          <div>
-            <div class="small muted">Luogo e data</div>
-            <div style="border-bottom:1px solid #111; height:22px;"></div>
+    // --- Paginazione ---
+    const MAX_ROWS = 14; // Righe per pagina (aggiustabile)
+    const pages = [];
+    
+    // Se non ci sono righe
+    if (rowsData.length === 0) {
+      pages.push([ { idx:'', codice:'', descrizione:'Nessuna riga', um:'', qta:'', prezzo:'', totale:'' } ]);
+    } else {
+      for (let i = 0; i < rowsData.length; i += MAX_ROWS) {
+        pages.push(rowsData.slice(i, i + MAX_ROWS));
+      }
+    }
+
+    let htmlPages = '';
+    
+    pages.forEach((pRows, pageIdx) => {
+      const isLast = (pageIdx === pages.length - 1);
+      
+      const tbodyHTML = pRows.map(r => `
+        <tr>
+          <td class="ctr">${r.idx}</td>
+          <td class="code">${r.codice}</td>
+          <td>
+            ${r.descrizione}
+            ${r.note ? `<div class="small muted"><i>${r.note}</i></div>` : ''}
+          </td>
+          <td class="ctr">${r.um}</td>
+          <td class="ctr">${r.qta||''}</td>
+          <td class="num">${r.prezzo ? fmt2(r.prezzo) : ''}</td>
+          <td class="ctr">${r.sconto ? fmt2(r.sconto) : ''}</td>
+          <td class="num">${r.totale ? fmt2(r.totale) : ''}</td>
+        </tr>
+      `).join('');
+
+      // Riempimento righe vuote per mantenere l'altezza se serve (opzionale, qui lo ometto per pulizia)
+
+      htmlPages += `
+        <div class="page">
+          <div class="content-wrap">
+            ${headerHTML}
+            ${metaHTML}
+            <table class="main-table">
+              ${theadHTML}
+              <tbody>${tbodyHTML}</tbody>
+            </table>
+            ${isLast ? footerLastPageHTML : ''}
           </div>
-          <div>
-            <div class="small muted">Firma per accettazione</div>
-            <div style="border-bottom:1px solid #111; height:22px;"></div>
-          </div>
-        </div>
-      </div>
+          <div class="page-num">PAGINA ${pageIdx + 1} / ${pages.length}</div>
+        </div>`;
+    });
 
-    </div> <!-- fine contenuto principale -->
-    </div> <!-- fine .content -->
-  </body></html>`;
+    // --- CSS ---
+    const css = `
+      <style>
+        @page { size: A4; margin: 0; }
+        * { box-sizing: border-box; -webkit-print-color-adjust: exact; }
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; font-size: 10pt; color: #111; background: #fff; }
+        
+        .page {
+          width: 210mm; height: 297mm;
+          position: relative;
+          page-break-after: always;
+          padding: 12mm 10mm;
+          display: flex; flex-direction: column; justify-content: space-between;
+        }
+        .page:last-child { page-break-after: auto; }
+        
+        .content-wrap { flex: 1; }
 
-};
+        /* Header */
+        .header { display: flex; justify-content: space-between; border-bottom: 2px solid #111; padding-bottom: 10px; margin-bottom: 10px; }
+        .brand { display: flex; gap: 15px; align-items: center; }
+        .logo { height: 60px; max-width: 180px; object-fit: contain; }
+        .az-info { font-size: 9pt; line-height: 1.3; }
+        .rs { font-size: 14pt; font-weight: 800; text-transform: uppercase; }
+        .muted { color: #555; }
+        
+        .doc-box { text-align: right; }
+        .doc-box .title { font-size: 18pt; font-weight: 800; color: #111; }
+        .doc-box .num { font-size: 12pt; font-weight: bold; margin-top: 4px; }
 
-window.printPreventivo = window.printPreventivo || function(pv){
-  try{
-    const html = window.generatePreventivoHTML ? window.generatePreventivoHTML(pv) : '';
-    if (!html) return alert('Preventivo vuoto/non valido');
-    if (window.safePrintHTMLStringWithPageNum) return window.safePrintHTMLStringWithPageNum(html);
-    window.safePrintHTMLString && window.safePrintHTMLString(html);
-  }catch(e){
-    console.warn('printPreventivo', e);
-    alert('Errore stampa preventivo');
-  }
-};
+        /* Meta Grid */
+        .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px; }
+        .box { border: 1px solid #ccc; border-radius: 6px; padding: 8px; font-size: 9.5pt; }
+        .lbl { font-weight: 700; text-transform: uppercase; font-size: 8pt; color: #666; margin-bottom: 4px; }
+        .val { font-weight: 700; font-size: 11pt; margin-bottom: 2px; }
+
+        /* Main Table */
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #eee; font-weight: 700; text-align: left; padding: 6px; border: 1px solid #ccc; font-size: 9pt; }
+        td { border: 1px solid #ccc; padding: 6px; vertical-align: top; font-size: 10pt; }
+        .ctr { text-align: center; }
+        .num { text-align: right; }
+        .code { font-family: monospace; font-weight: 600; }
+        .small { font-size: 8pt; }
+
+        /* Footer Summary */
+        .footer-summary { display: grid; grid-template-columns: 1.5fr 1fr; gap: 15px; margin-top: 15px; break-inside: avoid; }
+        .iva-table th, .iva-table td { padding: 4px; font-size: 9pt; }
+        .tot-box .row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .grand-total { border-top: 2px solid #111; margin-top: 6px; padding-top: 6px; font-weight: 800; font-size: 12pt; }
+
+        /* Footer Sign */
+        .footer-sign { margin-top: 15px; break-inside: avoid; }
+        
+        /* Page Num */
+        .page-num { text-align: right; font-size: 9pt; border-top: 1px solid #eee; padding-top: 5px; margin-top: 5px; color: #888; }
+      </style>`;
+
+    return `<!DOCTYPE html><html><head><meta charset="utf-8">${css}</head><body>${htmlPages}</body></html>`;
+  };
+
+  // Funzione di stampa sicura (usa la cache immagini globale se presente, altrimenti fallback)
+  window.printPreventivo = function(pv){
+    try {
+      if (!pv || !pv.id) { alert('Preventivo non valido'); return; }
+      
+      const html = window.generatePreventivoHTML(pv);
+      
+      // Usa il sistema di stampa sicuro (che gestisce le immagini)
+      if (window.safePrintHTMLStringWithPageNum) {
+        window.safePrintHTMLStringWithPageNum(html);
+      } else if (window.safePrintHTMLString) {
+        window.safePrintHTMLString(html);
+      } else {
+        // Fallback estremo
+        const w = window.open('', '_blank');
+        if (w) {
+          w.document.write(html);
+          w.document.close();
+          setTimeout(() => { w.focus(); w.print(); }, 500);
+        }
+      }
+    } catch(e) {
+      console.warn('printPreventivo error', e);
+      alert('Errore nella stampa del preventivo.');
+    }
+  };
+})();
 
 // ================== PREVENTIVI → COMMESSA (globale) ==================
 window.transformPreventivoToCommessa = window.transformPreventivoToCommessa || function(pv){
