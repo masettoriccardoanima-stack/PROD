@@ -3370,37 +3370,51 @@ window.addEventListener('auth-change', () => {
   try { sessionStorage.removeItem('__intent_timbratura'); } catch {}
 });
 
-// Chi sono (evita /api/auth/me)
-global.apiMe = global.apiMe || (async () => {
-  const sb = window.getSupabase && window.getSupabase();
-  if (!sb) return null;
-  const { data } = await sb.auth.getUser();
-  const email = data?.user?.email || null;
+// Chi sono (Supabase prima, poi fallback /api/auth/me)
+  global.apiMe = global.apiMe || (async () => {
+    try{
+      const sb = window.getSupabase && window.getSupabase();
+      if (sb){
+        const { data: { user } } = await sb.auth.getUser();
+        if (user){
+          // 1. DEFAULT SICURO: Se non ti conosco, sei un 'worker' (limitato), NON admin.
+          let role = 'worker'; 
+          
+          try{
+            const s = (typeof window.lsGet === 'function'
+              ? window.lsGet('appSettings', {})
+              : (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; }catch{return{}} })()
+            ) || {};
 
-  if (!email) return null;
+            // 2. Cerco l'utente nella lista (confronto email preciso e pulito)
+            const myEmail = String(user.email || '').trim().toLowerCase();
+            
+            const m = (s.users||[]).find(u =>
+              String(u.username || u.email || '').trim().toLowerCase() === myEmail
+            );
 
-  // ricava ruolo da appSettings
-    let role = 'admin';
-  try{
-        const s = (typeof window.lsGet === 'function'
-      ? window.lsGet('appSettings', {})
-      : (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; }catch{return{}} })()
-    ) || {};
-    const match = (Array.isArray(s.users)?s.users:[]).find(u =>
-      String(u.email || u.username || '').trim().toLowerCase() ===
-      String(email).toLowerCase()
-    );
-    if (match && match.role) role = match.role;
-  }catch{}
+            // 3. Se ti trovo, prendo il tuo ruolo specifico
+            if (m && m.role) role = m.role;
+            
+          }catch(e){
+            console.warn('Errore lettura ruoli:', e);
+          }
 
-  const u = { id: data.user.id, username: email, role };
-  global.currentUser = u;
-  window.__USER = u;
-  window.__ONLINE__ = true;
-  try{ window.dispatchEvent(new CustomEvent('auth-change', { detail: u })); }catch{}
-  return u;
-});
+          const u = { id: user.id, username: user.email, role };
+          global.currentUser = u;
+          window.__USER = u;
+          window.__ONLINE__ = true;
+          window.dispatchEvent(new CustomEvent('auth-change', { detail: u }));
+          return u;
+        }
+      }
+    }catch{}
 
+    // Nessun backend legacy, nessun supabase -> sloggato
+    window.__USER = null;
+    window.__ONLINE__ = false;
+    return null;
+  });
 
 global.requireLogin = async () => {
   const me = await global.apiMe();
