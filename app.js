@@ -26915,28 +26915,24 @@ window.findCommessaById = window.findCommessaById || function(id){
     return e('aside', { className: 'sidebar' }, e('nav', { className: 'nav' }, nodes));
   }
 
-// ---------------- pickView centralizzato (con BLOCCO DI SICUREZZA) ----------------
+// ---------------- pickView centralizzato (con Dashboard sbloccata) ----------------
   window.pickView = function () {
     const raw = (location.hash || '#/dashboard').toLowerCase();
     let h = raw.split('?')[0]; // ignora query es. #/timbratura?job=...
 
-    // 1. SICUREZZA ASSOLUTA: Se le impostazioni richiedono login e non ci sei, vai al Login.
-    // Questo impedisce a chi scansiona il QR di vedere i dati se non ha la password.
+    // 1. SICUREZZA ASSOLUTA: Login richiesto se attivo in impostazioni
     const settings = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}'); }catch{return {};} })();
     const user = window.__USER || window.currentUser || null;
     
-    // Se "authRequired" è attivo e non c'è utente...
     if (settings.authRequired && !user) {
-      // ...e non siamo già sul login...
       if (h !== '#/login') {
-        // ...reindirizza forzatamente
         console.warn('Accesso negato: Login richiesto.');
         location.hash = '#/login';
         return function(){ return e('div', {className:'page'}, 'Accesso riservato. Reindirizzamento al login...'); };
       }
     }
 
-    // 2. Se sei già autenticato, non restare bloccato su #/login
+    // 2. Se sei autenticato, via dal login
     if (h === '#/login' && user) {
       location.hash = '#/dashboard';
       return () => e('div', null);
@@ -26948,19 +26944,21 @@ window.findCommessaById = window.findCommessaById || function(id){
     const isMobileLike = (role === 'viewer' || role === 'mobile');
 
     if (!isAdmin) {
-      if (isMobileLike) {
-        // viewer / mobile: solo timbratura, commesse, DDT e login
-        const allowed = new Set(['#/timbratura', '#/commesse', '#/ddt', '#/login']);
-        if (!allowed.has(h)) {
-          if (h !== '#/timbratura') location.hash = '#/timbratura';
-          h = '#/timbratura';
-        }
-      } else {
-        // worker / accountant: blocca accesso a Impostazioni/Diagnostica
-        if (h === '#/impostazioni' || h === '#/diagnostica') {
-          if (h !== '#/timbratura') location.hash = '#/timbratura';
-          h = '#/timbratura';
-        }
+      // Lista delle pagine permesse ai NON-admin (AGGIUNTA DASHBOARD)
+      const allowed = new Set([
+        '#/dashboard',   // <--- ORA PERMESSA
+        '#/timbratura', 
+        '#/commesse', 
+        '#/ddt', 
+        '#/login',
+        '#/report'       // Spesso utile anche ai worker per vedere i propri tempi
+      ]);
+
+      if (!allowed.has(h)) {
+        // Se provano ad andare in pagine vietate (es. Impostazioni, Fatture), li mandiamo alla Dashboard
+        console.warn('Accesso negato a rotta:', h);
+        if (h !== '#/dashboard') location.hash = '#/dashboard';
+        h = '#/dashboard';
       }
     }
 
