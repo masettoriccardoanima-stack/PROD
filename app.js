@@ -16664,7 +16664,7 @@ window.printDDT = function(state){
   }
 })();
 
-// ================== RENDER SCHEDA COLLAUDO G3 (Fix Immagini Assolute) ==================
+/* ================== RENDER SCHEDA COLLAUDO G3 (Fix Immagini & Layout) ================== */
 window.renderSchedaCollaudoG3HTML = function(ddt, righeOverride){
     const esc = v => String(v ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
 
@@ -16680,15 +16680,14 @@ window.renderSchedaCollaudoG3HTML = function(ddt, righeOverride){
     const righeOk = righe.filter(r => r && (r.codice || r.descrizione));
     if (!righeOk.length) return '';
 
-    // Config
+    // Config Azienda (Fornitore)
     let cfg = {};
     try { cfg = JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; } catch {}
-
     const ragAzi = esc(cfg.ragioneSociale || 'ANIMA SRL');
     const pivaAzi = esc(cfg.piva || '');
-    const ddtNum  = esc(ddt && ddt.id ? String(ddt.id) : '');
     
-    // Data DDT
+    // Dati DDT
+    const ddtNum  = esc(ddt && ddt.id ? String(ddt.id) : '');
     let ddtDataTxt = '';
     try {
       if (ddt && ddt.data) {
@@ -16699,41 +16698,36 @@ window.renderSchedaCollaudoG3HTML = function(ddt, righeOverride){
 
     const pressioneProva = esc(ddt?.pressioneCollaudoG3 || ddt?.pressioneProvaG3 || '4,5 bar');
 
-    // --- FIX IMMAGINI: Calcolo percorso assoluto ---
+    // --- FIX IMMAGINI ---
+    // Calcola percorso assoluto per evitare che la stampa perda le immagini
     function getAbsoluteUrl(relativePath) {
       try {
-        // Calcola l'URL base della pagina corrente (senza #hash e senza file finale)
-        // Es: "https://sito.com/app/" oppure "file:///C:/Gest/"
         let base = window.location.href.split('#')[0];
-        // Rimuove eventuale "index.html" finale
-        base = base.replace(/\/?[^\/]+\.[^\/]+$/, '');
-        // Assicura slash finale
+        base = base.replace(/\/?[^\/]+\.[^\/]+$/, ''); // via index.html
         if (!base.endsWith('/')) base += '/';
-        
-        // Unisce base + relativo
         return base + relativePath;
-      } catch (e) {
-        return relativePath; // fallback
-      }
+      } catch (e) { return relativePath; }
     }
 
+    // Assicurati che i file esistano in cartella "icons"
     const logoG3Url = getAbsoluteUrl('icons/g3-logo.png');
     const timbroUrl = getAbsoluteUrl('icons/anima-timbro-firma.png');
 
-    // Debug visivo nel PDF: se l'immagine non carica, mostra il percorso (così capiamo perché)
-    const logoSegment = `<img src="${logoG3Url}" class="logo-g3-img" alt="G3 Logo" onError="this.style.display='none'; document.getElementById('err-logo').style.display='block';" />
-                         <div id="err-logo" style="display:none; color:red; font-size:10px; border:1px solid red;">Logo non trovato: ${logoG3Url}</div>`;
+    // HTML Immagini con fallback (se non trova l'immagine mostra un testo rosso o un box vuoto)
+    const logoSegment = `<img src="${logoG3Url}" class="logo-g3-img" alt="G3" onError="this.style.display='none'; document.getElementById('g3-fallback').style.display='block'" />
+                         <div id="g3-fallback" class="g3-main" style="display:none; font-size:20px; font-weight:bold;">G3 srl</div>`;
 
-    const timbroSegment = `<img src="${timbroUrl}" class="timbro-firma-img" alt="Timbro" onError="this.style.display='none'; document.getElementById('err-timbro').style.display='block';" />
-                           <div id="err-timbro" class="timbro-firma-fallback" style="display:none;">TIMBRO E FIRMA ANIMA SRL<br><span style="font-size:8px; color:red">Img non trovata</span></div>`;
+    const timbroSegment = `<img src="${timbroUrl}" class="timbro-firma-img" alt="Timbro" onError="this.style.display='none'; document.getElementById('err-timbro').style.display='flex';" />
+                           <div id="err-timbro" class="timbro-firma-fallback" style="display:none;">TIMBRO E FIRMA ANIMA SRL<br><span style="font-size:9px; color:red">(Img non trovata)</span></div>`;
 
-    // Testi fissi
+    // Testi fissi normativi
     const norm1 = 'Con la presente dichiariamo che il prodotto è stato fabbricato e collaudato ed è conforme alle specifiche tecniche richieste. Il prodotto può essere immesso nel mercato secondo le seguenti normative:';
     const norm2 = '• PED (Direttiva Attrezzature a pressione 2014/68/UE) - Articolo 4 Paragrafo 3. Il prodotto non deve recare la marcatura CE.';
     const norm3 = 'Il documento dovrà essere allegato al DDT di spedizione.';
     const g3Ind = 'Via della Fornace, 11 – 31023 Resana (TV) – ITALY';
     const g3Tel = 'Tel. +39 0423 783720 – www.g3sistemi.com – info@g3sistemi.com';
     const g3NoteIt = 'La riproduzione o distribuzione di questi documenti, l’uso o diffusione non autorizzata del loro contenuto è proibita senza autorizzazione scritta della società stessa.';
+    const g3NoteEn = 'The reproduction or distribution of these documents, the use or unauthorized disclosure of their contents is prohibited without the written authorization of the company itself.';
 
     const sheetsHtml = righeOk.map((riga, idx) => {
       const pageBase = idx * 2;
@@ -16746,14 +16740,17 @@ window.renderSchedaCollaudoG3HTML = function(ddt, righeOverride){
         <div class="top-header">
           <div class="logo-g3">${logoSegment}</div>
         </div>
+
         <table class="tbl fornitore">
           <tr><td class="lbl">FORNITORE:</td><td class="val">${ragAzi} ${pivaAzi ? '- P.IVA '+pivaAzi : ''}</td></tr>
         </table>
+
         <table class="tbl blocco">
           <tr><td class="lbl"></td><td class="val titolo-blocco">DATI PRODOTTO</td></tr>
           <tr><td class="lbl">CODICE PRODOTTO:</td><td class="val">${cod}</td></tr>
           <tr><td class="lbl">DESCRIZIONE PRODOTTO:</td><td class="val">${desc}</td></tr>
         </table>
+
         <table class="tbl blocco">
           <tr><td class="lbl"></td><td class="val titolo-blocco">DATI TECNICI COLLAUDO</td></tr>
           <tr><td class="lbl">FLUIDO DI PROVA:</td><td class="val">ARIA COMPRESSA</td></tr>
@@ -16761,58 +16758,103 @@ window.renderSchedaCollaudoG3HTML = function(ddt, righeOverride){
           <tr><td class="lbl">DURATA DELLA PROVA:</td><td class="val">2 minuti</td></tr>
           <tr><td class="lbl">VERIFICA:</td><td class="val">CONTROLLO VISIVO CON IMMERSIONE</td></tr>
         </table>
+
         <table class="tbl operatori">
-          <tr><td colspan="2" class="titolo-blocco center">OPERATORE</td></tr>
+          <tr><td colspan="2" class="titolo-blocco center">OPERATORE CHE HA ESEGUITO IL TEST</td></tr>
           <tr><td class="lbl">INIZIALI (NOME / COGNOME):</td><td class="val underline">N.M.</td></tr>
           <tr><td class="lbl">DATA COLLAUDO:</td><td class="val">${ddtDataTxt}</td></tr>
           <tr><td class="lbl">ESITO:</td><td class="val">☑ POSITIVO &nbsp; ☐ NEGATIVO</td></tr>
         </table>
+
         <table class="tbl ddt-ref">
-          <tr><td class="lbl">RIF. DDT:</td><td class="val">${ddtNum}</td></tr>
+          <tr><td class="lbl">DDT RIFERIMENTO:</td><td class="val">${ddtNum}</td></tr>
         </table>
+
+        <div class="timbro-label">
+          Timbro e Firma del legale rappresentante o responsabile incaricato
+        </div>
         <div class="timbro-box">
           ${timbroSegment}
         </div>
-        <div class="page-footer">PAG ${pageBase+1} | ${totP}</div>
+
+        <div class="page-footer">
+          SCHEDA COLLAUDO FORNITORE&nbsp;&nbsp;&nbsp;MOD_0003 R00 24/03/2023&nbsp;&nbsp;&nbsp;PAG ${pageBase+1} | ${totP}
+        </div>
       </div>
 
       <div class="page">
         <div class="title-block second">
           <div class="title-main">SCHEDA COLLAUDO FORNITORE</div>
-          <div class="title-sub">MOD_0003 R00</div>
+          <div class="title-sub">MOD_0003 R00 24/03/2023</div>
         </div>
-        <div style="margin-top:20mm; line-height:1.5">
+
+        <div style="margin-top:20mm; line-height:1.5; padding:0 5mm">
           <p>${norm1}</p>
           <p>${norm2}</p>
-          <p>${norm3}</p>
+          <p><b>${norm3}</b></p>
         </div>
+
         <div class="g3-footer">
           <div><b>G3 srl</b></div>
           <div>${g3Ind}</div>
           <div>${g3Tel}</div>
         </div>
-        <p class="small" style="margin-top:10mm">${g3NoteIt}</p>
-        <div class="page-footer">PAG ${pageBase+2} | ${totP}</div>
+
+        <div style="margin-top:10mm">
+          <p class="small">${g3NoteIt}</p>
+          <p class="small">${g3NoteEn}</p>
+        </div>
+
+        <div class="page-footer">
+          SCHEDA COLLAUDO FORNITORE&nbsp;&nbsp;&nbsp;MOD_0003 R00 24/03/2023&nbsp;&nbsp;&nbsp;PAG ${pageBase+2} | ${totP}
+        </div>
       </div>`;
     }).join('\n');
 
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Collaudo G3</title>
     <style>
       @page { size: A4; margin: 0; }
-      body { font-family: Arial, sans-serif; font-size: 10pt; margin: 0; }
-      .page { width: 210mm; height: 296mm; position: relative; page-break-after: always; padding: 15mm; box-sizing: border-box; }
+      * { box-sizing: border-box; }
+      body { font-family: Arial, Helvetica, sans-serif; font-size: 10pt; margin: 0; padding: 0; color:#000; }
+      .page { width: 210mm; height: 297mm; position: relative; page-break-after: always; padding: 15mm; }
       .page:last-child { page-break-after: auto; }
-      .tbl { width: 100%; border-collapse: collapse; margin-bottom: 4mm; }
+      
+      .top-header { margin-bottom: 8mm; }
+      .logo-g3-img { height: 16mm; width: auto; display: block; }
+      
+      .tbl { width: 100%; border-collapse: collapse; margin-bottom: 4mm; font-size: 10pt; }
       .tbl td { border: 1px solid #000; padding: 2mm; vertical-align: middle; }
-      .lbl { font-weight: bold; width: 40%; }
-      .titolo-blocco { background: #eee; font-weight: bold; text-align: center; }
-      .timbro-box { height: 35mm; border: 1px solid #000; margin-top: 5mm; display: flex; align-items: center; justify-content: center; overflow:hidden; }
-      .timbro-firma-img { max-height: 30mm; max-width:100%; }
-      .timbro-firma-fallback { text-align:center; font-weight:bold; color:#aaa; }
-      .logo-g3-img { height: 15mm; }
-      .page-footer { position: absolute; bottom: 10mm; right: 15mm; font-size: 9pt; }
-      .g3-footer { margin-top: 20mm; font-size: 10pt; line-height: 1.4; }
-      .small { font-size: 8pt; color: #666; }
+      .lbl { font-weight: bold; width: 38%; background-color: #fff; } /* Bianco o grigio chiaro */
+      .val { width: auto; }
+      
+      .titolo-blocco { background-color: #e0e0e0; font-weight: bold; text-align: center; text-transform: uppercase; }
+      .center { text-align: center; }
+      .underline { border-bottom: 1px solid #000; display: inline-block; min-width: 30mm; }
+
+      .timbro-label { margin-top: 5mm; font-size: 9pt; margin-bottom: 2mm; }
+      .timbro-box { 
+        height: 35mm; border: 1px solid #000; display: flex; 
+        align-items: center; justify-content: center; position: relative; 
+      }
+      .timbro-firma-img { max-height: 30mm; max-width: 90%; object-fit: contain; z-index: 10; }
+      .timbro-firma-fallback { 
+        position: absolute; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; 
+        text-align: center; opacity: 0.3; font-weight: bold; font-size: 14pt; 
+      }
+
+      .title-block { text-align: right; }
+      .title-block.second { text-align: center; margin-bottom: 10mm; }
+      .title-main { font-size: 13pt; font-weight: bold; text-transform: uppercase; }
+      .title-sub { font-size: 9pt; margin-top: 1mm; }
+
+      .g3-footer { margin-top: 25mm; font-size: 10pt; line-height: 1.4; padding-left: 5mm; }
+      .small { font-size: 7.5pt; color: #444; margin-bottom: 2mm; }
+      
+      .page-footer { 
+        position: absolute; bottom: 8mm; right: 10mm; left: 10mm; 
+        text-align: right; font-size: 8.5pt; font-weight: normal; 
+      }
     </style></head><body>${sheetsHtml}</body></html>`;
 };
 
