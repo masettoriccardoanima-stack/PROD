@@ -26915,20 +26915,35 @@ window.findCommessaById = window.findCommessaById || function(id){
     return e('aside', { className: 'sidebar' }, e('nav', { className: 'nav' }, nodes));
   }
 
-  // ---------------- pickView centralizzato (ignora query e applica RBAC) ----------------
+// ---------------- pickView centralizzato (con BLOCCO DI SICUREZZA) ----------------
   window.pickView = function () {
     const raw = (location.hash || '#/dashboard').toLowerCase();
     let h = raw.split('?')[0]; // ignora query es. #/timbratura?job=...
 
-    // se già autenticato, non restare su #/login
-    if (h === '#/login' && (window.__USER || window.currentUser)) {
+    // 1. SICUREZZA ASSOLUTA: Se le impostazioni richiedono login e non ci sei, vai al Login.
+    // Questo impedisce a chi scansiona il QR di vedere i dati se non ha la password.
+    const settings = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}'); }catch{return {};} })();
+    const user = window.__USER || window.currentUser || null;
+    
+    // Se "authRequired" è attivo e non c'è utente...
+    if (settings.authRequired && !user) {
+      // ...e non siamo già sul login...
+      if (h !== '#/login') {
+        // ...reindirizza forzatamente
+        console.warn('Accesso negato: Login richiesto.');
+        location.hash = '#/login';
+        return function(){ return e('div', {className:'page'}, 'Accesso riservato. Reindirizzamento al login...'); };
+      }
+    }
+
+    // 2. Se sei già autenticato, non restare bloccato su #/login
+    if (h === '#/login' && user) {
       location.hash = '#/dashboard';
       return () => e('div', null);
     }
 
-    // RBAC: restrizioni per ruolo
-    const u = window.__USER || window.currentUser || null;
-    const role = (u && String(u.role || '').toLowerCase()) || 'admin';
+    // 3. RBAC: Controllo Ruoli (worker, viewer, ecc.)
+    const role = (user && String(user.role || '').toLowerCase()) || 'admin';
     const isAdmin = (role === 'admin');
     const isMobileLike = (role === 'viewer' || role === 'mobile');
 
@@ -26937,17 +26952,13 @@ window.findCommessaById = window.findCommessaById || function(id){
         // viewer / mobile: solo timbratura, commesse, DDT e login
         const allowed = new Set(['#/timbratura', '#/commesse', '#/ddt', '#/login']);
         if (!allowed.has(h)) {
-          if (h !== '#/timbratura') {
-            location.hash = '#/timbratura';
-          }
+          if (h !== '#/timbratura') location.hash = '#/timbratura';
           h = '#/timbratura';
         }
       } else {
-        // worker / accountant / altri non-admin: blocca accesso a Impostazioni/Diagnostica
+        // worker / accountant: blocca accesso a Impostazioni/Diagnostica
         if (h === '#/impostazioni' || h === '#/diagnostica') {
-          if (h !== '#/timbratura') {
-            location.hash = '#/timbratura';
-          }
+          if (h !== '#/timbratura') location.hash = '#/timbratura';
           h = '#/timbratura';
         }
       }
