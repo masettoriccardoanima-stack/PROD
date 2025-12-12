@@ -13534,6 +13534,7 @@ const counters0 = lsGet('counters', {}) || {};
   const [form, setForm] = React.useState({
     publicBaseUrl : app0.publicBaseUrl || '',
 
+    docBasePath   : app0.docBasePath || '\\\\ANIMA-SERVER\\ANIMA_DOC', // <<<< QUESTA MANCAVA!
     magUpdateCMP  : !!app0.magUpdateCMP,
 
     // Dati azienda
