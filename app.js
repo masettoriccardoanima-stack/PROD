@@ -16872,16 +16872,15 @@ window.renderSchedaCollaudoG3HTML = function(ddt, righeOverride){
     </style></head><body>${sheetsHtml}</body></html>`;
 };
 
-/* ================== STAMPA SCHEDE COLLAUDO G3 (RAM CACHE FIX) ================== */
+/* ================== STAMPA SCHEDE COLLAUDO G3 (SMART Z:) ================== */
 if (!window.printSchedeCollaudoG3ForDDT) {
-  // Cache globale per le immagini G3 (così le carichiamo una volta sola e non spariscono)
   window.__G3_CACHE = window.__G3_CACHE || { logo: null, timbro: null };
 
   window.printSchedeCollaudoG3ForDDT = async function(ddt){
     try{
-      if (!ddt) { alert('DDT non valido per scheda collaudo G3'); return; }
+      if (!ddt) { alert('DDT non valido.'); return; }
 
-      // 1. Trova le righe
+      // 1. Trova le righe valide
       const allRows = (
         Array.isArray(ddt?.righe) ? ddt.righe :
         Array.isArray(ddt?.righeDDT) ? ddt.righeDDT :
@@ -16889,55 +16888,74 @@ if (!window.printSchedeCollaudoG3ForDDT) {
         []
       ).filter(r => r && (r.codice || r.descrizione));
 
-      if (!allRows.length) { alert('Nessuna riga articolo per questo DDT.'); return; }
+      if (!allRows.length) { alert('Nessuna riga articolo.'); return; }
 
-      // 2. Chiedi quali righe stampare
+      // 2. Chiedi quali stampare
       let rowsToPrint = allRows;
       if (allRows.length > 1) {
-        const elenco = allRows.map((r, idx) => {
-          const cod  = r.codice || r.codArt || '';
-          const desc = r.descrizione || '';
-          return (idx + 1) + ') ' + [cod, desc].filter(Boolean).join(' - ');
-        }).join('\n');
-        const ansRaw = window.prompt(
-          'Schede collaudo G3\n\n' + elenco + '\n\nDigita il numero riga (1-' + allRows.length + ') oppure "T" per tutte.', 
-          'T'
-        );
+        const elenco = allRows.map((r, idx) => `${idx+1}) ${r.codice||''} - ${r.descrizione||''}`).join('\n');
+        const ansRaw = window.prompt('Quali righe stampare?\n\n' + elenco + '\n\nDigita il numero (es. 1) oppure "T" per tutte.', 'T');
         if (ansRaw === null) return;
         const ans = String(ansRaw).trim().toUpperCase();
         if (ans && ans !== 'T' && ans !== 'ALL') {
           const n = parseInt(ans, 10);
           if (!isNaN(n) && n >= 1 && n <= allRows.length) rowsToPrint = [allRows[n - 1]];
-          else { alert('Scelta non valida.'); return; }
+          else { alert('Selezione non valida.'); return; }
         }
       }
 
-      // 3. Pre-caricamento Immagini con CACHE IN MEMORIA (Il Fix)
-      // Se le abbiamo già in RAM, usiamole subito senza chiedere al browser/SW
-      const getImgBase64 = async (cacheKey, url) => {
-        // Se c'è in cache, ritorna subito quella
-        if (window.__G3_CACHE[cacheKey]) return window.__G3_CACHE[cacheKey];
+      // 3. Preparazione SMART su Z: (Crea cartelle e calcola percorso)
+      let suggestedPath = '';
+      let targetFolderHandle = null;
+      const year = (function(){
+        try { if (ddt.data) return new Date(ddt.data).getFullYear(); } catch(e){}
+        return new Date().getFullYear();
+      })();
+      const ddtId = String(ddt.id || 'BOZZA').trim();
+      const fileName = `${ddtId}-G3-collaudo.pdf`;
 
+      // Se il motore Smart è attivo, crea le cartelle
+      if (window.ensureZConnection) {
         try {
-          // Aggiungo timestamp per forzare il download fresco la prima volta
-          const safeUrl = url + '?t=' + Date.now();
-          const res = await fetch(safeUrl);
-          const blob = await res.blob();
-          const b64 = await new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.readAsDataURL(blob);
-          });
-          
-          // Salva in cache globale per i prossimi click
-          if (b64 && b64.length > 100) {
-             window.__G3_CACHE[cacheKey] = b64;
+          // Chiede accesso a Z:\ANIMA_DOC se non c'è già
+          const root = await window.ensureZConnection();
+          if (root) {
+            // Crea/Naviga: COLLAUDI -> 2025
+            let cur = root;
+            cur = await cur.getDirectoryHandle('COLLAUDI', { create: true });
+            cur = await cur.getDirectoryHandle(String(year), { create: true });
+            targetFolderHandle = cur; // La cartella esiste!
+
+            // Costruisci stringa percorso per l'utente
+            const appSets = window.lsGet('appSettings', {}) || {};
+            const basePath = (appSets.docBasePath || 'Z:\\ANIMA_DOC').replace(/\/+$/, '');
+            suggestedPath = `${basePath}\\COLLAUDI\\${year}\\${fileName}`;
+            
+            // Copia negli appunti per incollare nel "Salva con nome"
+            try {
+              await navigator.clipboard.writeText(suggestedPath);
+              alert(`PERCORSO COPIATO NEGLI APPUNTI!\n\n1. Premi OK.\n2. Nella stampa scegli "Salva come PDF".\n3. Incolla il percorso (Ctrl+V) nel nome file.\n\nPercorso: ${suggestedPath}`);
+            } catch {
+              prompt('Copia questo percorso per il salvataggio PDF:', suggestedPath);
+            }
           }
-          return b64;
         } catch (e) {
-          console.warn('Img load fail:', url, e);
-          return ''; 
+          console.warn('Accesso Z: fallito o annullato', e);
         }
+      }
+
+      // 4. Caricamento Immagini (Cache RAM)
+      const getImgBase64 = async (cacheKey, url) => {
+        if (window.__G3_CACHE[cacheKey]) return window.__G3_CACHE[cacheKey];
+        try {
+          const res = await fetch(url + '?t=' + Date.now());
+          const blob = await res.blob();
+          const b64 = await new Promise((res) => {
+            const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob);
+          });
+          if (b64.length > 100) window.__G3_CACHE[cacheKey] = b64;
+          return b64;
+        } catch { return ''; }
       };
 
       const [logoB64, timbroB64] = await Promise.all([
@@ -16945,68 +16963,59 @@ if (!window.printSchedeCollaudoG3ForDDT) {
         getImgBase64('timbro', './icons/anima-timbro-firma.png')
       ]);
 
-      // 4. Genera HTML passando i dati Base64
-      const html = window.renderSchedaCollaudoG3HTML(ddt, rowsToPrint, {
-        logoData: logoB64,
-        timbroData: timbroB64
-      });
-
-      if (!html) { alert('Errore generazione layout'); return; }
-
-      // 5. Stampa
-      if (window.safePrintHTMLStringWithPageNum) {
-        window.safePrintHTMLStringWithPageNum(html);
-      } else if (window.safePrintHTMLString) {
-        window.safePrintHTMLString(html);
-      } else {
+      // 5. Genera HTML e Stampa
+      const html = window.renderSchedaCollaudoG3HTML(ddt, rowsToPrint, { logoData: logoB64, timbroData: timbroB64 });
+      
+      if (window.safePrintHTMLStringWithPageNum) window.safePrintHTMLStringWithPageNum(html);
+      else if (window.safePrintHTMLString) window.safePrintHTMLString(html);
+      else {
         const w = window.open('', '_blank');
-        if (!w) return;
-        w.document.open(); w.document.write(html); w.document.close();
-        w.focus(); setTimeout(() => w.print(), 500);
+        w.document.write(html); w.document.close(); w.focus(); setTimeout(()=>w.print(),500);
       }
 
-      // 6. Logica Allegati (opzionale)
-      setTimeout(() => {
-        if (!window.confirm('Vuoi registrare un allegato COLLAUDO per questo DDT?')) return;
-        
-        const yearFromDdt = (function(){
-          try { if (ddt && ddt.data) return new Date(ddt.data).getFullYear(); } catch(e){}
-          return (new Date()).getFullYear();
-        })();
-        const ddtIdTxt = ddt && ddt.id ? String(ddt.id) : '';
-        const suggestedPath = `\\\\ANIMA-SERVER\\ANIMA_DOC\\COLLAUDI\\${yearFromDdt}\\DDT-${yearFromDdt}-${ddtIdTxt}-G3-collaudo.pdf`;
-        
-        const userPath = window.prompt('Percorso del PDF salvato:', suggestedPath);
-        if (!userPath) return;
-        
-        let existing = [];
-        try { existing = JSON.parse(localStorage.getItem('allegatiRows') || '[]'); } catch {}
-        
-        const nowIso = new Date().toISOString();
-        const nextId = (function(arr){
-           let max=0; const y=new Date().getFullYear();
-           arr.forEach(r=>{ 
-             const m=String(r.id).match(/^ALG-(\d{4})-(\d+)$/);
-             if(m && +m[1]===y) max=Math.max(max, +m[2]); 
-           });
-           return `ALG-${y}-${String(max+1).padStart(4,'0')}`;
-        })(existing);
+      // 6. Registrazione automatica Allegato (dopo un po' di tempo per stampare)
+      if (suggestedPath) {
+        setTimeout(() => {
+          if (confirm(`Hai salvato il PDF in Z:?\n\nConferma per registrare automaticamente l'allegato nel gestionale.`)) {
+             const nowIso = new Date().toISOString();
+             let allAl = [];
+             try { allAl = JSON.parse(localStorage.getItem('allegatiRows')||'[]'); } catch {}
+             
+             // ID univoco
+             let maxSeq = 0;
+             allAl.forEach(r=>{ 
+               const m=String(r.id).match(/^ALG-(\d{4})-(\d+)$/); 
+               if(m && +m[1]===year) maxSeq=Math.max(maxSeq, +m[2]); 
+             });
+             const newId = `ALG-${year}-${String(maxSeq+1).padStart(4,'0')}`;
 
-        const newRow = {
-          id: nextId, createdAt: nowIso, tipo: 'COLLAUDO',
-          descrizione: `Scheda collaudo G3 DDT ${ddtIdTxt}`,
-          path: String(userPath).trim(), url: '',
-          entityType: 'DDT', entityId: ddtIdTxt,
-          note: '', deletedAt: null
-        };
-        
-        localStorage.setItem('allegatiRows', JSON.stringify([...existing, newRow]));
-        alert('Allegato registrato.');
-      }, 2000); 
+             const newRow = {
+               id: newId,
+               createdAt: nowIso,
+               updatedAt: nowIso,
+               tipo: 'COLLAUDO',
+               descrizione: `Collaudo G3 ${ddtId}`,
+               path: suggestedPath,
+               url: '',
+               entityType: 'DDT',
+               entityId: ddtId,
+               deletedAt: null
+             };
+             
+             localStorage.setItem('allegatiRows', JSON.stringify([...allAl, newRow]));
+             
+             // Aggiorna interfaccia se aperta
+             window.__anima_dirty = true;
+             alert('Allegato registrato! ✅');
+             // Se sei nella vista DDT, ricarica gli allegati
+             if(typeof window.requestAppRerender === 'function') window.requestAppRerender();
+          }
+        }, 3000); // Chiede dopo 3 secondi
+      }
 
     }catch(e){
       console.error(e);
-      alert('Errore stampa G3: ' + e.message);
+      alert('Errore G3: ' + e.message);
     }
   };
 }
