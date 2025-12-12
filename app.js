@@ -13664,13 +13664,12 @@ const counters0 = lsGet('counters', {}) || {};
     ev.target.value = '';
   }
 
-    // Salva TUTTO (unico punto di verità)
+// Salva TUTTO (unico punto di verità)
   function save(ev){
     ev && ev.preventDefault();
     if (!window.safeSetJSON) { alert('safeSetJSON mancante'); return; }
 
-    // RBAC: solo ADMIN può toccare tutti i dati di impostazioni.
-    // I worker possono modificare SOLO i parametri tecnici Supabase.
+    // RBAC: solo ADMIN può toccare tutti i dati.
     const u = window.__USER || null;
     const role = (u && u.role) || 'admin';
     const isAdminUser = (role === 'admin');
@@ -13678,12 +13677,11 @@ const counters0 = lsGet('counters', {}) || {};
     const appPrev = app0 || {};
     const nowIso = new Date().toISOString();
 
-    // --- BRANCH WORKER: aggiorna solo Supabase, non tocca il resto ---
+    // --- BRANCH WORKER: aggiorna solo Supabase ---
     if (!isAdminUser){
       updateAppSettings({
         ...appPrev,
         updatedAt: nowIso,
-
         // Supabase/Cloud (solo campi tecnici)
         supabaseUrl      : String(form.supabaseUrl||'').trim(),
         supabaseKey      : String(form.supabaseKey||'').trim(),
@@ -13695,218 +13693,111 @@ const counters0 = lsGet('counters', {}) || {};
         supabaseTableBeta: String(form.supabaseTableBeta||'').trim(),
         syncTable        : String(form.syncTable || form.supabaseTable || appPrev.syncTable || 'anima_sync'),
       });
-
-      alert('Parametri Supabase aggiornati (gli altri dati di impostazioni non sono stati toccati).');
+      alert('Parametri Supabase aggiornati.');
       return;
     }
 
-    // --- BRANCH ADMIN (logica originale, invariata) ---
-
-    // Controllo veloce dati base azienda
-    // Usiamo i campi REALI del form: ragione sociale, sede (legale o operativa) e P. IVA
-    if (
-      !form.ragioneSociale ||
-      !(form.sedeOperativa || form.sedeLegale) ||
-      !form.piva
-    ) {
-      if (!confirm('Mancano alcuni dati anagrafici (ragione sociale, sede e P. IVA).\nVuoi salvare lo stesso?')) {
-        return;
-      }
+    // --- BRANCH ADMIN (Completo) ---
+    if (!form.ragioneSociale || !(form.sedeOperativa || form.sedeLegale) || !form.piva) {
+      if (!confirm('Mancano dati anagrafici essenziali. Salvare comunque?')) return;
     }
 
-    // normalizza utenti
+    // normalizza utenti e operatori
     const usersSanitized = (Array.isArray(form.users)?form.users:[])
-      .map(u=>({
-        email: String(u.email||u.username||'').trim(),
-        role : u.role || 'worker'
-      }))
+      .map(u=>({ email: String(u.email||u.username||'').trim(), role: u.role || 'worker' }))
       .filter(u=>u.email);
 
-    // normalizza operatori: prendi dalla textarea "operatorsText" (uno per riga)
-    const operatorsArr = String(form.operatorsText || '')
-      .split(/\r?\n/)
-      .map(s => s.trim())
-      .filter(Boolean)
-      .map(name => ({ name }));
+    const operatorsArr = String(form.operatorsText || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(name => ({ name }));
 
-    // normalizza fasiStandard: lista semplice -> oggetti {label, hhmm}
     const fasiStd = (Array.isArray(form.fasiStandard) ? form.fasiStandard : [])
       .map(v => {
-        if (typeof v === 'string') {
-          const label = v.trim();
-          if (!label) return null;
-          return { label, hhmm: '' };
-        }
-        const label = String(v.label || v.nome || v.lav || '').trim();
-        const hhmm  = String(v.hhmm || v.oreHHMM || v.durataHHMM || '').trim();
-        if (!label) return null;
-        return { label, hhmm };
-      })
-      .filter(Boolean);
+        if (typeof v === 'string') return v.trim() ? { label: v.trim(), hhmm: '' } : null;
+        const label = String(v.label||v.nome||v.lav||'').trim();
+        return label ? { label, hhmm: String(v.hhmm||'').trim() } : null;
+      }).filter(Boolean);
 
-          // Capacità reparti: "Reparto: ore" per riga -> { Reparto: oreNumber }
     const capLines = String(form.capacitaRepartiText || '').split(/\r?\n/);
     const capacitaReparti = {};
     capLines.forEach(line => {
-      const t = line.trim();
-      if (!t) return;
-      const parts = t.split(':');
-      const name = (parts[0] || '').trim();
-      if (!name) return;
-      const oreStr = (parts.slice(1).join(':') || '').trim().replace(',', '.');
-      const ore = Number(oreStr);
-      if (!Number.isFinite(ore) || ore <= 0) return;
-      capacitaReparti[name] = ore; // ore/settimana
+      const parts = line.trim().split(':');
+      if(parts.length>=2) {
+        const n = Number(parts[1].replace(',','.'));
+        if(n>0) capacitaReparti[parts[0].trim()] = n;
+      }
     });
 
     // numerazioni
-    const numerazioni = Object.assign(
-      {},
-      (form.numerazioni || app0.numerazioni || {})
-    );
-
+    const numerazioni = Object.assign({}, (form.numerazioni || app0.numerazioni || {}));
     const setNum = (serie, field) => {
       const v = Number(form[field]);
       if (!Number.isFinite(v) || v <= 0) return;
-
       const Y = String(new Date().getFullYear());
-
-      // prendi l’oggetto esistente per quella serie (se c’è)
-      const cur = (numerazioni[serie] && typeof numerazioni[serie] === 'object')
-        ? { ...numerazioni[serie] }
-        : {};
-
-      // schema per-anno: numerazioni[serie][YYYY].ultimo
+      const cur = numerazioni[serie] ? { ...numerazioni[serie] } : {};
       cur[Y] = Object.assign({}, cur[Y], { ultimo: v });
-
-      // helper flat per compatibilità
-      cur.ultimo = v;
-      cur.last   = v;
-      cur.year   = Number(Y);
-
+      cur.ultimo = v; cur.last = v; cur.year = Number(Y);
       numerazioni[serie] = cur;
     };
+    setNum('C', 'numC'); setNum('DDT', 'numDDT'); setNum('FA', 'numFA'); setNum('OF', 'numOF');
 
-    setNum('C',   'numC');
-    setNum('DDT', 'numDDT');
-    setNum('FA',  'numFA');
-    setNum('OF',  'numOF');
-
-    const publicBaseUrl = form.publicBaseUrl || app0.publicBaseUrl || '';
-    const magUpdateCMP = Number.isFinite(+form.magUpdateCMP) ? +form.magUpdateCMP : 0;
-
+    // SALVATAGGIO REALE
     updateAppSettings({
       ...appPrev,
       updatedAt: nowIso,
-      // --- dati anagrafici base ---
-      ragioneSociale: form.ragioneSociale,
-      indirizzo     : form.indirizzo,
-      cap           : form.cap,
-      citta         : form.citta,
-      provincia     : form.provincia,
-      nazione       : form.nazione,
-      piva          : form.piva,
-      codiceFiscale : form.codiceFiscale,
+      
+      // Anagrafica
+      ragioneSociale: form.ragioneSociale, indirizzo: form.indirizzo,
+      cap: form.cap, citta: form.citta, provincia: form.provincia, nazione: form.nazione,
+      piva: form.piva, codiceFiscale: form.codiceFiscale,
+      sedeLegale: form.sedeLegale, sedeOperativa: form.sedeOperativa,
+      email: form.email, telefono: form.telefono, sitoWeb: form.sitoWeb, pec: form.pec,
 
-      // Dati azienda aggiuntivi (stampe intestazioni)
-      sedeLegale    : form.sedeLegale    || appPrev.sedeLegale    || '',
-      sedeOperativa : form.sedeOperativa || appPrev.sedeOperativa || '',
-      email         : form.email         || appPrev.email         || '',
-      telefono      : form.telefono      || appPrev.telefono      || '',
-      sitoWeb       : form.sitoWeb,
+      // Fiscali
+      rea: form.rea, capitaleSociale: form.capitaleSociale, sdi: form.sdi, regimeFiscale: form.regimeFiscale,
 
-      // Dati fiscali aggiuntivi
-      rea            : form.rea,
-      capitaleSociale: form.capitaleSociale,
-      sdi            : form.sdi,
-      regimeFiscale  : form.regimeFiscale,
+      // Banca
+      iban: form.iban, banca: form.banca, intestatario: form.intestatario,
+      bankName: form.bankName, bankHolder: form.bankHolder, bic: form.bic,
 
-      // Rif. bancari (fattura e stampa di cortesia)
-      iban          : form.iban,
-      banca         : form.banca,
-      intestatario  : form.intestatario || form.bankHolder || '',
-      bankName      : form.bankName || '',
-      bankHolder    : form.bankHolder || form.intestatario || '',
-      bic           : form.bic || '',
+      // Opzioni Doc
+      descrizioneDefaultDDT: form.descrizioneDefaultDDT, descrizioneDefaultFA: form.descrizioneDefaultFA,
+      defaultIva: Number(form.defaultIva)||22, mostraLogo: !!form.mostraLogo, mostraRifCliente: !!form.mostraRifCliente,
+      notePiedeDDT: form.notePiedeDDT, notePiedeFA: form.notePiedeFA,
 
-      // Opzioni documenti
-      descrizioneDefaultDDT : form.descrizioneDefaultDDT,
-      descrizioneDefaultFA  : form.descrizioneDefaultFA,
-      defaultIva            : Number(form.defaultIva) || 22,
-      mostraLogo            : !!form.mostraLogo,
-      mostraRifCliente      : !!form.mostraRifCliente,
+      // Cloud
+      cloudEnabled: !!form.cloudEnabled, authRequired: !!form.authRequired,
+      supabaseUrl: form.supabaseUrl, supabaseKey: form.supabaseKey, supabaseTable: form.supabaseTable,
+      autoSyncEnabled: !!form.autoSyncEnabled, autoSyncDelay: Number(form.autoSyncDelay)||15000,
+      publicBaseUrl: form.publicBaseUrl,
 
-      // Note piede documenti (txt multilinea)
-      notePiedeDDT: form.notePiedeDDT,
-      notePiedeFA : form.notePiedeFA,
+      // Percorsi NAS (ECCOLO QUI)
+      docBasePath: String(form.docBasePath||'').trim(),
 
-      // Numerazioni (salvate anche su appSettings)
-      numerazioni,
+      // Liste
+      users: usersSanitized, operators: operatorsArr, fasiStandard: fasiStd,
+      capacitaReparti: capacitaReparti, capacitaRepartiText: form.capacitaRepartiText,
 
-      // Supabase/Cloud
-      cloudEnabled : !!form.cloudEnabled,
-      authRequired : !!form.authRequired,
-      supabaseUrl  : String(form.supabaseUrl||'').trim(),
-      supabaseKey  : String(form.supabaseKey||'').trim(),
-      supabaseTable: String(form.supabaseTable||'anima_sync').trim(),
-
-      supabaseEnv  : form.supabaseEnv,
-      cloudEnv     : form.cloudEnv,
-
-      supabaseUrlBeta  : String(form.supabaseUrlBeta||'').trim(),
-      supabaseKeyBeta  : String(form.supabaseKeyBeta||'').trim(),
-      supabaseTableBeta: String(form.supabaseTableBeta||'').trim(),
-
-      syncTable      : String(form.syncTable || form.supabaseTable || 'anima_sync'),
-
-      // Utenti, operatori, fasi standard, capacità reparti
-      users              : usersSanitized,
-      operators          : operatorsArr,
-      fasiStandard       : fasiStd,
-      capacitaReparti    : capacitaReparti,
-      capacitaRepartiText: form.capacitaRepartiText || '',
-
-      // Config timbratura
+      // Altro
       timbraturaAutoScarico: !!form.timbraturaAutoScarico,
-      timbraturaScaricoKey : form.timbraturaScaricoKey || 'magMovimenti',
-
-      // Cloud auto-sync
-      autoSyncEnabled: !!form.autoSyncEnabled,
-      autoSyncDelay  : Number(form.autoSyncDelay) || 15000,
-
-      // Public Base URL per QR
-      publicBaseUrl,
-
-      // Altre opzioni
-      magUpdateCMP       : magUpdateCMP,
-      costoOrarioAzienda : Number(form.costoOrarioAzienda) ||
-                           Number(appPrev.costoOrarioAzienda) || 0,
-
-      // Logo
-      logoDataUrl     : form.logoDataUrl || app0.logoDataUrl || '',
-
-      // Numerazioni documenti salvate in appSettings
-      numerazioni     : numerazioni,
-
-      docBasePath     : String(form.docBasePath||'').trim()
+      timbraturaScaricoKey: form.timbraturaScaricoKey||'magMovimenti',
+      magUpdateCMP: Number(form.magUpdateCMP),
+      costoOrarioAzienda: Number(form.costoOrarioAzienda)||0,
+      logoDataUrl: form.logoDataUrl,
+      numerazioni: numerazioni
     });
 
-    // Aggiorna progressivi documento (ULTIMO numero usato nell'anno)
+    // Aggiorna counters locali
     try {
       const counters = JSON.parse(localStorage.getItem('counters')||'{}') || {};
       const Y = new Date().getFullYear();
-      if (Number.isFinite(+form.numC))   counters['C']   = { year: Y, num: +form.numC };
-      if (Number.isFinite(+form.numDDT)) counters['DDT'] = { year: Y, num: +form.numDDT };
-      if (Number.isFinite(+form.numFA))  counters['FA']  = { year: Y, num: +form.numFA };
-      if (Number.isFinite(+form.numOF))  counters['OF']  = { year: Y, num: +form.numOF };
+      if (+form.numC)   counters['C']   = { year: Y, num: +form.numC };
+      if (+form.numDDT) counters['DDT'] = { year: Y, num: +form.numDDT };
+      if (+form.numFA)  counters['FA']  = { year: Y, num: +form.numFA };
+      if (+form.numOF)  counters['OF']  = { year: Y, num: +form.numOF };
       localStorage.setItem('counters', JSON.stringify(counters));
       window.__anima_dirty = true;
     } catch {}
 
-    // opzionale: push solo appSettings al cloud
-    try { window.syncExportToCloudOnly && window.syncExportToCloudOnly(['appSettings']); } catch {}
-
-    alert('Impostazioni salvate ✅\nSe hai appena abilitato il Cloud, ricarica (Ctrl+F5).');
+    alert('Impostazioni salvate ✅');
   }
 
   // Azioni Cloud
