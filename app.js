@@ -13886,7 +13886,9 @@ const counters0 = lsGet('counters', {}) || {};
       logoDataUrl     : form.logoDataUrl || app0.logoDataUrl || '',
 
       // Numerazioni documenti salvate in appSettings
-      numerazioni     : numerazioni
+      numerazioni     : numerazioni,
+
+      docBasePath     : String(form.docBasePath||'').trim()
     });
 
     // Aggiorna progressivi documento (ULTIMO numero usato nell'anno)
@@ -13992,6 +13994,27 @@ const counters0 = lsGet('counters', {}) || {};
 
   // UI
   return e('div', {className:'page', style:{display:'grid', gap:16}},
+    
+    // --- BLOCCO NUOVO: Percorsi Documenti (NAS) ---
+    e('div', {className:'card'},
+      e('h3', null, 'Percorsi Documenti (NAS/Rete)'),
+      e('div', {className:'form'},
+        e('div', {style:{gridColumn:'1 / -1'}},
+          e('label', null, 'Percorso Base Allegati'),
+          e('input', {
+            name:'docBasePath',
+            // Se non c'è nulla, suggerisce Z:\ANIMA_DOC
+            value: form.docBasePath || '', 
+            onChange: onChange,
+            readOnly: !isAdmin,
+            placeholder: 'Es. Z:\\ANIMA_DOC'
+          })
+        ),
+        e('div', {className:'muted', style:{marginTop:4}}, 
+          'Inserisci "Z:\\ANIMA_DOC" dopo aver mappato l\'unità di rete su Windows.'
+        )
+      )
+    ),
     
     // Dati azienda
     e('div', {className:'card'},
@@ -14756,12 +14779,15 @@ React.useEffect(() => {
   }
 
   // Gestione centralizzata delle modifiche al form nuovo allegato DDT
-  function handleChangeNewAllegato(field, value){
+function handleChangeNewAllegato(field, value){
     setNewAllegato(prev => {
       const base = prev || { tipo:'FOTO_CARICO', descrizione:'', path:'', url:'' };
       let next = { ...base, [field]: value };
 
-      // Auto-suggerimenti solo quando cambia il tipo
+      // Leggi percorso dalle impostazioni
+      const appSets = window.lsGet('appSettings', {}) || {};
+      const basePath = (appSets.docBasePath || 'Z:\\ANIMA_DOC').replace(/\/+$/, ''); 
+
       if (field === 'tipo') {
         const tipo    = value;
         const hasPath = !!(base.path && String(base.path).trim());
@@ -14770,33 +14796,18 @@ React.useEffect(() => {
         const year    = getDDTYear();
 
         if (id) {
-          // Path suggerito
           if (!hasPath) {
-            if (tipo === 'FOTO_CARICO') {
-              // \\ANIMA-SERVER\ANIMA_DOC\FOTO_CARICO\<YYYY>\DDT-YYYY-NNNN\img001.jpg
-              next.path = `\\\\ANIMA-SERVER\\ANIMA_DOC\\FOTO_CARICO\\${year}\\${id}\\img001.jpg`;
-            } else if (tipo === 'COLLAUDO') {
-              // \\ANIMA-SERVER\ANIMA_DOC\COLLAUDI\<YYYY>\DDT-YYYY-NNNN-G3-collaudo.pdf
-              next.path = `\\\\ANIMA-SERVER\\ANIMA_DOC\\COLLAUDI\\${year}\\${id}-G3-collaudo.pdf`;
-            } else if (tipo === 'NC_FORN') {
-              // \\ANIMA-SERVER\ANIMA_DOC\NC_FORN\<YYYY>\DDT-YYYY-NNNN-NC.pdf
-              next.path = `\\\\ANIMA-SERVER\\ANIMA_DOC\\NC_FORN\\${year}\\${id}-NC.pdf`;
-            }
+            if (tipo === 'FOTO_CARICO') next.path = `${basePath}\\FOTO_CARICO\\${year}\\${id}\\img001.jpg`;
+            else if (tipo === 'COLLAUDO') next.path = `${basePath}\\COLLAUDI\\${year}\\${id}-G3-collaudo.pdf`;
+            else if (tipo === 'NC_FORN') next.path = `${basePath}\\NC_FORN\\${year}\\${id}-NC.pdf`;
           }
-
-          // Descrizione suggerita se vuota
           if (!hasDesc) {
-            if (tipo === 'FOTO_CARICO') {
-              next.descrizione = `Foto carico DDT ${id}`;
-            } else if (tipo === 'COLLAUDO') {
-              next.descrizione = `Collaudo DDT ${id}`;
-            } else if (tipo === 'NC_FORN') {
-              next.descrizione = `NC fornitore DDT ${id}`;
-            }
+            if (tipo === 'FOTO_CARICO') next.descrizione = `Foto carico DDT ${id}`;
+            else if (tipo === 'COLLAUDO') next.descrizione = `Collaudo DDT ${id}`;
+            else if (tipo === 'NC_FORN') next.descrizione = `NC fornitore DDT ${id}`;
           }
         }
       }
-
       return next;
     });
   }
@@ -25249,20 +25260,18 @@ function delArt(a){
       function suggestDisegnoPath(entityId){
         if (!entityId) return '';
         const safeCode = String(entityId).trim();
-        if (!safeCode) return '';
-        // Convenzione base:
-        // \\ANIMA-SERVER\ANIMA_DOC\DISEGNI\ARTICOLI\<CODICE>\<CODICE>.pdf
-        return `\\\\ANIMA-SERVER\\ANIMA_DOC\\DISEGNI\\ARTICOLI\\${safeCode}\\${safeCode}.pdf`;
+        const appSets = window.lsGet('appSettings', {}) || {};
+        const basePath = (appSets.docBasePath || 'Z:\\ANIMA_DOC').replace(/\/+$/, '');
+        return `${basePath}\\DISEGNI\\ARTICOLI\\${safeCode}\\${safeCode}.pdf`;
       }
 
       function suggestNCFornPath(entityId){
         if (!entityId) return '';
         const safeCode = String(entityId).trim();
-        if (!safeCode) return '';
         const year = new Date().getFullYear();
-        // Convenzione base NC fornitore per articolo:
-        // \\ANIMA-SERVER\ANIMA_DOC\NC_FORN\<YYYY>\<CODICE>\<CODICE>-NC.pdf
-        return `\\\\ANIMA-SERVER\\ANIMA_DOC\\NC_FORN\\${year}\\${safeCode}\\${safeCode}-NC.pdf`;
+        const appSets = window.lsGet('appSettings', {}) || {};
+        const basePath = (appSets.docBasePath || 'Z:\\ANIMA_DOC').replace(/\/+$/, '');
+        return `${basePath}\\NC_FORN\\${year}\\${safeCode}\\${safeCode}-NC.pdf`;
       }
 
       const onChangeField = (field, value) => {
@@ -26265,22 +26274,19 @@ window.sanitizeOrderParsed = function sanitizeOrderParsed(out, txt, name){
   })();
 
 
-// ================== PARSER STEEL SYSTEMS ===============================
-  (function registerSteel(){
-    // 1. Inizializzazione sicura
+// ================== PARSER STEEL SYSTEMS / ERGOMEC (Aggiornato v3) ==================
+(function registerSteel(){
     try{
       if (!Array.isArray(window.__orderParsers)) window.__orderParsers = [];
     }catch(e){ return; }
 
-    // 2. RIMUOVI SEMPRE la versione vecchia per forzare l'aggiornamento (fix cache localStorage)
+    // Rimuovi la vecchia versione per evitare conflitti
     window.__orderParsers = window.__orderParsers.filter(function(p){
       return !p || String(p.id || '').toLowerCase() !== 'steel-systems';
     });
 
-    // Helper locali per il parsing numerico/data
     function toNum(s){
       if (s == null) return 0;
-      // Rimuovi punti migliaia, sostituisci virgola con punto
       var t = String(s).replace(/\./g,'').replace(',', '.');
       var n = Number(t);
       return Number.isFinite(n) ? n : 0;
@@ -26289,117 +26295,95 @@ window.sanitizeOrderParsed = function sanitizeOrderParsed(out, txt, name){
     function parseData(s){
       var str = String(s || '').trim();
       if (!str) return '';
-      // Formato YYYY-MM-DD ok
       if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-      
-      // Fallback helper globale
       if (typeof window.parseITDate === 'function') {
         var iso = window.parseITDate(str);
         if (iso) return iso;
       }
-
-      // Parsing manuale dd.mm.yy o dd-mm-yy
       var m = str.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
       if (!m) return '';
-      var dd = m[1].padStart(2,'0');
-      var mm = m[2].padStart(2,'0');
-      var yy = m[3];
-      if (yy.length === 2) {
-        var yNum = Number(yy);
-        yy = String(2000 + (Number.isFinite(yNum) ? yNum : 0));
-      }
-      yy = yy.padStart(4,'0');
+      var dd = m[1].padStart(2,'0'), mm = m[2].padStart(2,'0'), yy = m[3];
+      if (yy.length === 2) yy = '20' + yy;
       return yy + '-' + mm + '-' + dd;
     }
 
-    // 3. Registra il nuovo parser aggiornato
     window.addOrderParser({
       id: 'steel-systems',
-      name: 'Ordini STEEL SYSTEMS / ERGOMEC (Universal)',
+      name: 'Ordini STEEL SYSTEMS / ERGOMEC (v3 con Prezzi)',
       
       test: function(txt, name){
         var t = String(txt || '');
-        // Riconosci STEEL o ERGOMEC
         var isSteel = /STEEL\s+SYSTEMS/i.test(t);
         var isErgo  = /ERGOMEC\s*S\.?R\.?L\.?/i.test(t);
-        
-        // Verifica anche la presenza della struttura tabellare tipica
-        var hasTable = /Ord\.\s*acq\./i.test(t) || /Pos\.\s+Codice\s+Rev\./i.test(t);
-        
-        return (isSteel || isErgo) && hasTable;
+        // Cerca intestazioni tipiche
+        return (isSteel || isErgo) && (/Pos\./i.test(t) || /Codice/i.test(t));
       },
 
       extract: function(txt, name){
-        // Appiattisci il testo per facilitare la Regex
         var flat = String(txt || '').replace(/\s+/g,' ').trim();
         var isErgomec = /ERGOMEC\s*S\.?R\.?L\.?/i.test(flat);
 
-        var righe    = [];
+        var righe = [];
         var consegne = [];
 
-        // REGEX RIGHE: Pos | Codice | Rev | Descrizione | UM | Q.tà | Prezzo | Totale | Consegna
-        // Es: 80 50100174 00 TELAIO ... PZ 2 150,00 300,00 15/12/25
-        var rowRe = /\b(\d{1,4})\s+([0-9]{5,})\s+([0-9]{2})\s+(.+?)\s+(PZ|NR|KG|M|L)\s+([0-9]+(?:[.,][0-9]+)?)\s+([0-9]+(?:[.,][0-9]+)?)\s+([0-9]+(?:[.,][0-9]+)?)\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/gi;
+        // Regex migliorata per catturare anche il PREZZO (gruppo 7)
+        // Struttura tipica: Pos | Codice | Rev | Descrizione | UM | Qta | PrezzoUnit | Totale | Data
+        // Es: 10 50100174 00 TELAIO FERRO PZ 2 150,00 300,00 15/12/25
+        var rowRe = /\b(\d{1,4})\s+([0-9]{5,}[A-Z0-9]*)\s+([0-9]{2})?\s+(.+?)\s+(PZ|NR|KG|M|L|CADAUNO)\s+([0-9]+(?:[.,][0-9]+)?)\s+([0-9]+(?:[.,][0-9]+)?)\s+([0-9]+(?:[.,][0-9]+)?)\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/gi;
 
-        var m;
+        let m;
         while ((m = rowRe.exec(flat))) {
           var codice   = m[2];
           var descrRaw = m[4];
           var umRaw    = m[5];
-          var qtaStr   = m[6]; // Q.tà
-          // m[7] è prezzo unitario, m[8] è totale
+          var qtaStr   = m[6]; 
+          var przStr   = m[7]; // <--- PREZZO UNITARIO
           var dataStr  = m[9];
 
           if (!codice) continue;
 
-          // Pulizia descrizione e UM
-          var descr = descrRaw.trim();
-          var um    = (umRaw || 'PZ').toUpperCase();
-          
-          // Parsing quantità
           var qta = toNum(qtaStr);
-          
-          // Parsing data
-          var dataIso = parseData(dataStr);
+          var prz = toNum(przStr); // Convertiamo il prezzo
+          var um  = (umRaw === 'CADAUNO' ? 'PZ' : umRaw).toUpperCase();
 
           if (qta > 0) {
             righe.push({
               codice: codice,
-              descrizione: descr,
+              descrizione: descrRaw.trim(),
               um: um,
-              qta: qta
+              qta: qta,
+              prezzo: prz // <--- Importante: passiamo il prezzo al sistema!
             });
-            if (dataIso) consegne.push(dataIso);
+            
+            var dIso = parseData(dataStr);
+            if (dIso) consegne.push(dIso);
           }
         }
 
-        // Recupero Numero Ordine e Data Ordine dall'intestazione
-        // Es: "Numero 4500295580 ... Data 09.12.2025"
+        // Recupero Rif Ordine
         var rifNumero = '';
-        var rifDataIso = '';
-        
-        var mNum = flat.match(/Numero\s+([0-9]+)/i);
+        var mNum = flat.match(/Numero\s+([0-9]+)/i) || flat.match(/Ordine\s+n[\.o]\s*([0-9]+)/i);
         if (mNum) rifNumero = mNum[1];
 
+        // Recupero Data Ordine
+        var rifDataIso = '';
         var mData = flat.match(/Data\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i);
         if (mData) rifDataIso = parseData(mData[1]);
 
-        // Scadenza = data di consegna massima tra le righe
+        // Scadenza
         var scadenza = '';
         if (consegne.length) {
           consegne.sort();
           scadenza = consegne[consegne.length - 1];
         }
 
-        // Costruzione dati finali
         var cliente = isErgomec ? 'ERGOMEC S.R.L.' : 'STEEL SYSTEMS S.r.l.';
-        var baseDescr = isErgomec ? 'Ordine cliente ERGOMEC' : 'Ordine c/lavoro STEEL';
-        
-        // Descrizione composta: "Ordine cliente ERGOMEC 4500295580"
-        var descrComm = baseDescr + (rifNumero ? ' ' + rifNumero : '');
-        
-        // Totale pezzi
-        var qtaPezzi = righe.reduce(function(acc, r){ return acc + (r.qta || 0); }, 0) || 1;
+        var descrComm = (isErgomec ? 'Ordine ERGOMEC ' : 'Ordine STEEL ') + rifNumero;
+
+        // Somma qta
+        var qtaPezzi = righe.reduce((a,b)=>a+(b.qta||0),0) || 1;
+
+        console.log('[STEEL-PARSER] Estratte', righe.length, 'righe. Prezzi inclusi.');
 
         return {
           cliente: cliente,
@@ -26407,15 +26391,11 @@ window.sanitizeOrderParsed = function sanitizeOrderParsed(out, txt, name){
           righe: righe,
           qtaPezzi: qtaPezzi,
           scadenza: scadenza,
-          rifCliente: rifNumero
-            ? { tipo:'ordine', numero: rifNumero, data: rifDataIso || scadenza || '' }
-            : null
+          rifCliente: rifNumero ? { tipo:'ordine', numero: rifNumero, data: rifDataIso } : null
         };
       }
     });
-    
-    console.log('[registerSteel] Parser STEEL/ERGOMEC aggiornato (v2).');
-  })();
+})();
 
 // ================== PARSER BLAUWER v1 (Ord. acq. Standard) - FINAL FIX ====================
   (function registerBlauwer(){
