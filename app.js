@@ -11800,225 +11800,133 @@ e('div', {className:'subcard', style:{gridColumn:'1 / -1'}},
   e('div', {className:'actions'}, e('button', {className:'btn', onClick:addRiga}, '➕ Aggiungi riga'))
 ),
 
-// BLOCCO NUOVO — Allegati commessa
-(function(){
-  const entityId = form && form.id ? String(form.id) : '';
-  const all = lsGet('allegatiRows', []) || [];
-  const rows = entityId
-    ? (Array.isArray(all) ? all : []).filter(a =>
-        a && !a.deletedAt &&
-        String(a.entityType || '').toUpperCase() === 'COMMESSA' &&
-        String(a.entityId || '') === entityId
-      )
-    : [];
+// BLOCCO ALLEGATI COMMESSA (Smart Version)
+        (function(){
+          const entityId = form && form.id ? String(form.id) : '';
+          const isSaved = entityId && (rows||[]).some(r => String(r.id) === entityId);
+          
+          const all = window.lsGet('allegatiRows', []) || [];
+          const rowsAllegati = isSaved
+            ? all.filter(a =>
+                a && !a.deletedAt &&
+                String(a.entityType || '').toUpperCase() === 'COMMESSA' &&
+                String(a.entityId || '') === entityId
+              )
+            : [];
 
-  function nextAllegatoId(existing){
-    const now  = new Date();
-    const year = now.getFullYear();
-    let maxSeq = 0;
-    (existing || []).forEach(r => {
-      const id = r && r.id ? String(r.id) : '';
-      const m = /^ALG-(\d{4})-(\d+)$/.exec(id);
-      if (m && Number(m[1]) === year) {
-        const n = parseInt(m[2], 10);
-        if (!isNaN(n) && n > maxSeq) maxSeq = n;
-      }
-    });
-    const next = String(maxSeq + 1).padStart(4, '0');
-    return `ALG-${year}-${next}`;
-  }
+          const nextAlgId = (arr) => {
+            const y = new Date().getFullYear();
+            let max=0;
+            arr.forEach(r=>{ 
+               const m=String(r.id||'').match(/^ALG-(\d{4})-(\d+)$/); 
+               if(m && +m[1]===y) max=Math.max(max, +m[2]); 
+            });
+            return `ALG-${y}-${String(max+1).padStart(4,'0')}`;
+          };
 
-  const onChangeField = (field, value) => {
-    if (typeof setAllegatoCommessaForm !== 'function') return;
-    setAllegatoCommessaForm(prev => ({
-      ...(prev || { tipo:'ALTRO', descrizione:'', path:'', url:'' }),
-      [field]: value
-    }));
-  };
+          const onDelete = (row) => {
+            if(!confirm('Eliminare allegato?')) return;
+            let currentAll = window.lsGet('allegatiRows', []) || [];
+            const nowIso = new Date().toISOString();
+            const upd = currentAll.map(r => r.id===row.id ? {...r, deletedAt:nowIso} : r);
+            window.lsSet('allegatiRows', upd);
+            // Tick per refresh
+            setAllegatoCommessaForm({...allegatoCommessaForm});
+          };
 
-  const onAdd = () => {
-    const f = allegatoCommessaForm || {};
-    const tipo  = (f.tipo || 'ALTRO').trim() || 'ALTRO';
-    const descr = (f.descrizione || '').trim();
-    const path  = (f.path || '').trim();
-    const url   = (f.url  || '').trim();
+          const onCopyPath = (p) => { try{ navigator.clipboard.writeText(p); }catch{ prompt('Copia:',p); } };
+          const onOpenUrl  = (u) => { if(u && /^https?:\/\//i.test(u)) window.open(u,'_blank'); };
 
-    if (!entityId) {
-      alert('Salva la commessa prima di aggiungere allegati.');
-      return;
-    }
-    if (!path && !url) {
-      alert('Inserisci almeno il percorso o l\'URL.');
-      return;
-    }
+          const f = allegatoCommessaForm || { tipo:'ALTRO', descrizione:'', path:'', url:'' };
+          const setF = (patch) => setAllegatoCommessaForm(prev => ({...prev, ...patch}));
 
-    let allRows = [];
-    try { allRows = lsGet('allegatiRows', []) || []; } catch(e) { allRows = []; }
-    if (!Array.isArray(allRows)) allRows = [];
+          // Upload Smart
+          const onSmartUpload = async (ev) => {
+             const file = ev.target.files?.[0];
+             if(!file) return;
 
-    const id = nextAllegatoId(allRows);
-    const nowIso = new Date().toISOString();
+             const commYear = (function(){
+                try { return new Date(form.createdAt || new Date()).getFullYear(); } catch { return new Date().getFullYear(); }
+             })();
+             
+             // Z:\ANIMA_DOC\COMMESSE\2025\C-2025-XXX\file.pdf
+             const folder = 'COMMESSE';
+             const subFolder = String(commYear);
+             const idFolder = entityId; 
 
-    const newRow = {
-      id,
-      createdAt: nowIso,
-      tipo,
-      descrizione: descr || `Allegato commessa ${entityId}`,
-      path,
-      url,
-      entityType: 'COMMESSA',
-      entityId,
-      note: '',
-      deletedAt: null
-    };
+             const savedPath = await window.smartSaveFile(file, [folder, subFolder, idFolder], file.name);
 
-    const updated = allRows.concat([newRow]);
-    lsSet('allegatiRows', updated);
+             if (savedPath) {
+                let currentAll = window.lsGet('allegatiRows', []) || [];
+                const newId = nextAlgId(currentAll);
+                const desc = f.descrizione || file.name;
+                
+                const newRow = {
+                  id: newId,
+                  createdAt: new Date().toISOString(),
+                  tipo: f.tipo || 'ALTRO',
+                  descrizione: desc,
+                  path: savedPath,
+                  url: '',
+                  entityType: 'COMMESSA',
+                  entityId: entityId,
+                  deletedAt: null
+                };
+                
+                window.lsSet('allegatiRows', [...currentAll, newRow]);
+                
+                // Reset e refresh
+                setF({ tipo:'ALTRO', descrizione:'', path:'', url:'' });
+                ev.target.value = ''; 
+                alert('File caricato su Z: e collegato alla commessa.');
+             }
+          };
 
-    // forza un re-render “innocuo”
-    if (typeof setForm === 'function') {
-      setForm(prev => ({ ...(prev || {}) }));
-    }
-
-    if (typeof setAllegatoCommessaForm === 'function') {
-      setAllegatoCommessaForm({
-        tipo: 'ALTRO',
-        descrizione: '',
-        path: '',
-        url: ''
-      });
-    }
-  };
-
-  const onDelete = (row) => {
-    if (!row || !row.id) return;
-    if (!window.confirm('Eliminare questo allegato?')) return;
-
-    let allRows = [];
-    try { allRows = lsGet('allegatiRows', []) || []; } catch(e) { allRows = []; }
-    if (!Array.isArray(allRows)) allRows = [];
-
-    const nowIso = new Date().toISOString();
-    const updated = allRows.map(r =>
-      r && r.id === row.id
-        ? { ...r, deletedAt: r.deletedAt || nowIso }
-        : r
-    );
-    lsSet('allegatiRows', updated);
-
-    if (typeof setForm === 'function') {
-      setForm(prev => ({ ...(prev || {}) }));
-    }
-  };
-
-  const onCopyPath = (row) => {
-    const p = (row && row.path) ? String(row.path) : '';
-    if (!p) return;
-    if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(p).catch(() => {
-        window.prompt('Copia il percorso:', p);
-      });
-    } else {
-      window.prompt('Copia il percorso:', p);
-    }
-  };
-
-  const onOpenUrl = (row) => {
-    const u = (row && row.url) ? String(row.url) : '';
-    if (!u) return;
-    if (/^https?:\/\//i.test(u)) window.open(u, '_blank');
-  };
-
-  const f = allegatoCommessaForm || { tipo:'ALTRO', descrizione:'', path:'', url:'' };
-
-  return e('div', {className:'subcard', style:{gridColumn:'1 / -1'}},
-    e('h4', null, 'Allegati commessa'),
-    !entityId
-      ? e('p', {className:'muted'}, 'Salva la commessa per poter aggiungere allegati.')
-      : e(React.Fragment, null,
-          rows.length
-            ? e('table', {className:'table table-sm'},
-                e('thead', null,
-                  e('tr', null,
-                    e('th', null, 'Tipo'),
-                    e('th', null, 'Descrizione'),
-                    e('th', null, 'Percorso'),
-                    e('th', null, 'Azioni')
-                  )
-                ),
-                e('tbody', null,
-                  rows.map(r => e('tr', {key:r.id || r.path || r.url || Math.random()},
-                    e('td', null, r.tipo || ''),
-                    e('td', null, r.descrizione || ''),
-                    e('td', null, r.path || ''),
-                    e('td', null,
-                      e('div', {className:'row', style:{gap:4}},
-                        r.url && /^https?:\/\//i.test(r.url||'')
-                          ? e('button', {className:'btn btn-xs', onClick:()=>onOpenUrl(r)}, 'Apri')
-                          : null,
-                        r.path
-                          ? e('button', {className:'btn btn-xs', onClick:()=>onCopyPath(r)}, 'Copia percorso')
-                          : null,
-                        !readOnly
-                          ? e('button', {
-                              className:'btn btn-xs btn-outline',
-                              onClick:()=>onDelete(r)
-                            }, '🗑')
-                          : null
+          return e('div', {className:'subcard', style:{gridColumn:'1 / -1'}},
+            e('h4', null, 'Allegati commessa'),
+            !isSaved
+              ? e('p', {className:'muted'}, 'Salva la commessa per poter aggiungere allegati.')
+              : e(React.Fragment, null,
+                  rowsAllegati.length
+                    ? e('table', {className:'table table-sm'},
+                        e('thead', null, e('tr',null,e('th',null,'Tipo'),e('th',null,'Descrizione'),e('th',null,'Azioni'))),
+                        e('tbody', null, rowsAllegati.map(r=>
+                          e('tr', {key:r.id},
+                            e('td', null, r.tipo),
+                            e('td', null, r.descrizione),
+                            e('td', null,
+                              e('div', {className:'row', style:{gap:4}},
+                                r.path ? e('button', {type:'button', className:'btn btn-xs', onClick:()=>onCopyPath(r.path)}, 'Path') : null,
+                                r.url ? e('button', {type:'button', className:'btn btn-xs', onClick:()=>onOpenUrl(r.url)}, 'Link') : null,
+                                !readOnly ? e('button', {type:'button', className:'btn btn-xs btn-outline', onClick:()=>onDelete(r)}, '🗑') : null
+                              )
+                            )
+                          )
+                        ))
                       )
-                    )
-                  ))
+                    : e('p', {className:'muted'}, 'Nessun allegato.'),
+                  
+                  e('div', {className:'grid grid-2', style:{marginTop:8, padding:10, border:'1px dashed #ccc', borderRadius:8}},
+                     e('div', null,
+                       e('label', null, 'Tipo'),
+                       e('select', { value:f.tipo, onChange:ev=>setF({tipo:ev.target.value}), disabled:readOnly },
+                         ['DISEGNO','SPECIFICA','FOTO','ALTRO'].map(t=>e('option',{key:t,value:t},t))
+                       )
+                     ),
+                     e('div', null,
+                       e('label', null, 'Descrizione'),
+                       e('input', { value:f.descrizione, onChange:ev=>setF({descrizione:ev.target.value}), placeholder:'Opzionale' })
+                     ),
+                     e('div', {style:{gridColumn:'1/-1', marginTop:8}},
+                        e('label', {className:'btn btn-primary', style:{display:'block', textAlign:'center', cursor:'pointer'}},
+                          '📂 CARICA SU Z:',
+                          e('input', {type:'file', style:{display:'none'}, disabled:readOnly, onChange:onSmartUpload})
+                        )
+                     )
+                  )
                 )
-              )
-            : e('p', {className:'muted'}, 'Nessun allegato per questa commessa.'),
-          e('div', {className:'form-grid', style:{marginTop:8}},
-            e('div', null,
-              e('label', null, 'Tipo'),
-              e('select', {
-                value:f.tipo || 'ALTRO',
-                onChange:ev=>onChangeField('tipo', ev.target.value),
-                disabled: readOnly
-              },
-                ['FOTO_CARICO','COLLAUDO','NC_FORN','DISEGNO','ALTRO'].map(opt =>
-                  e('option', {key:opt, value:opt}, opt)
-                )
-              )
-            ),
-            e('div', null,
-              e('label', null, 'Descrizione'),
-              e('input', {
-                value:f.descrizione || '',
-                onChange:ev=>onChangeField('descrizione', ev.target.value),
-                disabled: readOnly
-              })
-            ),
-            e('div', null,
-              e('label', null, 'Percorso (path)'),
-              e('input', {
-                value:f.path || '',
-                onChange:ev=>onChangeField('path', ev.target.value),
-                disabled: readOnly
-              })
-            ),
-            e('div', null,
-              e('label', null, 'URL (opzionale)'),
-              e('input', {
-                value:f.url || '',
-                onChange:ev=>onChangeField('url', ev.target.value),
-                disabled: readOnly
-              })
-            )
-          ),
-          e('div', {className:'actions'},
-            e('button', {
-              className:'btn',
-              onClick:onAdd,
-              disabled: readOnly
-            }, '➕ Aggiungi allegato')
-          )
-        )
-  );
-})(),
+          );
+        })(),
 
         // Editor fasi per-riga (quando selezionata una riga)
         rowFasiEditIdx != null && (function(){
