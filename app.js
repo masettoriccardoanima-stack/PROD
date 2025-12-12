@@ -14768,33 +14768,57 @@ function handleChangeNewAllegato(field, value){
     setShowAllegatoForm(true);
   }
 
-  function saveNewAllegato(ev){
+  async function saveNewAllegato(ev){
     if (ev && ev.preventDefault) ev.preventDefault();
-    if (!currentDDTId) {
-      alert('Per aggiungere allegati è necessario prima salvare il DDT (ID obbligatorio).');
-      return;
+    if (!currentDDTId) { alert('Salva prima il DDT.'); return; }
+
+    // Controllo campi manuali o file smart
+    const fileInput = document.getElementById('smart-uploader-ddt');
+    const file = fileInput?.files?.[0];
+    
+    let finalPath = String(newAllegato.path || '').trim();
+    let finalUrl  = String(newAllegato.url || '').trim();
+    
+    // SE L'UTENTE HA SELEZIONATO UN FILE, USIAMO IL "TELETRASPORTO"
+    if (file) {
+      const year = getDDTYear();
+      const tipo = newAllegato.tipo || 'ALTRO';
+      let folder = 'ALTRO';
+      
+      if (tipo === 'FOTO_CARICO') folder = 'FOTO_CARICO';
+      else if (tipo === 'COLLAUDO') folder = 'COLLAUDI';
+      else if (tipo === 'NC_FORN') folder = 'NC_FORN';
+
+      // Salva fisicamente su Z:\ANIMA_DOC\<FOLDER>\<YEAR>\<DDT-ID>\file
+      const savedPath = await window.smartSaveFile(
+        file, 
+        [folder, String(year), currentDDTId] 
+      );
+
+      if (!savedPath) return; // Errore o annullato
+      finalPath = savedPath;
+    } else {
+      // Nessun file selezionato: deve esserci almeno path manuale o url
+      if (!finalPath && !finalUrl && !newAllegato.descrizione) {
+        alert('Seleziona un file da caricare, oppure compila un percorso/URL.');
+        return;
+      }
     }
+
+    // Salvataggio nel DB
     const base = {
       id: nextAllegatoId(),
       createdAt: new Date().toISOString(),
       tipo: newAllegato.tipo || 'ALTRO',
-      descrizione: String(newAllegato.descrizione || '').trim(),
-      path: String(newAllegato.path || '').trim(),
-      url: String(newAllegato.url || '').trim(),
+      descrizione: String(newAllegato.descrizione || '').trim() || (file ? file.name : 'Allegato'),
+      path: finalPath,
+      url: finalUrl,
       entityType: 'DDT',
       entityId: currentDDTId,
-      note: '',
       deletedAt: null
     };
-    if (!base.path && !base.url && !base.descrizione) {
-      alert('Compila almeno uno tra Path, URL o Descrizione.');
-      return;
-    }
-    setAllegatiRows(prev => {
-      const arr = Array.isArray(prev) ? prev.slice() : [];
-      arr.push(base);
-      return arr;
-    });
+
+    setAllegatiRows(prev => [...(Array.isArray(prev)?prev:[]), base]);
     setShowAllegatoForm(false);
     resetNewAllegato();
   }
@@ -15948,56 +15972,52 @@ showForm && e('form', { className:'card', onSubmit:save, style:{marginTop:8,padd
           )
         )
       ),
-      showAllegatoForm && currentDDTId && e('div', { className:'card', style:{marginTop:8,padding:8} },
+      showAllegatoForm && currentDDTId && e('div', { className:'card', style:{marginTop:8,padding:12, border:'2px dashed #0ea5e9'} },
+        e('h4', {style:{marginTop:0, color:'#0ea5e9'}}, 'Nuovo Allegato Smart'),
         e('div', { className:'form', style:{gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))'} },
           e('div', null,
-            e('label', null, 'Tipo'),
+            e('label', null, 'Tipo Documento'),
             e('select', {
               value: newAllegato.tipo,
               onChange: ev => handleChangeNewAllegato('tipo', ev.target.value)
             },
-              ['FOTO_CARICO','COLLAUDO','NC_FORN','DISEGNO','ALTRO'].map(t =>
-                e('option', { key:t, value:t }, t)
-              )
+              ['FOTO_CARICO','COLLAUDO','NC_FORN','DISEGNO','ALTRO'].map(t => e('option', { key:t, value:t }, t))
             )
           ),
-          e('div', null,
+          e('div', {style:{gridColumn:'1 / -1'}},
             e('label', null, 'Descrizione'),
             e('input', {
               value: newAllegato.descrizione || '',
-              onChange: ev => handleChangeNewAllegato('descrizione', ev.target.value)
+              onChange: ev => handleChangeNewAllegato('descrizione', ev.target.value),
+              placeholder: 'Opzionale (se vuoto usa nome file)'
             })
           ),
-          e('div', null,
-            e('label', null, 'Path (percorso file)'),
+          
+          // PULSANTE SMART
+          e('div', {style:{gridColumn:'1 / -1', background:'#f0f9ff', padding:10, borderRadius:6}},
+            e('label', {style:{fontWeight:'bold', display:'block', marginBottom:4}}, '📂 Seleziona file da salvare su Z:'),
             e('input', {
-              value: newAllegato.path || '',
-              onChange: ev => handleChangeNewAllegato('path', ev.target.value)
-            })
+              id: 'smart-uploader-ddt',
+              type: 'file',
+              style: {width:'100%'}
+            }),
+            e('div', {className:'muted', style:{fontSize:11, marginTop:4}}, 
+              'Il file verrà copiato automaticamente in Z:\\ANIMA_DOC\\' + (newAllegato.tipo||'ALTRO') + '\\' + getDDTYear() + '\\' + currentDDTId
+            )
           ),
-          e('div', null,
-            e('label', null, 'URL (opzionale, http/https)'),
-            e('input', {
-              value: newAllegato.url || '',
-              onChange: ev => handleChangeNewAllegato('url', ev.target.value)
-            })
+
+          // Fallback manuale (nascosto o piccolo)
+          e('details', {style:{gridColumn:'1 / -1', marginTop:4}},
+            e('summary', {className:'muted', style:{cursor:'pointer', fontSize:11}}, 'Opzioni manuali (URL / Path esistente)'),
+            e('div', {className:'grid grid-2', style:{marginTop:4}},
+               e('input', {placeholder:'Path manuale...', value:newAllegato.path||'', onChange:ev=>handleChangeNewAllegato('path',ev.target.value)}),
+               e('input', {placeholder:'URL web...', value:newAllegato.url||'', onChange:ev=>handleChangeNewAllegato('url',ev.target.value)})
+            )
           )
         ),
-        e('div', { className:'actions', style:{justifyContent:'flex-end',gap:8,marginTop:8} },
-          e('button', {
-            type:'button',
-            className:'btn btn-outline',
-            onClick: ()=>{ setShowAllegatoForm(false); resetNewAllegato(); }
-          }, 'Annulla'),
-          (function(){
-            const base = {
-              type:'button',
-              className:'btn',
-              onClick: saveNewAllegato
-            };
-            const ro = window.roProps ? window.roProps() : null;
-            return e('button', ro ? { ...base, ...ro } : base, 'Salva allegato');
-          })()
+        e('div', { className:'actions', style:{justifyContent:'flex-end',gap:8,marginTop:12} },
+          e('button', { type:'button', className:'btn btn-outline', onClick: ()=>{ setShowAllegatoForm(false); resetNewAllegato(); } }, 'Annulla'),
+          e('button', { type:'button', className:'btn btn-primary', onClick: saveNewAllegato }, '💾 Salva e Carica')
         )
       )
     ),
@@ -28907,7 +28927,79 @@ window.navigateTo = window.navigateTo || function(name){
   });
 })();
 
+/* ================== SMART UPLOAD ENGINE (Teletrasporto su Z:) ================== */
+(function(){
+  // Variabile globale per mantenere la connessione aperta finché non chiudi la pagina
+  window.__Z_HANDLE = null;
 
+  // 1. Connette il disco Z: (lo chiede solo la prima volta)
+  window.ensureZConnection = async function(){
+    if (window.__Z_HANDLE) return window.__Z_HANDLE;
+    
+    if (!window.showDirectoryPicker) {
+      alert("Il tuo browser è troppo vecchio per il salvataggio automatico. Usa Chrome o Edge aggiornati.");
+      return null;
+    }
+
+    try {
+      alert("⚠️ ATTENZIONE ⚠️\n\nAl prossimo passaggio, seleziona la cartella radice:\n👉 Z:\\ANIMA_DOC\n\nQuesto darà al gestionale il permesso di salvare i file automaticamente.");
+      const handle = await window.showDirectoryPicker({ 
+        id: 'anima_doc_root', 
+        mode: 'readwrite',
+        startIn: 'documents' 
+      });
+      
+      // Controllo veloce se è la cartella giusta
+      if (handle.name !== 'ANIMA_DOC') {
+        if(!confirm(`Hai selezionato "${handle.name}" invece di "ANIMA_DOC". Sicuro di voler continuare?`)) return null;
+      }
+      
+      window.__Z_HANDLE = handle;
+      return handle;
+    } catch (err) {
+      console.warn("Accesso disco annullato:", err);
+      return null;
+    }
+  };
+
+  // 2. Salva il file fisicamente
+  // pathParts es: ['DISEGNI', 'ARTICOLI', 'ART-001']
+  window.smartSaveFile = async function(fileObj, pathParts, renameTo = null){
+    const root = await window.ensureZConnection();
+    if (!root) return null;
+
+    try {
+      // Naviga o crea le cartelle
+      let currentDir = root;
+      for (const part of pathParts) {
+        // Pulisci il nome cartella da caratteri vietati
+        const safePart = String(part).replace(/[\\/:*?"<>|]/g, '_').trim(); 
+        currentDir = await currentDir.getDirectoryHandle(safePart, { create: true });
+      }
+
+      // Nome file
+      const fileName = renameTo || fileObj.name;
+      
+      // Scrivi il file
+      const fileHandle = await currentDir.getFileHandle(fileName, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(fileObj);
+      await writable.close();
+
+      // Restituisce il percorso Windows completo per salvarlo nel DB
+      const settings = window.lsGet ? window.lsGet('appSettings', {}) : {};
+      const basePath = (settings.docBasePath || 'Z:\\ANIMA_DOC').replace(/[\\/]+$/, '');
+      const relPath = pathParts.join('\\');
+      
+      return `${basePath}\\${relPath}\\${fileName}`;
+
+    } catch (err) {
+      alert("Errore salvataggio su disco: " + err.message);
+      console.error(err);
+      return null;
+    }
+  };
+})();
 
 
 
