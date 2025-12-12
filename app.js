@@ -14671,12 +14671,11 @@ React.useEffect(() => {
   }
 
   // Gestione centralizzata delle modifiche al form nuovo allegato DDT
-function handleChangeNewAllegato(field, value){
+  function handleChangeNewAllegato(field, value){
     setNewAllegato(prev => {
       const base = prev || { tipo:'FOTO_CARICO', descrizione:'', path:'', url:'' };
       let next = { ...base, [field]: value };
 
-      // Leggi percorso dalle impostazioni
       const appSets = window.lsGet('appSettings', {}) || {};
       const basePath = (appSets.docBasePath || 'Z:\\ANIMA_DOC').replace(/\/+$/, ''); 
 
@@ -14684,26 +14683,30 @@ function handleChangeNewAllegato(field, value){
         const tipo    = value;
         const hasPath = !!(base.path && String(base.path).trim());
         const hasDesc = !!(base.descrizione && String(base.descrizione).trim());
-        const id      = currentDDTId;
+        const id      = currentDDTId; // Es: DDT-2025-150
         const year    = getDDTYear();
 
         if (id) {
           if (!hasPath) {
-            if (tipo === 'FOTO_CARICO') next.path = `${basePath}\\FOTO_CARICO\\${year}\\${id}\\img001.jpg`;
-            else if (tipo === 'COLLAUDO') next.path = `${basePath}\\COLLAUDI\\${year}\\${id}-G3-collaudo.pdf`;
-            else if (tipo === 'NC_FORN') next.path = `${basePath}\\NC_FORN\\${year}\\${id}-NC.pdf`;
+            // FIX: Usiamo direttamente 'id' perché contiene già "DDT-2025-..."
+            if (tipo === 'FOTO_CARICO') {
+              next.path = `${basePath}\\FOTO_CARICO\\${year}\\${id}\\foto.jpg`;
+            } else if (tipo === 'COLLAUDO') {
+              next.path = `${basePath}\\COLLAUDI\\${year}\\${id}-G3-collaudo.pdf`;
+            } else if (tipo === 'NC_FORN') {
+              next.path = `${basePath}\\NC_FORN\\${year}\\${id}-NC.pdf`;
+            }
           }
           if (!hasDesc) {
-            if (tipo === 'FOTO_CARICO') next.descrizione = `Foto carico DDT ${id}`;
-            else if (tipo === 'COLLAUDO') next.descrizione = `Collaudo DDT ${id}`;
-            else if (tipo === 'NC_FORN') next.descrizione = `NC fornitore DDT ${id}`;
+            if (tipo === 'FOTO_CARICO') next.descrizione = `Foto carico ${id}`;
+            else if (tipo === 'COLLAUDO') next.descrizione = `Collaudo G3 ${id}`;
+            else if (tipo === 'NC_FORN') next.descrizione = `Non Conformità ${id}`;
           }
         }
       }
       return next;
     });
   }
-
   const allegatiDDT = React.useMemo(() => {
     if (!currentDDTId) return [];
     const arr = Array.isArray(allegatiRows) ? allegatiRows : [];
@@ -14772,40 +14775,49 @@ function handleChangeNewAllegato(field, value){
     if (ev && ev.preventDefault) ev.preventDefault();
     if (!currentDDTId) { alert('Salva prima il DDT.'); return; }
 
-    // Controllo campi manuali o file smart
     const fileInput = document.getElementById('smart-uploader-ddt');
     const file = fileInput?.files?.[0];
     
     let finalPath = String(newAllegato.path || '').trim();
     let finalUrl  = String(newAllegato.url || '').trim();
     
-    // SE L'UTENTE HA SELEZIONATO UN FILE, USIAMO IL "TELETRASPORTO"
     if (file) {
       const year = getDDTYear();
       const tipo = newAllegato.tipo || 'ALTRO';
-      let folder = 'ALTRO';
+      const id   = currentDDTId; // Es. DDT-2025-150
       
-      if (tipo === 'FOTO_CARICO') folder = 'FOTO_CARICO';
-      else if (tipo === 'COLLAUDO') folder = 'COLLAUDI';
-      else if (tipo === 'NC_FORN') folder = 'NC_FORN';
+      let folder = 'ALTRO';
+      let newName = file.name; // Default: mantieni nome originale
 
-      // Salva fisicamente su Z:\ANIMA_DOC\<FOLDER>\<YEAR>\<DDT-ID>\file
+      // LOGICA DI RINOMINA AUTOMATICA
+      if (tipo === 'FOTO_CARICO') {
+        folder = 'FOTO_CARICO';
+        // Se è una foto, mantieni estensione ma usa nome standard se vuoi, oppure nome originale
+        // newName = `foto_carico_${Date.now()}.jpg`; 
+      } else if (tipo === 'COLLAUDO') {
+        folder = 'COLLAUDI';
+        newName = `${id}-G3-collaudo.pdf`; // RINOMINA FORZATA
+      } else if (tipo === 'NC_FORN') {
+        folder = 'NC_FORN';
+        newName = `${id}-NC.pdf`;          // RINOMINA FORZATA
+      }
+
+      // Teletrasporto in Z:\ANIMA_DOC\<FOLDER>\<YEAR>\<DDT-ID>\...
       const savedPath = await window.smartSaveFile(
         file, 
-        [folder, String(year), currentDDTId] 
+        [folder, String(year), id], // Crea sottocartella col nome del DDT
+        newName
       );
 
-      if (!savedPath) return; // Errore o annullato
+      if (!savedPath) return; 
       finalPath = savedPath;
     } else {
-      // Nessun file selezionato: deve esserci almeno path manuale o url
       if (!finalPath && !finalUrl && !newAllegato.descrizione) {
-        alert('Seleziona un file da caricare, oppure compila un percorso/URL.');
+        alert('Seleziona un file o compila i campi.');
         return;
       }
     }
 
-    // Salvataggio nel DB
     const base = {
       id: nextAllegatoId(),
       createdAt: new Date().toISOString(),
@@ -18868,11 +18880,11 @@ function RiceviDaOrdineModal({ ordine, riga, onClose, onConfirm }) {
   );
 }
 
-/* ================== ORDINI FORNITORI (OF-YYYY-NNN) — con RICEZIONE ================== */
+/* ================== ORDINI FORNITORI (OF-YYYY-NNN) — con RICEZIONE & ALLEGATI SMART ================== */
 function OrdiniFornitoriView({ query = '' }) {
   const e = React.createElement;
 
-    const PAGAMENTI_FORNITORE = [
+  const PAGAMENTI_FORNITORE = [
     'Bonifico vista fattura',
     'Bonifico 30gg FM',
     'Bonifico 60gg FM',
@@ -18882,103 +18894,18 @@ function OrdiniFornitoriView({ query = '' }) {
     'RiBa 60gg'
   ];
 
-    // === CHIAVI ===
-// === CHIAVE ORDINI FORNITORE (globale, anti-duplicato) ===
-const ORD_KEY = window.__OF_KEY || (window.__OF_KEY = 'ordiniFornitoriRows');
-
-
-// Alias da chiavi storiche → chiave attuale (una tantum)
-(function aliasOldKeys(){
-  try{
-    const prev = JSON.parse(localStorage.getItem('ordiniRows') || 'null');
-    if (Array.isArray(prev) && !localStorage.getItem(ORD_KEY)) {
-      localStorage.setItem(ORD_KEY, JSON.stringify(prev));
-    }
-  }catch{}
-})();
-
-  const readOnly = (
-    typeof window.isReadOnlyUser === 'function'
-      ? !!window.isReadOnlyUser()
-      : !!(window.__USER && window.__USER.role === 'accountant')
-  );
-
-  // Helpers
+  const ORD_KEY = window.__OF_KEY || (window.__OF_KEY = 'ordiniFornitoriRows');
+  const readOnly = (typeof window.isReadOnlyUser === 'function' ? !!window.isReadOnlyUser() : !!(window.__USER && window.__USER.role === 'accountant'));
+  
   const lsGet = window.lsGet || ((k,d)=>{ try{const v=JSON.parse(localStorage.getItem(k)); return (v??d);}catch{return d;}});
   const lsSet = window.lsSet || ((k,v)=>{ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} });
   const formatNNN = window.formatNNN || (n=>String(n).padStart(3,'0'));
-  const nextProgressivo = window.nextProgressivo;
-  const { MAG_MOV_KEY, ART_KEY } = (window.__MAG_KEYS__||{MAG_MOV_KEY:'magMovimenti', ART_KEY:'magazzinoArticoli'});
-    // Default IVA per ordini (legge dalle impostazioni, fallback 22%)
+  
+  const { ART_KEY } = (window.__MAG_KEYS__||{ART_KEY:'magazzinoArticoli'});
   const appSettings = lsGet('appSettings', {}) || {};
   const DEFAULT_IVA = Number(appSettings.defaultIva) || 22;
-
-
-  window.nextIdOrdine = window.nextIdOrdine || function(){
-  const np = (window.nextProgressivo && window.nextProgressivo('ofr')) 
-             || {year:new Date().getFullYear(), num:1};
-  const n3 = (window.formatNNN? window.formatNNN(np.num): String(np.num).padStart(3,'0'));
-  return `OF-${np.year}-${n3}`;
-  };
-
-  // Storage keys
   const FORN_KEY = 'fornitoriRows';
   const ARTK = ART_KEY;
-    // === NEXT ID "OF-YYYY-NNN" ROBUSTO (scansione stato + LS + counters + opz. server) ===
-  window.nextIdOF = window.nextIdOF || async function nextIdOF() {
-    const y = new Date().getFullYear();
-    const pad = n => String(n).padStart(3, '0');
-
-    // 1) prendi tutto ciò che hai in mano
-    const lsArr  = lsGet(ORD_KEY, []) || [];
-    const stArr  = Array.isArray(rows) ? rows : [];
-
-    // 2) opzionale: prova a leggere dal server (se disponibile) — non blocca se offline
-    let svArr = [];
-    try { if (window.api?.kv?.get) svArr = await window.api.kv.get('ordiniFornitoriRows') || []; } catch {}
-
-    // 3) trova il max N dell'anno corrente
-    const all = [...stArr, ...lsArr, ...svArr];
-    let maxN = 0;
-    for (const r of all) {
-      const m = String(r?.id || '').match(/^OF-(\d{4})-(\d{3})$/);
-      if (m && Number(m[1]) === y) {
-        const n = Number(m[2]);
-        if (n > maxN) maxN = n;
-      }
-    }
-
-    // 3.bis) considera anche l'ULTIMO numero emesso dalle Impostazioni (se presente)
-    try {
-      const cfg = lsGet('appSettings', {}) || {};
-      // Proviamo alcune varianti comuni di struttura:
-      const byYear  = cfg?.numerazioni?.OF?.[String(y)]?.ultimo;
-      const flat    = cfg?.numerazioni?.OF?.ultimo ?? cfg?.numeratori?.OF?.ultimo;
-      const legacy  = cfg?.OF_last ?? cfg?.ultimoOF;
-
-      const ultimo = Number(
-        byYear ?? flat ?? legacy ?? 0
-      ) || 0;
-
-      if (ultimo > maxN) maxN = ultimo;
-    } catch {}
-
-    // 4) sincronizza coi counters (se li usi)
-    try {
-      const counters = JSON.parse(localStorage.getItem('counters') || '{}') || {};
-      const cur = counters['OF'] || { year: y, num: maxN };
-      if (cur.year !== y) { cur.year = y; cur.num = maxN; }
-      if (cur.num < maxN) cur.num = maxN; // allinea in avanti
-      cur.num += 1;                       // prossimo disponibile
-      counters['OF'] = cur;
-      localStorage.setItem('counters', JSON.stringify(counters));
-      return { id: `OF-${y}-${pad(cur.num)}`, year: y, num: cur.num };
-    } catch {
-      // fallback se counters non scrivibili
-      const n = maxN + 1;
-      return { id: `OF-${y}-${pad(n)}`, year: y, num: n };
-    }
-  };
 
   // Utils
   const today = ()=> new Date().toISOString().slice(0,10);
@@ -18986,119 +18913,50 @@ const ORD_KEY = window.__OF_KEY || (window.__OF_KEY = 'ordiniFornitoriRows');
   const num = v => Number(v||0);
   const residuoRiga = r => Math.max(0, num(r.qta) - num(r.qtaRicevuta));
 
-  const totaleRigaImponibile = r => num(r.qta) * num(r.prezzo);
-  const totaleRigaIvato = r => {
-    const imponibile = totaleRigaImponibile(r);
+  const totaleDocImponibile = o => (o?.righe||[]).reduce((s,r)=> s + (num(r.qta)*num(r.prezzo)), 0);
+  const totaleDocIvato = o => (o?.righe||[]).reduce((s,r)=>{
+    const imp = num(r.qta)*num(r.prezzo);
     const ivaPerc = num(r.iva != null ? r.iva : DEFAULT_IVA);
-    return imponibile * (1 + (ivaPerc || 0) / 100);
-  };
-  const totaleDocImponibile = o => (o?.righe||[]).reduce((s,r)=> s + totaleRigaImponibile(r), 0);
-  const totaleDocIvato = o => (o?.righe||[]).reduce((s,r)=> s + totaleRigaIvato(r), 0);
+    return s + imp * (1 + ivaPerc/100);
+  }, 0);
 
-  // compat: alias storico (imponibile)
-  const totaleDoc = totaleDocImponibile;
-
-  // ===== Stato automatico ordine =====
-  function statoAutoPerOrdine(o){
-    const righe = o?.righe || [];
-    if (!righe.length) return o.stato || 'Bozza';
-    const totOrd = righe.reduce((s,r)=> s + num(r.qta||0), 0);
-    const totRx  = righe.reduce((s,r)=> s + num(r.qtaRicevuta||0), 0);
-    if (totOrd>0 && totRx>=totOrd) return 'Chiuso';
-    if (totRx>0) return 'Parziale';
-    return o.stato || 'Bozza';
-  }
-
-    // ===== Stato =====
-    // stato ordini (carico iniziale da server se disponibile, altrimenti localStorage)
+  // Stato
   const [rows, setRows] = React.useState(()=> lsGet(ORD_KEY, []));
 
-  // 1) Hydrate da server alla prima apertura
-  React.useEffect(()=>{
-    (async ()=>{
-      try{
-          // Carica dal server SOLO se l’API è disponibile
-        if (!(window.api?.kv?.get)) return;
-        const serverRows = await window.api.kv.get('ordiniFornitoriRows');
-
-        if (Array.isArray(serverRows)) {
-          const localRows = lsGet(ORD_KEY, []);
-          const byId = new Map();
-
-          // 1) metti prima i locali
-          for (const r of (Array.isArray(localRows)?localRows:[])) {
-            byId.set(String(r?.id||''), r);
-          }
-          // 2) poi i server SOLO se più "nuovi"
-          for (const s of serverRows) {
-            const id = String(s?.id||'');
-            const a  = byId.get(id);
-            const au = (a && a.updatedAt) ? new Date(a.updatedAt).getTime() : 0;
-            const su = (s && s.updatedAt) ? new Date(s.updatedAt).getTime() : 0;
-            if (!a || su > au) byId.set(id, s);
-          }
-
-          const merged = [...byId.values()];
-          const sameLen = Array.isArray(localRows) && localRows.length === merged.length;
-          const sameIds = sameLen && localRows.every((r,i)=>String(r.id||'')===String(merged[i]?.id||''));
-          if (!sameLen || !sameIds) {
-            setRows(merged);
-            lsSet(ORD_KEY, merged);
-          }
-        }
-}catch(e){ /* offline o non loggato → ignora */ }
-
-    })();
-  },[]);
-
-    // 2) Ogni volta che rows cambia: salva in locale + (se c'è) scrivi al server, **senza** rileggerlo
   React.useEffect(()=>{
     try{ lsSet(ORD_KEY, rows); }catch{}
     try{ if (window.api?.kv?.set) window.api.kv.set('ordiniFornitoriRows', rows); }catch{}
   },[rows]);
 
   const [q, setQ] = React.useState(query||'');
-  const [filtroStato, setFiltroStato] = React.useState('TUTTI'); // TUTTI, APERTI, PARZIALI, CHIUSI
-  
+  const [filtroStato, setFiltroStato] = React.useState('TUTTI'); 
   const [showForm, setShowForm] = React.useState(false);
   const [draft, setDraft] = React.useState(null);
+  
+  // Stato form allegati smart
+  const [allegatoOFForm, setAllegatoOFForm] = React.useState({ tipo: 'CONFERMA_ORDINE', descrizione: '', path: '', url: '' });
 
-    const [allegatoOFForm, setAllegatoOFForm] = React.useState({
-    tipo: 'ALTRO',
-    descrizione: '',
-    path: '',
-    url: ''
-  });
-
-    // ===== Dropdown articoli su CODICE (OF) =====
-  const [openArtMenuRow, setOpenArtMenuRow] = React.useState(null); // index riga aperta
+  // Dropdown articoli
+  const [openArtMenuRow, setOpenArtMenuRow] = React.useState(null);
   const [artMenuQuery, setArtMenuQuery] = React.useState('');
 
-    React.useEffect(()=>{
+  React.useEffect(()=>{
     function onDocDown(ev){
       try{
         const t = ev.target;
         const inside = t && t.closest && t.closest('.of-codice-input, .of-artmenu');
         if (!inside) setOpenArtMenuRow(null);
-      }catch{
-        setOpenArtMenuRow(null);
-      }
+      }catch{ setOpenArtMenuRow(null); }
     }
-    // uso capture per prendere il click presto e in modo più affidabile
     document.addEventListener('mousedown', onDocDown, true);
     return ()=>document.removeEventListener('mousedown', onDocDown, true);
   },[]);
 
   const fornitori = lsGet(FORN_KEY, []);
-  // Articoli: compat tra chiave nuova (ARTK/ART_KEY = 'magazzinoArticoli')
-  // e legacy usata dal MagazzinoView ('magArticoli')
   const articoliNew = lsGet(ARTK, []);
   const articoliOld = lsGet('magArticoli', []);
-  const articoli  = (Array.isArray(articoliNew) && articoliNew.length)
-    ? articoliNew
-    : (Array.isArray(articoliOld) ? articoliOld : []);
+  const articoli  = (Array.isArray(articoliNew) && articoliNew.length) ? articoliNew : (Array.isArray(articoliOld) ? articoliOld : []);
   
-    // elenco filtrato per dropdown codice (max 20)
   const filteredArticoli = React.useMemo(()=>{
     const arr = Array.isArray(articoli) ? articoli : [];
     const qx = String(artMenuQuery||'').trim().toLowerCase();
@@ -19119,1076 +18977,333 @@ const ORD_KEY = window.__OF_KEY || (window.__OF_KEY = 'ordiniFornitoriRows');
       rifOrdine: '', consegnaPrevista: today(),
       stato: 'Bozza', note: '',
       righe: [],
-      condizioniPagamento: PAGAMENTI_FORNITORE[0], // default: Bonifico vista fattura
+      condizioniPagamento: PAGAMENTI_FORNITORE[0],
       nsRiferimento: '',
-      confermaFileDataUrl: '',
-      confermaFileName: '',
-      __createdAt: new Date().toISOString(),
-      updatedAt:  new Date().toISOString()
+      confermaFileDataUrl: '', confermaFileName: '',
+      __createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
     });
     setShowForm(true);
   }
 
   function startEdit(r){ setDraft(clone(r)); setShowForm(true); }
 
-    // P3 – eliminazione ordine fornitore robusta (LS + cloud/KV)
   async function removeRow(id){
     if (!confirm('Eliminare ordine?')) return;
-
-    // 1) Leggi elenco completo dal localStorage (chiave ORD_KEY)
     let all = [];
-    try {
-      // uso lsGet se disponibile, altrimenti fallback su localStorage
-      if (typeof lsGet === 'function') {
-        all = lsGet(ORD_KEY, []) || [];
-      } else {
-        all = JSON.parse(localStorage.getItem(ORD_KEY) || '[]') || [];
-      }
-    } catch {
-      all = [];
-    }
-
+    try { all = lsGet(ORD_KEY, []) || []; } catch { all = []; }
     const nowISO = new Date().toISOString();
-
-    // 2) Soft delete: marca deletedAt / updatedAt senza rimuovere il record
     const next = (Array.isArray(all) ? all : []).map(x => {
       if (!x || String(x?.id || '') !== String(id)) return x;
-      const clone = { ...x };
-      clone.deletedAt = nowISO;
-      clone.updatedAt = nowISO;
-      return clone;
+      const clone = { ...x }; clone.deletedAt = nowISO; clone.updatedAt = nowISO; return clone;
     });
-
-    // 3) Scrivi subito in localStorage (write-through)
-    try {
-      if (typeof lsSet === 'function') {
-        lsSet(ORD_KEY, next);
-      } else {
-        localStorage.setItem(ORD_KEY, JSON.stringify(next));
-      }
-    } catch {}
-
-    // 4) Aggiorna la UI (stato React)
+    lsSet(ORD_KEY, next);
     setRows(next);
-
-    // 5) Sync cloud / KV (best effort, non blocca se offline)
-    try {
-      // snapshot selettivo Supabase
-      if (typeof window.syncExportToCloudOnly === 'function') {
-        window.syncExportToCloudOnly(['ordiniFornitoriRows']);
-      }
-
-      // KV “compat”
-      if (typeof window.persistKV === 'function') {
-        window.persistKV('ordiniFornitoriRows', next);
-      }
-      if (window.api?.kv?.set) {
-        await window.api.kv.set('ordiniFornitoriRows', next);
-      }
-    } catch (e) {
-      console.warn('[OF] sync eliminazione fallita', e);
-    }
-
-    try { alert('Ordine eliminato ✅'); } catch {}
+    try { window.syncExportToCloudOnly && window.syncExportToCloudOnly(['ordiniFornitoriRows']); } catch {}
   }
 
-      // Duplica un ordine fornitore esistente
   async function duplicaOrdine(ofOrig){
     if (!ofOrig || !ofOrig.id) return;
-
-    // 1) genera nuovo ID robusto in serie OF-YYYY-NNN
-    const idObj = (typeof window.nextIdOF === 'function')
-      ? await window.nextIdOF()
-      : { id: `OF-${new Date().getFullYear()}-${formatNNN(1)}` };
-
-    // 2) copia profonda dell'ordine
+    const idObj = (typeof window.nextIdOF === 'function') ? await window.nextIdOF() : { id: `OF-${new Date().getFullYear()}-${formatNNN(1)}` };
     const copy = clone(ofOrig);
-    copy.id    = idObj.id;
-    copy.stato = 'Bozza';
-
-    // 2.bis) azzera il ricevuto sulle righe
-    copy.righe = (Array.isArray(copy.righe) ? copy.righe : []).map(r => ({
-      ...r,
-      qtaRicevuta: Number(r.qtaRicevuta || 0) > 0 ? 0 : (r.qtaRicevuta || 0)
-    }));
-
-    // 2.ter) date di tracking
-    const now = new Date().toISOString();
-    copy.__createdAt = now;
-    copy.updatedAt   = now;
-
-    // 3) costruisci il NUOVO array righe in memoria
-    const nextRows = (() => {
-      const base = Array.isArray(rows) ? clone(rows) : [];
-      base.push(copy); // lo sortiamo comunque dopo con compareOF
-      return base;
-    })();
-
-    // 3.bis) salvataggio su localStorage
-    try { lsSet(ORD_KEY, nextRows); } catch {}
-
-    // 3.ter) compat: eventuali persistenze legacy
-    try { if (window.persistOF) window.persistOF(copy); } catch {}
-    try { if (window.persistKV) window.persistKV('ordiniFornitoriRows', nextRows); } catch {}
-
-    // 3.quater) server, se presente
-    (async ()=> {
-      try {
-        if (window.api?.kv?.set) {
-          await window.api.kv.set('ordiniFornitoriRows', nextRows);
-        }
-      } catch {}
-    })();
-
-    // 3.quinq) aggiorna stato React → rerender immediato
+    copy.id = idObj.id; copy.stato = 'Bozza';
+    copy.righe = (Array.isArray(copy.righe) ? copy.righe : []).map(r => ({ ...r, qtaRicevuta: 0 }));
+    const now = new Date().toISOString(); copy.__createdAt = now; copy.updatedAt = now;
+    const nextRows = [...rows, copy];
+    lsSet(ORD_KEY, nextRows);
     setRows(nextRows);
-
-    // 4) reset filtri per vederlo subito
-    setFiltroStato('TUTTI');
-    setQ('');
-
-    try { alert('Ordine duplicato come ' + copy.id); } catch {}
+    setFiltroStato('TUTTI'); setQ('');
+    alert('Ordine duplicato: ' + copy.id);
   }
 
-    async function saveDraft(){
+  async function saveDraft(){
     const now = new Date().toISOString();
     const doc = JSON.parse(JSON.stringify(draft));
-          // Se per qualsiasi motivo la bozza non ha ID, generane uno ora
-        // Se la bozza non ha ID, generane uno robusto adesso
-        // Se la bozza non ha ID, generane uno robusto adesso (OF-YYYY-NNN)
     if (!doc.id) {
-      let idObj = null;
-
-      // 1) prima scelta: nextIdOF dedicato agli Ordini Fornitori
-      if (typeof window.nextIdOF === 'function') {
-        try {
-          idObj = await window.nextIdOF();
-        } catch {}
-      }
-
-      // 2) fallback: generatore generico nextIdFor, ma in serie OF
-      if (!idObj && typeof window.nextIdFor === 'function') {
-        try {
-          idObj = await window.nextIdFor({
-            prefix: 'OF',
-            storageKey: ORD_KEY,
-            seriesKey: 'OF',
-            width: 3
-          });
-        } catch {}
-      }
-
-      if (idObj && idObj.id) doc.id = idObj.id;
+      const idObj = (typeof window.nextIdOF === 'function') ? await window.nextIdOF() : { id:`OF-${new Date().getFullYear()}-001` };
+      doc.id = idObj.id;
+    }
+    doc.updatedAt = now;
+    
+    // Stato auto
+    const righe = doc.righe || [];
+    if (righe.length) {
+       const totOrd = righe.reduce((s,r)=>s+num(r.qta),0);
+       const totRx = righe.reduce((s,r)=>s+num(r.qtaRicevuta),0);
+       if (totOrd>0 && totRx>=totOrd) doc.stato='Chiuso';
+       else if (totRx>0) doc.stato='Parziale';
     }
 
-    const imponibileDoc = (doc?.righe||[]).reduce((s,r)=> s + Number(r.qta||0)*Number(r.prezzo||0), 0);
-    const totaleIvatoDoc = (doc?.righe||[]).reduce((s,r)=>{
-      const q = Number(r.qta||0);
-      const p = Number(r.prezzo||0);
-      const perc = (r.iva != null ? Number(r.iva) : DEFAULT_IVA) || 0;
-      return s + q * p * (1 + perc/100);
-    }, 0);
-    doc.imponibile = imponibileDoc;
-    doc.totaleIvato = totaleIvatoDoc;
-    doc.totale = totaleIvatoDoc;
-    doc.stato  = (function(o){
-      const righe = o?.righe || [];
-      if (!righe.length) return o.stato || 'Bozza';
-      const totOrd = righe.reduce((s,r)=> s + Number(r.qta||0), 0);
-      const totRx  = righe.reduce((s,r)=> s + Number(r.qtaRicevuta||0), 0);
-      if (totOrd>0 && totRx>=totOrd) return 'Chiuso';
-      if (totRx>0) return 'Parziale';
-      return o.stato || 'Bozza';
-    })(doc);
-    if (!doc.__createdAt) doc.__createdAt = now;
-    doc.updatedAt = now;
+    setRows(prev => {
+      const arr = Array.isArray(prev) ? JSON.parse(JSON.stringify(prev)) : [];
+      const j = arr.findIndex(x => String(x?.id||'') === String(doc.id||''));
+      if (j >= 0) arr[j] = doc; else arr.push(doc);
+      try { lsSet(ORD_KEY, arr); } catch {}
+      return arr;
+    });
 
-    const idx = rows.findIndex(x=>x.id===doc.id);
-    const nxt = JSON.parse(JSON.stringify(rows));
-    if (idx>=0) nxt[idx]=doc; else nxt.push(doc);
-        // === Persistenza robusta (evita snapshot vecchi di "rows")
-setRows(prev => {
-  const arr = Array.isArray(prev) ? JSON.parse(JSON.stringify(prev)) : [];
-  const j = arr.findIndex(x => String(x?.id||'') === String(doc.id||''));
-  if (j >= 0) arr[j] = doc; else arr.push(doc);
-
-  // 1) scrivi subito in localStorage
-  try { lsSet(ORD_KEY, arr); } catch {}
-
-  // 2) storage “compat”
-  try { if (window.persistOF) window.persistOF(doc); } catch {}
-  try { if (window.persistKV) window.persistKV('ordiniFornitoriRows', arr); } catch {}
-
-  // 3) server (se c’è)
-  (async ()=>{ try { if (window.api?.kv?.set) await window.api.kv.set('ordiniFornitoriRows', arr); } catch {} })();
-
-  return arr;
-});
-
-setShowForm(false);
-setDraft(null);
-// azzera filtri per sicurezza (se prima stavi filtrando "CHIUSI" o cercando testo)
-setFiltroStato('TUTTI');
-setQ('');
-setTimeout(()=>{ try{ alert('Ordine salvato.'); }catch{} }, 0);
-
+    setShowForm(false);
+    setDraft(null);
+    setFiltroStato('TUTTI'); setQ('');
+    try{ window.syncExportToCloud && window.syncExportToCloud(); }catch{}
   }
 
-  // RIGHE
-    function addRiga(){
-    const d = clone(draft); 
-    d.righe = d.righe || [];
-    d.righe.push({
-      codice:'', descr:'', um:'',
-      qta:1,
-      prezzo:0,
-      iva: DEFAULT_IVA,        // 👈 nuovo campo IVA%
-      qtaRicevuta:0
-    });
+  // Righe editing
+  function addRiga(){
+    const d = clone(draft); d.righe = d.righe || [];
+    d.righe.push({ codice:'', descr:'', um:'', qta:1, prezzo:0, iva: DEFAULT_IVA, qtaRicevuta:0 });
     setDraft(d);
   }
   function updRiga(i, patch){ const d=clone(draft); d.righe[i]={...d.righe[i], ...patch}; setDraft(d); }
   function delRiga(i){ const d=clone(draft); d.righe.splice(i,1); setDraft(d); }
   function pickArticolo(i, codice){
     const a = (articoli||[]).find(x => (x.codice||x.id) === codice);
-    if (!a) { 
-      updRiga(i, { codice }); 
-      return; 
-    }
+    if (!a) { updRiga(i, { codice }); return; }
     updRiga(i,{
-      codice: (a.codice||a.id),
-      descr:  (a.descrizione||a.nome||''),
-      um:     (a.um||a.unita||''),
-      // In Ordini Fornitori il "prezzo" è il costo d'acquisto:
-      // non usare mai a.prezzo (vendita). Se manca costo, resta 0 e lo metti a mano.
-      prezzo: num(a.costo)||num(a.cmp)||0,
-      iva:    (typeof a.iva === 'number' ? a.iva : DEFAULT_IVA)
+      codice: (a.codice||a.id), descr: (a.descrizione||a.nome||''), um: (a.um||a.unita||''),
+      prezzo: num(a.costo)||num(a.cmp)||0, iva: (typeof a.iva === 'number' ? a.iva : DEFAULT_IVA)
     });
   }
 
-  // Ricezione (modal per riga)
-  const [rx, setRx] = React.useState(null); // { indexRiga }
+  // Ricezione
+  const [rx, setRx] = React.useState(null);
   function apriRicezione(i){ setRx({ indexRiga:i }); }
-
   function confermaRicezione({ qta, data, ddtFornitore, note, updateCMP }){
     if (!draft || rx==null) return;
     const i = rx.indexRiga; const r = draft.righe[i];
-    const residuo = residuoRiga(r);
-    const take = Math.max(0, Math.min(residuo, Number(qta||0)));
+    const take = Math.max(0, Math.min(residuoRiga(r), Number(qta||0)));
     if (take<=0) { setRx(null); return; }
-
-    // 1) movimento magazzino
-    window.creaMovimentoCaricoDaOrdine(draft, [{ codice: r.codice, qta: take, prezzo: num(r.prezzo) }], {
-      data, ddtFornitore, note, updateCMP
-    });
-
-    // 2) aggiorna riga ordine
+    window.creaMovimentoCaricoDaOrdine(draft, [{ codice: r.codice, qta: take, prezzo: num(r.prezzo) }], { data, ddtFornitore, note, updateCMP });
     updRiga(i, { qtaRicevuta: num(r.qtaRicevuta)+take });
-
-    // 3) aggiorna stato automatico (Parziale / Chiuso)
-    setDraft(d=>{
-      const dd = clone(d);
-      const res = (dd.righe||[]).map(rr => residuoRiga(rr));
-      const hasRighe = (dd.righe||[]).some(rr => num(rr.qta)>0);
-      const allClosed = hasRighe && res.every(x=>x===0);
-      const anyReceived = (dd.righe||[]).some(rr => num(rr.qtaRicevuta)>0);
-      if (allClosed) dd.stato='Chiuso';
-      else if (anyReceived) dd.stato='Parziale';
-      return dd;
-    });
-
     setRx(null);
   }
-
-  // Ricevi TUTTO residuo (azione rapida per riga)
   function riceviTutto(i){
     if (!draft) return;
-    const r = draft.righe[i];
-    const res = residuoRiga(r);
+    const r = draft.righe[i]; const res = residuoRiga(r);
     if (res<=0) return;
-    // 1) movimento
-    window.creaMovimentoCaricoDaOrdine(draft, [{ codice: r.codice, qta: res, prezzo: num(r.prezzo)}], {
-      data: today()
-    });
-    // 2) aggiorna riga
+    window.creaMovimentoCaricoDaOrdine(draft, [{ codice: r.codice, qta: res, prezzo: num(r.prezzo)}], { data: today() });
     updRiga(i, { qtaRicevuta: num(r.qtaRicevuta)+res });
-    // 3) stato auto
-    setDraft(d=>{
-      const dd = clone(d);
-      const resArr = (dd.righe||[]).map(rr => residuoRiga(rr));
-      const hasRighe = (dd.righe||[]).some(rr => num(rr.qta)>0);
-      const allClosed = hasRighe && resArr.every(x=>x===0);
-      const anyReceived = (dd.righe||[]).some(rr => num(rr.qtaRicevuta)>0);
-      if (allClosed) dd.stato='Chiuso';
-      else if (anyReceived) dd.stato='Parziale';
-      return dd;
-    });
+  }
+  function riceviOrdineIntero(){
+    if (!draft) return;
+    const righe = (draft.righe||[]).map(r => {
+      const res = Math.max(0, num(r.qta) - num(r.qtaRicevuta));
+      return res>0 ? { codice: String(r.codice||'').trim(), qta: res, prezzo: num(r.prezzo) } : null;
+    }).filter(Boolean);
+    if (!righe.length) { alert('Nessun residuo.'); return; }
+    if (!confirm(`Ricevere tutto il residuo? (${righe.length} righe)`)) return;
+    window.creaMovimentoCaricoDaOrdine(draft, righe, { data: today().slice(0,10) });
+    const d = clone(draft);
+    d.righe = d.righe.map(r => { const res = Math.max(0, num(r.qta)-num(r.qtaRicevuta)); return res>0 ? {...r, qtaRicevuta: num(r.qtaRicevuta)+res} : r; });
+    d.stato = 'Chiuso'; // auto-close
+    setDraft(d);
+    saveDraft();
   }
 
-    function riceviOrdineIntero(){
-  if (!draft) return;
-  // Costruisci elenco righe residue da ricevere
-  const righe = (draft.righe||[])
-    .map(r => {
-      const q = Number(r.qta||0);
-      const rx = Number(r.qtaRicevuta||0);
-      const res = Math.max(0, q - rx);
-      return res>0 ? { codice: String(r.codice||'').trim(), qta: res, prezzo: Number(r.prezzo||0) } : null;
-    })
-    .filter(Boolean);
-
-  if (righe.length===0) {
-    alert('Nessun residuo da ricevere su questo ordine.');
-    return;
-  }
-
-  // Conferma per sicurezza (evita doppi click)
-  if (!confirm(`Confermi la ricezione del residuo? (${righe.length} righe)`)) return;
-
-  // 1) Movimento magazzino cumulativo (usa data odierna)
-  const today = new Date().toISOString().slice(0,10);
-  window.creaMovimentoCaricoDaOrdine(draft, righe, { data: today });
-
-  // 2) Aggiorna draft: qtaRicevuta = qta per le righe interessate
-  const d = clone(draft);
-  d.righe = (d.righe||[]).map(r => {
-    const q = Number(r.qta||0);
-    const rx = Number(r.qtaRicevuta||0);
-    const res = Math.max(0, q - rx);
-    return res>0 ? { ...r, qtaRicevuta: rx + res } : r;
-  });
-
-  // 3) Stato automatico (Chiuso/Parziale)
-  const resArr = (d.righe||[]).map(rr => Math.max(0, Number(rr.qta||0) - Number(rr.qtaRicevuta||0)));
-  const hasRighe = (d.righe||[]).some(rr => Number(rr.qta||0)>0);
-  const allClosed = hasRighe && resArr.every(x=>x===0);
-  const anyReceived = (d.righe||[]).some(rr => Number(rr.qtaRicevuta||0)>0);
-  if (allClosed) d.stato = 'Chiuso';
-  else if (anyReceived) d.stato = 'Parziale';
-
-  setDraft(d);
-
-  // 4) Persisti subito (write-through coerente)
-  saveDraft();
-}
-
-    // Filtro elenco (search + stato) + ORDINAMENTO DESC (OF-YYYY-NNN)
+  // Lista
   const compareOF = (a,b)=>{
     const ra = String(a.id||'').match(/^OF-(\d{4})-(\d{3})$/);
     const rb = String(b.id||'').match(/^OF-(\d{4})-(\d{3})$/);
     if (ra && rb){
-      const ya = +ra[1], yb = +rb[1];
-      if (yb!==ya) return yb-ya;
-      const na = +ra[2], nb = +rb[2];
-      if (nb!==na) return nb-na;
+      if (+rb[1]!==+ra[1]) return +rb[1]-+ra[1];
+      if (+rb[2]!==+ra[2]) return +rb[2]-+ra[2];
     }
-    const ta = Date.parse(a.updatedAt||a.__createdAt||a.data||0) || 0;
-    const tb = Date.parse(b.updatedAt||b.__createdAt||b.data||0) || 0;
-    if (tb!==ta) return tb-ta;
     return String(b.id||'').localeCompare(String(a.id||''));
   };
 
-  // Mappa rapida degli ordini che hanno almeno un allegato (entityType = 'OF')
-  let ofIdsWithAllegati = new Set();
-  try {
-    const allAllegati = lsGet('allegatiRows', []) || [];
-    if (Array.isArray(allAllegati)) {
-      ofIdsWithAllegati = new Set(
-        allAllegati
-          .filter(a =>
-            a && !a.deletedAt &&
-            String(a.entityType || '').toUpperCase() === 'OF' &&
-            a.entityId
-          )
-          .map(a => String(a.entityId))
-      );
-    }
-  } catch {}
-
-  const frows = (rows||[])
-
-  // nascondi ordini soft-delete
-  .filter(r => !r?.deletedAt)
-  .map(o => ({ ...o, statoCalc: (function(){
+  const frows = (rows||[]).filter(r => !r?.deletedAt).map(o => ({ ...o, statoCalc: (function(){
     const righe = o?.righe || [];
     if (!righe.length) return o.stato || 'Bozza';
-    const totOrd = righe.reduce((s,r)=> s + Number(r.qta||0), 0);
-    const totRx  = righe.reduce((s,r)=> s + Number(r.qtaRicevuta||0), 0);
+    const totOrd = righe.reduce((s,r)=> s + num(r.qta), 0);
+    const totRx  = righe.reduce((s,r)=> s + num(r.qtaRicevuta), 0);
     if (totOrd>0 && totRx>=totOrd) return 'Chiuso';
     if (totRx>0) return 'Parziale';
     return o.stato || 'Bozza';
-  })()}))
-  .filter(r=>{
+  })()})).filter(r=>{
     const s=(q||'').toLowerCase().trim(); if(!s) return true;
-    const hay = [
-      r.id, r.data, r.stato, r.statoCalc, r.rifOrdine, r.consegnaPrevista, r.fornitoreRagione, r.fornitoreId
-    ].concat((r.righe||[]).map(x=>`${x.codice} ${x.descr}`)).join(' ').toLowerCase();
+    const hay = [r.id, r.data, r.stato, r.statoCalc, r.rifOrdine, r.fornitoreRagione].concat((r.righe||[]).map(x=>x.codice)).join(' ').toLowerCase();
     return hay.includes(s);
-  })
-  .filter(r=>{
+  }).filter(r=>{
     if (filtroStato==='TUTTI') return true;
     if (filtroStato==='CHIUSI') return r.statoCalc==='Chiuso';
     if (filtroStato==='PARZIALI') return r.statoCalc==='Parziale';
     if (filtroStato==='APERTI') return r.statoCalc!=='Chiuso';
     return true;
-  })
-  .sort(compareOF);
+  }).sort(compareOF);
 
-    // Se arriviamo da "OF in ritardo" con un ID da aprire, apri subito l'ordine
-  React.useEffect(()=>{
-    try{
-      const openId = localStorage.getItem('__OF_OPEN_ID');
-      if (!openId) return;
-      localStorage.removeItem('__OF_OPEN_ID');
-      const target = (rows || []).find(r => String(r.id) === openId);
-      if (target) {
-        setDraft(clone(target));
-        setShowForm(true);
-      }
-    }catch(_){}
-  }, [rows]);
-
-  // UI
-  async function creaNuovoOrdine(){
-  const idObj = (typeof window.nextIdOF === 'function') ? await window.nextIdOF() : { id: `OF-${new Date().getFullYear()}-${formatNNN(1)}` };
-
-  const nuovo = {
-    id: idObj.id,
-    data: new Date().toISOString().slice(0,10),
-    stato: 'Bozza',
-    righe: [],
-    __createdAt: new Date().toISOString(),
-    updatedAt:  new Date().toISOString()
-  };
-  if (window.persistOF) window.persistOF(nuovo);
-
-  setRows(prev => {
-    const next = [nuovo, ...(Array.isArray(prev)?prev:[])];
-    try { if (typeof window.persistKV === 'function') window.persistKV('ordiniFornitoriRows', next); } catch {}
-    try { lsSet(ORD_KEY, next); } catch {}
-    return next;
-  });
-
-  alert('Nuovo ordine creato: ' + idObj.id);
-}
-
-
+  // Render
   return e('div', { className:'container' },
     e('div', { className:'row', style:{alignItems:'center', gap:12, marginBottom:12} },
       e('h2', null, `Ordini Fornitori (${frows.length})`),
       e('div', { style:{flex:1} }),
       e('select', { value:filtroStato, onChange:ev=>setFiltroStato(ev.target.value), style:{minWidth:150} },
-        e('option', {value:'TUTTI'}, 'Tutti'),
-        e('option', {value:'APERTI'}, 'Aperti'),
-        e('option', {value:'PARZIALI'}, 'Parziali'),
-        e('option', {value:'CHIUSI'}, 'Chiusi')
+        e('option', {value:'TUTTI'}, 'Tutti'), e('option', {value:'APERTI'}, 'Aperti'), e('option', {value:'PARZIALI'}, 'Parziali'), e('option', {value:'CHIUSI'}, 'Chiusi')
       ),
       e('input', { placeholder:'Cerca…', value:q, onChange:ev=>setQ(ev.target.value), style:{minWidth:220} }),
       e('button', { className:'btn', onClick:startNew, ...window.roProps() }, '➕ Nuovo ordine'),
-          e('button', { className:'btn btn-outline', onClick: ()=> window.exportOrdiniApertiCSV && window.exportOrdiniApertiCSV() }, '⬇️ CSV ordini aperti'),
-           ' ',
-          e('button', { id:'btn-reset-of',  className:'btn btn-outline', title:'Reset filtri', onClick: ()=>{ setQ(''); setFiltroStato('TUTTI'); }}, '↺ Reset filtro')
+      e('button', { className:'btn btn-outline', onClick: ()=> window.exportOrdiniApertiCSV && window.exportOrdiniApertiCSV() }, '⬇️ CSV aperti'),
+      e('button', { className:'btn btn-outline', onClick: ()=>{ setQ(''); setFiltroStato('TUTTI'); }}, '↺ Reset')
     ),
+
     e('div', { className:'table-wrap' },
-  e('table', { className:'table' },
-    e('thead', null, 
-      e('tr', null,
-        e('th', null, 'ID'),
-        e('th', null, 'Data'),
-        e('th', null, 'Fornitore'),
-        e('th', null, '#Righe'),
-        e('th', null, 'Totale'),
-        e('th', null, 'Stato'),
-        e('th', null, 'Azioni')
+      e('table', { className:'table' },
+        e('thead', null, e('tr', null, e('th', null, 'ID'), e('th', null, 'Data'), e('th', null, 'Fornitore'), e('th', null, '#Righe'), e('th', null, 'Totale'), e('th', null, 'Stato'), e('th', null, 'Azioni'))),
+        e('tbody', null, frows.length ? frows.map(r => 
+          e('tr', { key: r.id },
+            e('td', null, r.id),
+            e('td', null, r.data || ''),
+            e('td', null, r.fornitoreRagione || r.fornitoreId || ''),
+            e('td', null, (r.righe || []).length),
+            e('td', null, (totaleDocIvato(r)).toFixed(2)),
+            e('td', null, r.statoCalc || r.stato || 'Bozza'),
+            e('td', null,
+              e('button', { className:'btn btn-sm', onClick:()=>startEdit(r), disabled: readOnly }, '✏️'), ' ',
+              e('button', { className:'btn btn-sm', onClick:()=>duplicaOrdine(r), disabled: readOnly }, '⧉'), ' ',
+              e('button', { className:'btn btn-sm', onClick:()=>window.printOrdineFornitore && window.printOrdineFornitore(r) }, '🖨️'), ' ',
+              !readOnly && e('button', { className:'btn btn-sm btn-danger', onClick:()=>removeRow(r.id) }, '🗑️')
+            )
+          )
+        ) : e('tr', null, e('td', { colSpan: 7, className: 'muted' }, 'Nessun ordine.')))
       )
     ),
-    e('tbody', null,
-      frows.length
-        ? frows.map(r => 
-              e('tr', { key: r.id },
-              e('td', null,
-                r.id,
-                (r.confermaFileDataUrl || ofIdsWithAllegati.has(String(r.id || '')))
-                  ? ' 📎'
-                  : ''
-              ),
-              e('td', null, r.data || ''),
-              e('td', null, r.fornitoreRagione || r.fornitoreId || ''),
-              e('td', null, (r.righe || []).length),
-              e('td', null, (function(o){
-                const totIvato = (o.totaleIvato != null ? o.totaleIvato : totaleDocIvato(o));
-                return totIvato.toFixed(2);
-              })(r)),
-              e('td', null, r.statoCalc || r.stato || 'Bozza'),
 
-              e('td', null,
-                // Modifica
-                e('button', {
-                  className:'btn btn-sm',
-                  onClick:()=>startEdit(r),
-                  disabled: readOnly,
-                  title: readOnly ? 'Sola lettura' : ''
-                }, '✏️'),
-                ' ',
-                // Visualizza (solo anteprima/modale)
-                e('button', {
-                  className:'btn btn-sm',
-                  onClick:()=>{ const doc=clone(r); setDraft(doc); setShowForm(true);}
-                }, '📄'),
-                ' ',
-                // Duplica
-                e('button', {
-                  className:'btn btn-sm',
-                  onClick:()=>duplicaOrdine(r),
-                  disabled: readOnly,
-                  title: readOnly ? 'Sola lettura' : 'Duplica ordine'
-                }, '⧉ Duplica'),
-                ' ',
-                // Stampa
-                e('button', {
-                  className:'btn btn-sm',
-                  onClick:()=>window.printOrdineFornitore && window.printOrdineFornitore(r)
-                }, '🖨️ Stampa'),
-                ' ',
-                // Elimina
-                !readOnly && e('button', {
-                  className:'btn btn-sm btn-danger',
-                  onClick:()=>removeRow(r.id)
-                }, '🗑️')
-              )
-
-            )
-          )
-        : e('tr', null,
-            e('td', { colSpan: 7, className: 'muted' },
-              'Nessun ordine da mostrare. Premi "↺ Reset filtro" oppure "➕ Nuovo ordine".'
-            )
-          )
-    )
-  )
-), // ← lascia la virgola qui: separa dal blocco successivo (la modale)
-
-    // MODALE Ordine Fornitore (con sola-lettura)
-  showForm && e('div', { className:'modal-backdrop' },
-    e('div', { className:'modal-card', style:{maxWidth:1200, width:'100%'} },
-
-    e('h3', null, draft && draft.id ? `Ordine ${draft.id}` : 'Nuovo Ordine'),
-
-    // CAMPI BLOCCATI IN SOLA LETTURA
+    // FORM MODALE
+    showForm && e('div', { className:'modal-backdrop' },
+      e('div', { className:'modal-card', style:{maxWidth:1200, width:'100%'} },
+        e('h3', null, draft.id ? `Ordine ${draft.id}` : 'Nuovo Ordine'),
         e('fieldset', { disabled: readOnly },
-
-      // meta ordine in griglia (niente sovrapposizioni)
-e('div', { 
-  className:'form', 
-  style:{
-    display:'grid',
-    gridTemplateColumns:'repeat(auto-fit, minmax(260px, 1fr))',
-    gap:12
-  }
-},
-  // Titolo sezione
-  e('div',{className:'form-group-title', style:{gridColumn:'1 / -1'}}, 'Dati ordine'),
-
-  // Data
-  e('div', null,
-    e('label', null, 'Data'),
-    e('input', { 
-      type:'date', 
-      value:draft.data, 
-      onChange:ev=>setDraft({...draft, data:ev.target.value})
-    })
-  ),
-
-  // Fornitore
-  e('div', null,
-    e('label', null, 'Fornitore'),
-    fornitori && fornitori.length
-      ? e('select', {
-          value: draft.fornitoreId || '',
-          onChange: ev => {
-            const id = ev.target.value;
-            const f  = fornitori.find(x => String(x.id)===String(id)) || null;
-            setDraft(p => ({
-              ...p,
-              fornitoreId: id,
-              fornitoreRagione: f ? (f.ragione || f.ragioneSociale || '') : ''
-            }));
-          }
-        },
-          e('option',{value:''},'— seleziona —'),
-          ...fornitori.map(f =>
-            e('option',{key:f.id,value:f.id},String(f.ragione||f.ragioneSociale||''))
-          )
-        )
-      : e('a', { className:'btn btn-outline', href:'#/fornitori' }, 'Crea fornitore…')
-  ),
-
-  // Pagamento fornitore
-  e('div', null,
-    e('label', null, 'Pagamento fornitore'),
-    e('select', {
-      name:'condizioniPagamento',
-      value: draft.condizioniPagamento || '',
-      onChange: ev => setDraft(p => ({ ...p, condizioniPagamento: ev.target.value }))
-    },
-      PAGAMENTI_FORNITORE.map(opt =>
-        e('option', { key: opt, value: opt }, opt)
-      )
-    )
-  ),
-
-  // Consegna prevista
-  e('div', null,
-    e('label', null, 'Consegna prevista'),
-    e('input', {
-      type:'date',
-      value:draft.consegnaPrevista || '',
-      onChange: ev => setDraft({...draft, consegnaPrevista:ev.target.value})
-    })
-  ),
-
-  // NS riferimento (interno Anima) – a tutta larghezza
-  e('div', { style:{gridColumn:'1 / -1'} },
-    e('label', null, 'NS Riferimento (Anima SRL)'),
-    e('input', { 
-      value:draft.nsRiferimento || '', 
-      onChange:ev=>setDraft({...draft, nsRiferimento:ev.target.value}),
-      placeholder:'es. Commessa C-2025-123 / Richiedente interno'
-    })
-  ),
-
-  // Riferimento fornitore – a tutta larghezza
-  e('div', { style:{gridColumn:'1 / -1'} },
-    e('label', null, 'Riferimento fornitore'),
-    e('input', { 
-      value:draft.rifOrdine || '', 
-      onChange:ev=>setDraft({...draft, rifOrdine:ev.target.value}), 
-      placeholder:'es. richiesta n. … / preventivo fornitore'
-    })
-  ),
-        // Conferma ordine allegata – a tutta larghezza
-        e('div', { style:{gridColumn:'1 / -1'} },
-          e('label', null, 'Conferma ordine (PDF/JPG/PNG)'),
-          e('input', {type:'file',
-            accept:'application/pdf,image/*',
-            onChange: ev => {
-              try{
-                const f = ev?.target?.files?.[0];
-                if(!f){ 
-                  setDraft({...draft, confermaFileDataUrl:'', confermaFileName:''}); 
-                  return; 
-                }
-                const rd = new FileReader();
-                rd.onload = () => setDraft({...draft, confermaFileDataUrl:String(rd.result||''), confermaFileName:f.name});
-                rd.readAsDataURL(f);
-              }catch{}
-            }
-          }),
-          (draft.confermaFileName
-            ? e('div', {className:'muted'}, 'Allegato: ', draft.confermaFileName, ' ',
-                e('button', {
-                  type:'button', 
-                  className:'btn btn-sm btn-outline',
-                  onClick:()=>setDraft({...draft, confermaFileDataUrl:'', confermaFileName:''})
-                }, 'Rimuovi')
-              )
-            : null
-          )
-        ),
-
-        // Stato ordine
-        e('div', null,
-          e('label', null, 'Stato'),
-          e('select', { 
-            value:draft.stato, 
-            onChange:ev=>setDraft({...draft, stato:ev.target.value}) 
-          },
-            e('option', { value:'Bozza' }, 'Bozza'),
-            e('option', { value:'Inviato' }, 'Inviato'),
-            e('option', { value:'Confermato' }, 'Confermato'),
-            e('option', { value:'Parziale' }, 'Parziale'),
-            e('option', { value:'Chiuso' }, 'Chiuso'),
-            e('option', { value:'Annullato' }, 'Annullato')
-          )
-        )
-      ),
-
-
-      // tabella righe
-      e('div', { style:{marginTop:12} },
-        // datalist per suggerimenti articoli (codice + descrizione)
-        articoli.length ? e('datalist', { id:'of-articoli-list' },
-          articoli.map(a => e('option', {
-            key:   (a.codice || a.id),
-            value: (a.codice || a.id)
-          }, (a.codice || a.id) + ' — ' + (a.descrizione || a.nome || '')))
-        ) : null,
-        e('table', { className:'table' },
-          e('thead', null, e('tr', null,
-            e('th', null, '#'),
-            e('th', null, 'Codice'),
-            e('th', null, 'Descrizione'),
-            e('th', null, 'UM'),
-            e('th', null, 'Qta Ord.'),
-            e('th', null, 'Ricevuto'),
-            e('th', null, 'Residuo'),
-            e('th', null, 'Prezzo'),
-            e('th', null, 'IVA %'),
-            e('th', null, 'Totale'),
-            e('th', null, 'Azioni')
-          )),
-
-          e('tbody', null,
-            (draft.righe||[]).map((r,i)=> e('tr', { key:i },
-              e('td', null, String(i+1)),
-              e('td', null,
-                e('div', { style:{ position:'relative' } },
-
-                  e('input', {
-                    className:'of-codice-input',
-                    list: articoli.length ? 'of-articoli-list' : null, // compat datalist
-                    value: r.codice || '',
-
-                    onFocus: ev=>{
-                      setOpenArtMenuRow(i);
-                      setArtMenuQuery(ev.target.value || '');
-                    },
-                    onClick: ev=>{
-                      setOpenArtMenuRow(i);
-                      setArtMenuQuery(ev.target.value || '');
-                    },
-
-                    onChange: ev => {
-                      const codice = ev.target.value;
-                      setArtMenuQuery(codice);
-                      setOpenArtMenuRow(i);
-                      pickArticolo(i, codice);
-                    }
-                  }),
-
-                  (openArtMenuRow===i && filteredArticoli.length>0)
-                    ? e('div', {
-                        className:'of-artmenu',
-                        style:{
-                          position:'absolute',
-                          zIndex:60,
-                          top:'100%',
-                          left:0,
-                          right:0,
-                          maxHeight:220,
-                          overflow:'auto',
-                          background:'#fff',
-                          border:'1px solid #d1d5db',
-                          borderRadius:8,
-                          boxShadow:'0 6px 18px rgba(0,0,0,0.12)',
-                          marginTop:2
-                        }
-                      },
-                        filteredArticoli.map(a => e('div', {
-                          key: (a.codice||a.id),
-                          style:{ padding:'6px 8px', cursor:'pointer' },
-                          onMouseDown: ev=>{
-                            ev.preventDefault(); // evita blur prima del click
-                            pickArticolo(i, (a.codice||a.id));
-                            setOpenArtMenuRow(null);
-                          }
-                        }, `${a.codice||a.id} — ${(a.descrizione||a.nome||'')}`))
-                      )
-                    : null
+          // Header
+          e('div', { className:'form', style:{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(260px, 1fr))', gap:12} },
+            e('div', {className:'form-group-title', style:{gridColumn:'1/-1'}}, 'Dati ordine'),
+            e('div', null, e('label', null, 'Data'), e('input', { type:'date', value:draft.data, onChange:ev=>setDraft({...draft, data:ev.target.value}) })),
+            e('div', null, e('label', null, 'Fornitore'), fornitori.length ? e('select', { value: draft.fornitoreId || '', onChange: ev => { const id=ev.target.value; const f=fornitori.find(x=>String(x.id)===String(id)); setDraft(p=>({...p, fornitoreId:id, fornitoreRagione:f?(f.ragione||f.ragioneSociale):''})); }}, e('option',{value:''},'—'), ...fornitori.map(f=>e('option',{key:f.id,value:f.id},f.ragione||f.ragioneSociale))) : e('a', {href:'#/fornitori'}, 'Crea fornitore...')),
+            e('div', null, e('label', null, 'Pagamento'), e('select', { value: draft.condizioniPagamento||'', onChange: ev=>setDraft({...draft, condizioniPagamento:ev.target.value}) }, PAGAMENTI_FORNITORE.map(opt=>e('option',{key:opt,value:opt},opt)))),
+            e('div', null, e('label', null, 'Consegna prevista'), e('input', { type:'date', value:draft.consegnaPrevista||'', onChange:ev=>setDraft({...draft, consegnaPrevista:ev.target.value}) })),
+            e('div', {style:{gridColumn:'1/-1'}}, e('label', null, 'NS Riferimento'), e('input', { value:draft.nsRiferimento||'', onChange:ev=>setDraft({...draft, nsRiferimento:ev.target.value}) })),
+            e('div', {style:{gridColumn:'1/-1'}}, e('label', null, 'Riferimento fornitore'), e('input', { value:draft.rifOrdine||'', onChange:ev=>setDraft({...draft, rifOrdine:ev.target.value}) })),
+            e('div', null, e('label', null, 'Stato'), e('select', { value:draft.stato, onChange:ev=>setDraft({...draft, stato:ev.target.value}) }, ['Bozza','Inviato','Confermato','Parziale','Chiuso','Annullato'].map(s=>e('option',{key:s,value:s},s))))
+          ),
+          
+          // Tabella Righe
+          e('div', { style:{marginTop:12} },
+            articoli.length ? e('datalist', { id:'of-articoli-list' }, articoli.map(a=>e('option',{key:a.codice||a.id, value:a.codice||a.id}, (a.codice||a.id)+' - '+(a.descrizione||a.nome)))) : null,
+            e('table', { className:'table' },
+              e('thead', null, e('tr', null, e('th', null, '#'), e('th', null, 'Codice'), e('th', null, 'Descrizione'), e('th', null, 'UM'), e('th', null, 'Qta Ord'), e('th', null, 'Ricevuto'), e('th', null, 'Residuo'), e('th', null, 'Prezzo'), e('th', null, 'IVA'), e('th', null, 'Totale'), e('th', null, ''))),
+              e('tbody', null, (draft.righe||[]).map((r,i)=> e('tr', { key:i },
+                e('td', null, String(i+1)),
+                e('td', null, e('div', { style:{ position:'relative' } },
+                   e('input', { className:'of-codice-input', list: articoli.length?'of-articoli-list':null, value: r.codice||'', 
+                      onFocus:ev=>{ setOpenArtMenuRow(i); setArtMenuQuery(ev.target.value); },
+                      onClick:ev=>{ setOpenArtMenuRow(i); setArtMenuQuery(ev.target.value); },
+                      onChange:ev=>{ const c=ev.target.value; setArtMenuQuery(c); setOpenArtMenuRow(i); pickArticolo(i,c); }
+                   }),
+                   (openArtMenuRow===i && filteredArticoli.length>0) ? e('div', { className:'of-artmenu', style:{position:'absolute', zIndex:60, top:'100%', left:0, right:0, maxHeight:200, overflow:'auto', background:'#fff', border:'1px solid #ccc'} },
+                      filteredArticoli.map(a=>e('div', { key:a.codice||a.id, style:{padding:6, cursor:'pointer'}, onMouseDown:ev=>{ ev.preventDefault(); pickArticolo(i, a.codice||a.id); setOpenArtMenuRow(null); } }, `${a.codice||a.id} - ${a.descrizione}`))
+                   ) : null
+                )),
+                e('td', null, e('input', { value:r.descr||'', onChange:ev=>updRiga(i,{descr:ev.target.value}) })),
+                e('td', null, e('input', { value:r.um||'', onChange:ev=>updRiga(i,{um:ev.target.value}) })),
+                e('td', null, e('input', { type:'number', step:'0.01', value:r.qta||0, onChange:ev=>updRiga(i,{qta:num(ev.target.value)}) })),
+                e('td', null, r.qtaRicevuta||0),
+                e('td', null, residuoRiga(r)),
+                e('td', null, e('input', { type:'number', step:'any', value:r.prezzo||0, onChange:ev=>updRiga(i,{prezzo:num(ev.target.value)}) })),
+                e('td', null, e('input', { type:'number', value:r.iva||DEFAULT_IVA, onChange:ev=>updRiga(i,{iva:num(ev.target.value)}) })),
+                e('td', null, (num(r.qta)*num(r.prezzo)).toFixed(2)),
+                e('td', null,
+                  e('button', {className:'btn btn-sm', onClick:()=>apriRicezione(i)}, '📥'), ' ',
+                  e('button', {className:'btn btn-sm', onClick:()=>riceviTutto(i)}, '⇥'), ' ',
+                  e('button', {className:'btn btn-sm btn-danger', onClick:()=>delRiga(i)}, '✖')
                 )
-              ),
-              e('td', null, e('input', { value:r.descr||'', onChange:ev=>updRiga(i,{descr:ev.target.value}) })),
-              e('td', null, e('input', { value:r.um||'', onChange:ev=>updRiga(i,{um:ev.target.value}) })),
-                            e('td', null,
-                e('input', {
-                  type:'number',
-                  step:'0.01',
-                  value: r.qta || 0,
-                  onChange:ev => updRiga(i,{ qta:Number(ev.target.value) })
-                })
-              ),
-              e('td', null, r.qtaRicevuta || 0),
-              e('td', null, residuoRiga(r)),
-              e('td', null,
-                e('input', {
-                  type:'text',
-                  inputMode:'decimal',
-                  value: (r.prezzo != null && !Number.isNaN(r.prezzo))
-                    ? String(r.prezzo).replace('.', ',')
-                    : '',
-                  onChange:ev => {
-                    const raw = (ev.target.value || '').replace(',', '.');
-                    const n = Number(raw);
-                    updRiga(i,{ prezzo: Number.isFinite(n) ? n : 0 });
-                  }
-                })
-              ),
-              e('td', null,
-                e('input', {
-                  type:'number',
-                  step:'1',
-                  min:'0',
-                  value: (r.iva != null ? r.iva : DEFAULT_IVA),
-                  onChange:ev => updRiga(i,{ iva: Number(ev.target.value)||0 })
-                })
-              ),
-              e('td', null, (Number(r.qta||0) * Number(r.prezzo||0)).toFixed(2)),
-              e('td', null,
-                e('button', { className:'btn btn-sm', onClick:()=>apriRicezione(i), ...window.roProps() }, '📥 Ricevi'),
-                ' ',
-                e('button', { className:'btn btn-sm', onClick:()=>riceviTutto(i), ...window.roProps() }, '⇥ Tutto'),
-                ' ',
-                e('button', { className:'btn btn-sm btn-danger', onClick:()=>delRiga(i), ...window.roProps() }, '✖')
-              )
-            ))
-          )
-        ),
+              )))
+            ),
+            e('button', { className:'btn btn-sm', onClick:addRiga }, '➕ Riga'),
+            e('div', { style:{float:'right', marginTop:8, fontWeight:'bold'} }, `Totale: € ${totaleDocIvato(draft).toFixed(2)}`)
+          ),
+          
+          // BLOCCO ALLEGATI SMART (Z:)
+          (function(){
+            const entityId = draft && draft.id ? String(draft.id) : '';
+            const isSaved = entityId && Array.isArray(rows) && rows.some(r => String(r.id) === entityId);
+            const allAllegati = lsGet('allegatiRows', []) || [];
+            const ofAllegati = isSaved ? allAllegati.filter(a => a && !a.deletedAt && String(a.entityType).toUpperCase()==='OF' && String(a.entityId)===entityId) : [];
 
-        e('button', { className:'btn btn-sm', onClick:addRiga }, '➕ Aggiungi riga'),
-        e('div', {
-          style:{float:'right', marginTop:8, fontWeight:'bold', textAlign:'right'}
-        }, (()=>{
-          const imp = totaleDocImponibile(draft);
-          const tot = totaleDocIvato(draft);
-          const iva = tot - imp;
-          const fmt = v => v.toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});
-          return `Imponibile: € ${fmt(imp)}  —  IVA: € ${fmt(iva)}  —  Totale: € ${fmt(tot)}`;
-        })()),
-        (function(){
-          const entityId = draft && draft.id ? String(draft.id) : '';
-          const isSaved = entityId && Array.isArray(rows) && rows.some(r => String(r.id || '') === entityId);
-          const all = lsGet('allegatiRows', []) || [];
-          const rowsAllegati = (isSaved && entityId)
-            ? (Array.isArray(all) ? all : []).filter(a =>
-                a && !a.deletedAt &&
-                String(a.entityType || '').toUpperCase() === 'OF' &&
-                String(a.entityId || '') === entityId
-              )
-            : [];
-
-          function nextAllegatoId(existing){
-            const now  = new Date();
-            const year = now.getFullYear();
-            let maxSeq = 0;
-            const arr = Array.isArray(existing) ? existing : [];
-            for (const r of arr) {
-              if (!r || !r.id) continue;
-              const m = String(r.id).match(/^ALG-(\d{4})-(\d{4})$/);
-              if (m && Number(m[1]) === year) {
-                const seq = Number(m[2]) || 0;
-                if (seq > maxSeq) maxSeq = seq;
+            const saveAllegatoSmart = async (ev) => {
+              const file = ev.target.files?.[0]; if(!file) return;
+              const year = (new Date(draft.data)).getFullYear();
+              const id = draft.id;
+              const f = allegatoOFForm || {};
+              const tipo = f.tipo || 'ALTRO';
+              
+              let folder = 'ORDINI_FORNITORI';
+              let newName = file.name;
+              if (tipo === 'CONFERMA_ORDINE') {
+                const ext = file.name.split('.').pop();
+                newName = `${id}-Conferma.${ext}`;
               }
-            }
-            const next = String(maxSeq + 1).padStart(4,'0');
-            return `ALG-${year}-${next}`;
-          }
 
-          const onChangeField = (field, value) => {
-            if (typeof setAllegatoOFForm !== 'function') return;
-            setAllegatoOFForm(prev => ({
-              ...(prev || { tipo:'ALTRO', descrizione:'', path:'', url:'' }),
-              [field]: value
-            }));
-          };
-
-          const onAddAllegato = () => {
-            const f = allegatoOFForm || {};
-            const tipo  = (f.tipo || 'ALTRO').trim() || 'ALTRO';
-            const descr = (f.descrizione || '').trim();
-            const path  = (f.path || '').trim();
-            const url   = (f.url  || '').trim();
-
-            if (!isSaved) {
-              alert('Salva l\'ordine prima di aggiungere allegati.');
-              return;
-            }
-            if (!path && !url) {
-              alert('Inserisci almeno il percorso o l\'URL.');
-              return;
-            }
-
-            let allRows = [];
-            try { allRows = lsGet('allegatiRows', []) || []; } catch(e) { allRows = []; }
-            if (!Array.isArray(allRows)) allRows = [];
-
-            const id = nextAllegatoId(allRows);
-            const nowIso = new Date().toISOString();
-
-            const newRow = {
-              id,
-              createdAt: nowIso,
-              updatedAt: nowIso,
-              tipo,
-              descrizione: descr || `Allegato ordine fornitore ${entityId}`,
-              path,
-              url,
-              entityType: 'OF',
-              entityId,
-              deletedAt: null
+              const savedPath = await window.smartSaveFile(file, [folder, String(year), id], newName);
+              if (savedPath) {
+                let all = []; try{ all = window.lsGet('allegatiRows',[])||[]; }catch{}
+                const nextId = `ALG-${year}-${String(all.length+1).padStart(4,'0')}`;
+                const desc = f.descrizione || (tipo==='CONFERMA_ORDINE' ? `Conferma ${id}` : file.name);
+                const newRow = { id:nextId, createdAt:new Date().toISOString(), tipo, descrizione:desc, path:savedPath, url:'', entityType:'OF', entityId:id, deletedAt:null };
+                window.lsSet('allegatiRows', [...all, newRow]);
+                if (typeof setDraft === 'function') setDraft({...draft}); // refresh
+                setAllegatoOFForm({ tipo:'CONFERMA_ORDINE', descrizione:'', path:'', url:'' });
+              }
+              ev.target.value = '';
             };
 
-            const updated = allRows.concat([newRow]);
-            lsSet('allegatiRows', updated);
+            const delAllegato = (aid) => {
+               if(!confirm('Eliminare?')) return;
+               let all = lsGet('allegatiRows',[])||[];
+               const upd = all.map(r => r.id===aid ? {...r, deletedAt:new Date().toISOString()} : r);
+               lsSet('allegatiRows', upd);
+               setDraft({...draft}); // refresh
+            };
 
-            if (typeof setDraft === 'function') {
-              setDraft(prev => ({ ...(prev || {}) }));
-            }
-            if (typeof setAllegatoOFForm === 'function') {
-              setAllegatoOFForm({
-                tipo:'ALTRO',
-                descrizione:'',
-                path:'',
-                url:''
-              });
-            }
-          };
+            const copyPath = (p) => { try{ navigator.clipboard.writeText(p); }catch{ prompt('Copia:',p); } };
+            const openLink = (u) => { if(u) window.open(u,'_blank'); };
 
-          const onDeleteAllegato = (row) => {
-            if (!row || !row.id) return;
-            let allRows = [];
-            try { allRows = lsGet('allegatiRows', []) || []; } catch(e) { allRows = []; }
-            if (!Array.isArray(allRows)) allRows = [];
-            const nowIso = new Date().toISOString();
-            const updated = allRows.map(r =>
-              r && r.id === row.id
-                ? { ...r, deletedAt: r.deletedAt || nowIso, updatedAt: nowIso }
-                : r
-            );
-            lsSet('allegatiRows', updated);
-            if (typeof setDraft === 'function') {
-              setDraft(prev => ({ ...(prev || {}) }));
-            }
-          };
-
-          const onCopyPath = (row) => {
-            const p = (row && row.path) ? String(row.path) : '';
-            if (!p) return;
-            if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
-              navigator.clipboard.writeText(p).catch(() => {
-                window.prompt('Copia il percorso:', p);
-              });
-            } else {
-              window.prompt('Copia il percorso:', p);
-            }
-          };
-
-          const onOpenUrl = (row) => {
-            const u = (row && row.url) ? String(row.url) : '';
-            if (!u) return;
-            if (/^https?:\/\//i.test(u)) window.open(u, '_blank');
-          };
-
-          const f = allegatoOFForm || { tipo:'ALTRO', descrizione:'', path:'', url:'' };
-
-          return e('div', {className:'subcard', style:{marginTop:12}},
-            e('h4', null, 'Allegati ordine fornitore'),
-            !isSaved
-              ? e('p', {className:'muted'}, 'Salva l\'ordine per poter aggiungere allegati.')
-              : e(React.Fragment, null,
-                  rowsAllegati.length
-                    ? e('table', {className:'table table-sm'},
-                        e('thead', null,
-                          e('tr', null,
-                            e('th', null, 'Tipo'),
-                            e('th', null, 'Descrizione'),
-                            e('th', null, 'Percorso'),
-                            e('th', null, 'Azioni')
-                          )
-                        ),
-                        e('tbody', null,
-                          rowsAllegati.map(r => e('tr', {key:r.id || r.path || r.url || Math.random()},
-                            e('td', null, r.tipo || ''),
-                            e('td', null, r.descrizione || ''),
-                            e('td', null, r.path || ''),
-                            e('td', null,
-                              e('div', {className:'row', style:{gap:4}},
-                                r.url && /^https?:\/\//i.test(r.url||'')
-                                  ? e('button', {className:'btn btn-xs', onClick:()=>onOpenUrl(r)}, 'Apri')
-                                  : null,
-                                r.path
-                                  ? e('button', {className:'btn btn-xs', onClick:()=>onCopyPath(r)}, 'Copia percorso')
-                                  : null,
-                                !readOnly
-                                  ? e('button', {
-                                      className:'btn btn-xs btn-outline',
-                                      onClick:()=>onDeleteAllegato(r)
-                                    }, '🗑')
-                                  : null
-                              )
-                            )
-                          ))
-                        )
+            return e('div', {className:'subcard', style:{marginTop:12}},
+              e('h4', null, 'Allegati Smart (Z:)'),
+              !isSaved ? e('div',{className:'muted'}, 'Salva ordine per allegare.') : e('div', null,
+                ofAllegati.length > 0 && e('table', {className:'table table-sm'},
+                   e('thead', null, e('tr',null,e('th',null,'Tipo'),e('th',null,'Descrizione'),e('th',null,'Percorso'),e('th',null,'Azioni'))),
+                   e('tbody', null, ofAllegati.map(a => e('tr',{key:a.id},
+                      e('td',null,a.tipo), e('td',null,a.descrizione), e('td',null,e('span',{style:{fontSize:11,fontFamily:'monospace'}},a.path)),
+                      e('td',null,
+                        e('button',{className:'btn btn-xs', onClick:()=>copyPath(a.path)}, 'Copia'), ' ',
+                        a.url ? e('button',{className:'btn btn-xs', onClick:()=>openLink(a.url)}, 'Link') : null, ' ',
+                        !readOnly && e('button',{className:'btn btn-xs btn-outline', onClick:()=>delAllegato(a.id)}, '🗑')
                       )
-                    : e('p', {className:'muted'}, 'Nessun allegato per questo ordine.'),
-                  e('div', {className:'form-grid', style:{marginTop:8}},
-                    e('div', null,
-                      e('label', null, 'Tipo'),
-                      e('select', {
-                        value:f.tipo || 'ALTRO',
-                        onChange:ev=>onChangeField('tipo', ev.target.value),
-                        disabled: readOnly
-                      },
-                        ['FOTO_CARICO','COLLAUDO','NC_FORN','DISEGNO','ALTRO'].map(opt =>
-                          e('option', {key:opt, value:opt}, opt)
-                        )
-                      )
-                    ),
-                    e('div', null,
-                      e('label', null, 'Descrizione'),
-                      e('input', {
-                        value:f.descrizione || '',
-                        onChange:ev=>onChangeField('descrizione', ev.target.value),
-                        disabled: readOnly
-                      })
-                    ),
-                    e('div', null,
-                      e('label', null, 'Percorso file (NAS / locale)'),
-                      e('input', {
-                        value:f.path || '',
-                        onChange:ev=>onChangeField('path', ev.target.value),
-                        disabled: readOnly
-                      })
-                    ),
-                    e('div', null,
-                      e('label', null, 'URL (opzionale)'),
-                      e('input', {
-                        value:f.url || '',
-                        onChange:ev=>onChangeField('url', ev.target.value),
-                        disabled: readOnly
-                      })
-                    )
-                  ),
-                  e('div', {className:'actions'},
-                    e('button', {
-                      className:'btn',
-                      onClick:onAddAllegato,
-                      disabled: readOnly
-                    }, '➕ Aggiungi allegato')
+                   )))
+                ),
+                e('div', {className:'grid grid-2', style:{marginTop:8, padding:10, border:'1px dashed #ccc', borderRadius:8}},
+                  e('div', null, e('label',null,'Tipo'), e('select',{value:allegatoOFForm.tipo, onChange:ev=>setAllegatoOFForm({...allegatoOFForm, tipo:ev.target.value})}, ['CONFERMA_ORDINE','DISEGNO','ALTRO'].map(t=>e('option',{key:t,value:t},t)))),
+                  e('div', null, e('label',null,'Descrizione'), e('input',{value:allegatoOFForm.descrizione, onChange:ev=>setAllegatoOFForm({...allegatoOFForm, descrizione:ev.target.value})})),
+                  e('div', {style:{gridColumn:'1/-1', marginTop:8}},
+                     e('label', {className:'btn btn-primary', style:{display:'block', textAlign:'center', cursor:'pointer'}},
+                       '📂 CARICA FILE SU Z:',
+                       e('input', {type:'file', style:{display:'none'}, disabled:readOnly, onChange:saveAllegatoSmart})
+                     )
                   )
                 )
-          );
-        })()
+              )
+            );
+          })()
+
+        ), // fine fieldset
+
+        e('div', { className:'row', style:{justifyContent:'flex-end', gap:8, marginTop:12} },
+          e('button', { className:'btn btn-outline', onClick:()=>{ setShowForm(false); setDraft(null); } }, 'Chiudi'),
+          e('button', { className:'btn btn-outline', onClick:riceviOrdineIntero }, '⬇️ Ricevi tutto'),
+          e('button', { className:'btn btn-outline', onClick:()=>window.printOrdineFornitore && window.printOrdineFornitore(draft) }, '🖨️ Stampa'),
+          e('button', { className:'btn btn-primary', onClick:saveDraft, disabled:readOnly }, 'Salva')
+        )
       )
     ),
 
-    // azioni finali (fuori dal fieldset)
-    e('div', { className:'row', style:{justifyContent:'flex-end', gap:8, marginTop:12} },
-      e('button', { className:'btn', onClick:()=>{ setShowForm(false); setDraft(null); } }, 'Chiudi'),
-      e('button', {className:'btn btn-outline',onClick: riceviOrdineIntero,...window.roProps()}, '⬇️ Ricevi ordine (residuo)'),
-      ' ',
-      e('button', {className:'btn btn-outline',title:'Anteprima/Stampa Ordine',onClick:()=>{ try{ window.printOrdineFornitore && window.printOrdineFornitore(draft); }catch(e){ alert('Stampa OF non disponibile'); } }}, '🖨️ Stampa'),
-      ' ',
-      e('button', { className:'btn btn-primary', onClick:saveDraft, ...window.roProps() }, 'Salva')
-    )
-    )
-  ),
-
-    rx && draft && e(RiceviDaOrdineModal, {
-      ordine: draft,
-      riga: draft.righe[rx.indexRiga],
-      onClose: ()=> setRx(null),
-      onConfirm: confermaRicezione
-    })
+    rx && draft && e(RiceviDaOrdineModal, { ordine:draft, riga:draft.righe[rx.indexRiga], onClose:()=>setRx(null), onConfirm:confermaRicezione })
   );
 }
 window.OrdiniFornitoriView = window.OrdiniFornitoriView || OrdiniFornitoriView;
@@ -29001,5 +28116,59 @@ window.navigateTo = window.navigateTo || function(name){
   };
 })();
 
+/* ================== FIX NUMERAZIONE (Rispetta Impostazioni e Riempi-Buchi) ================== */
+window.nextIdFor = async function({ prefix, storageKey, seriesKey, width=3 }) {
+  const y = new Date().getFullYear();
+  const pad = n => String(n).padStart(width, '0');
 
+  // 1. Leggi ESATTAMENTE l'ultimo numero salvato in Impostazioni
+  const app = window.lsGet('appSettings', {}) || {};
+  const counters = app.numerazioni || {};
+  
+  // Cerca il valore nel modo più specifico possibile
+  let lastNumSetting = 0;
+  if (counters[seriesKey] && counters[seriesKey][y]) {
+     lastNumSetting = Number(counters[seriesKey][y].ultimo);
+  } else if (counters[seriesKey]) {
+     lastNumSetting = Number(counters[seriesKey].ultimo);
+  } else {
+     // Fallback sui vecchi campi piatti (es. numDDT, numFA)
+     lastNumSetting = Number(app[`num${seriesKey}`] || 0);
+  }
+  
+  if (!Number.isFinite(lastNumSetting)) lastNumSetting = 0;
+
+  // 2. Il candidato ideale è Impostazioni + 1
+  let candidateNum = lastNumSetting + 1;
+
+  // 3. Verifica collisioni nel Database
+  // Se il 135 esiste già (ed è ATTIVO), prova il 136, poi 137...
+  // Se il 135 è stato CANCELLATO (deletedAt), allora è LIBERO e lo riusiamo!
+  
+  const allRows = window.lsGet(storageKey, []) || [];
+  
+  while (true) {
+    const candidateId = `${prefix}-${y}-${pad(candidateNum)}`;
+    
+    // Cerca se esiste un documento con questo ID che NON sia cancellato
+    const conflict = allRows.find(r => 
+      r && 
+      String(r.id).toUpperCase() === candidateId && 
+      !r.deletedAt // <--- Se è cancellato, consideralo libero!
+    );
+
+    if (!conflict) {
+      // Trovato! Questo numero è libero.
+      return { id: candidateId, year: y, num: candidateNum };
+    }
+
+    // Se occupato, proviamo il successivo
+    candidateNum++;
+    
+    // Sicurezza anti-loop infinito (fino a +1000 tentativi)
+    if (candidateNum > lastNumSetting + 1000) break;
+  }
+  
+  return { id: `${prefix}-${y}-${pad(candidateNum)}`, year: y, num: candidateNum };
+};
 
