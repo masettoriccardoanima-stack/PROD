@@ -9902,10 +9902,34 @@ function chiediEtichetteECStampa(commessa) {
 })();
 
 
+/* ================== COMMESSE (multi-selezione → DDT, import PDF ordine, multi-articolo) ================== */
+  // === Helpers elenco Commesse (idempotenti) ===
+window.orderRefFor = window.orderRefFor || function orderRefFor(c){
+  try{
+    const ref = c?.ordineCliente || c?.nrOrdineCliente || c?.ddtCliente || c?.ordine || c?.ordineId || c?.rifCliente || '';
+    return (window.refClienteToText ? window.refClienteToText(ref) : String(ref||'')).trim();
+  }catch{ return ''; }
+};
+
+window.previewDescrAndRef = window.previewDescrAndRef || function previewDescrAndRef(c){
+  const descr = String(c?.descrizione || '').trim();
+  const righe = Array.isArray(c?.righeArticolo) ? c.righeArticolo : (Array.isArray(c?.righe) ? c.righe : []);
+  const isMulti = Array.isArray(righe) && righe.length > 1;
+  const isSingle = Array.isArray(righe) && righe.length === 1;
+  const codiceSingolo = (isSingle && righe[0] && (righe[0].codice || righe[0].code)) ? (righe[0].codice || righe[0].code) : (c?.articoloCodice || '');
+  const ref = window.orderRefFor(c) || '';
+
+  // output:
+  // colonna "Descrizione" = descrizione
+  // colonna "Rif. cliente" = (multi) ref  | (singola) codice  | fallback ref | '-'
+  const rifCol = isMulti ? (ref || `Multi (${righe.length})`) : (codiceSingolo || ref || '-');
+  return { descr, rifCol };
+};
+
 function CommesseView({ query = '' }) {
   const e = React.createElement;
 
-  // RBAC sola lettura (accountant / viewer / mobile)
+  // RBAC sola lettura
   const readOnly = (typeof window.isReadOnlyUser === 'function'
     ? !!window.isReadOnlyUser()
     : !!(window.__USER && window.__USER.role === 'accountant'));
@@ -9916,7 +9940,7 @@ function CommesseView({ query = '' }) {
       title: 'Sola lettura'
     } : {}));
 
-  // — Renderer sicuro per valori di cella (evita React error #31)
+  // — Renderer sicuro
   const V = (v) => {
     if (v == null) return '';
     if (typeof v === 'object') {
@@ -9936,7 +9960,7 @@ function CommesseView({ query = '' }) {
   // --- chiudi i menu "…" cliccando fuori ---
   const [menuRow, setMenuRow] = React.useState(null);
   
-  // BLOCCO NUOVO — Stato form allegato commessa
+  // Stato form allegato
   const [allegatoCommessaForm, setAllegatoCommessaForm] = React.useState({
     tipo: 'ALTRO',
     descrizione: '',
@@ -9961,7 +9985,7 @@ function CommesseView({ query = '' }) {
   const fmtHHMM = (mins) => { const t=Math.max(0,Math.round(+mins||0)), h=Math.floor(t/60), m=t%60; return `${h}:${String(m).padStart(2,'0')}`; };
   const todayISO = () => new Date().toISOString().slice(0,10);
 
-  // --- producedPieces: pezzi COMPLETATI (min tra le fasi non "una tantum") ---
+  // --- producedPieces ---
   const producedPieces = (c) => {
     if (!c) return 0;
     try {
@@ -9983,7 +10007,6 @@ function CommesseView({ query = '' }) {
     }
   };
 
-  // --- qta spedita derivata dai DDT collegati ---
   const shippedPieces = window.shippedPieces || function(c){ return 0; };
 
   // Stato DDT
@@ -10022,8 +10045,8 @@ function CommesseView({ query = '' }) {
     if (!isNaN(d.getTime())){
       d.setHours(0,0,0,0);
       const diffDays = Math.floor((d - __todayComm) / (1000*60*60*24));
-      if (diffDays < 0) color = '#c0392b';  // scaduta
-      else if (diffDays <= 3) color = '#e67e22'; // in scadenza
+      if (diffDays < 0) color = '#c0392b'; 
+      else if (diffDays <= 3) color = '#e67e22';
     }
     return { text, color };
   }
@@ -10086,7 +10109,7 @@ function CommesseView({ query = '' }) {
     setOpenedFromQuery(true);
   }, [query, rows, openedFromQuery]);
 
-  // --- selezione multipla per DDT ---
+  // --- selezione multipla ---
   const [sel, setSel] = React.useState({}); 
   const selectedList = filtered.filter(c => sel[c.id]);
   const toggleRow  = (id)=> setSel(prev => ({ ...prev, [id]: !prev[id] }));
@@ -10259,6 +10282,7 @@ function CommesseView({ query = '' }) {
     setEditingId(c.id);
     const nowIso = new Date().toISOString();
     
+    // Normalizza rifCliente
     const rifNorm = (function(){
       const src = c.rifCliente;
       if (src && typeof src === 'object') return src;
@@ -10285,6 +10309,81 @@ function CommesseView({ query = '' }) {
     try{ if (window.sbUpsertCommesse) window.sbUpsertCommesse([upd]); }catch(e){}
     try{ window._maybeAutoScaricoAndLabels && window._maybeAutoScaricoAndLabels(c.id); }catch{}
     alert('Commessa segnata come COMPLETA ✅');
+  }
+
+  // --- LOGICHE PULSANTI (DUPLICA, ELIMINA, DDT) ---
+  function duplicaCommessa(src){
+    if (!src || !src.id) return;
+    try{
+      const all = lsGet('commesseRows', []);
+      const nid = (typeof window.nextCommessaId === 'function') ? window.nextCommessaId() : (function(){ const y=new Date().getFullYear(); return `C-${y}-001`; })();
+      const copy = JSON.parse(JSON.stringify(src));
+      const newId = (typeof window.ensureUniqueCommessaId === 'function') ? window.ensureUniqueCommessaId(nid) : nid;
+      copy.id = newId;
+      copy.qtaProdotta = 0;
+      delete copy.__completedAt;
+      if (Array.isArray(copy.fasi)) copy.fasi = copy.fasi.map(f => ({ ...f, qtaProdotta: 0 }));
+      if (Array.isArray(copy.righeArticolo)) copy.righeArticolo = copy.righeArticolo.map(r => ({ ...r, qtaProdotta: 0, fasi: Array.isArray(r.fasi) ? r.fasi.map(f => ({ ...f, qtaProdotta: 0 })) : r.fasi }));
+      delete copy.scaricoDone; delete copy.labelsPrinted; delete copy.__scaricoDoneAt; delete copy.__labelsPrintedAt;
+      copy.createdAt = new Date().toISOString(); copy.updatedAt = new Date().toISOString();
+      all.push(copy);
+      writeCommesse(all);
+      try{ if (window.sbUpsertCommesse) window.sbUpsertCommesse([copy]).catch(()=>{}); }catch(e){}
+      alert(`Commessa duplicata come ${nid} ✅`);
+    }catch(e){ alert('Errore durante la duplicazione.'); }
+  }
+
+  function delCommessa(c){
+    if (!c || !c.id) return;
+    const id = String(c.id);
+    if (!confirm(`Eliminare la commessa "${id}"?`)) return;
+    try{
+      const all = lsGet('commesseRows', []);
+      const next = (Array.isArray(all) ? all : []).filter(x => String(x.id) !== id);
+      writeCommesse(next);
+      try{ if(window.getSB){ const sb=window.getSB(); if(sb.url && sb.key) fetch(`${String(sb.url).replace(/\/+$/,'')}/rest/v1/commesse?id=eq.${encodeURIComponent(id)}`, {method:'DELETE', headers:{apikey:sb.key, Authorization:'Bearer '+sb.key}}).catch(()=>{}); } }catch(e){}
+      alert('Commessa ' + id + ' eliminata ✅');
+    }catch(e){ alert('Errore durante eliminazione commessa.'); }
+  }
+
+  function creaDDTdaCommessa(commessa){
+    try{
+      const articoli = lsGet('magArticoli', []) || [];
+      const clienti  = lsGet('clientiRows', []) || [];
+      const cli = clienti.find(x => String(x.id) === String(commessa.clienteId)) || null;
+      const todayISO = ()=> new Date().toISOString().slice(0,10);
+      const righeSrc = (Array.isArray(commessa.righeArticolo) && commessa.righeArticolo.length) ? commessa.righeArticolo : [{ rowId: commessa.rowId || null, codice: commessa.articoloCodice || '', descrizione: commessa.descrizione || '', um: commessa.articoloUM || 'PZ', qta: Math.max(1, Number(commessa.qtaPezzi || commessa.qta || 1)), note: commessa.noteSpedizione || commessa.note || '' }];
+      const ddtRows = lsGet('ddtRows', []) || [];
+      const jobId = String(commessa && commessa.id || '');
+      function shippedForRow(row){
+        const rowId = String(row && (row.rowId || row.rowID || row.commessaRowId || '')).trim();
+        const hasRowId = !!rowId; if (!jobId) return 0;
+        let sum = 0;
+        ddtRows.forEach(ddt => {
+          if (!ddt || ddt.deletedAt || ddt.annullato === true) return;
+          const ddtJobId = String(ddt.commessaId || ddt.commessaRif || '');
+          if (ddtJobId !== jobId) return;
+          (Array.isArray(ddt.righe)?ddt.righe:[]).forEach(dr => {
+             const drRowId = String(dr.commessaRowId||'').trim();
+             if (hasRowId && drRowId !== rowId) return;
+             sum += Number(dr.qta || 0);
+          });
+        });
+        return Math.max(0, sum);
+      }
+      const righeDDT = righeSrc.map(r => {
+        const cod = String(r.codice || r.articoloCodice || '').trim();
+        const a = articoli.find(x => String(x.codice || x.id || '').trim() === cod) || null;
+        const um = String(r.um || a?.um || 'PZ').toUpperCase();
+        const shipped = shippedForRow(r);
+        const resid = Math.max(0, Number(r.qta||r.qtaPezzi||0) - shipped);
+        return { commessaRowId: String(r.rowId || ''), codice: cod, descrizione: r.descrizione || a?.descrizione || '', UM: um, um: um, qta: resid || 0, prezzo: 0, note: r.note || '' };
+      });
+      const clienteRag = commessa.cliente || (cli && (cli.ragioneSociale || '')) || '';
+      const pf = { id: '', data: todayISO(), clienteId: commessa.clienteId || '', clienteRagione: clienteRag, cliente: clienteRag, commessaId: commessa.id || '', commessaRif: commessa.id || '', luogoConsegna: commessa.luogoConsegna || '', rifCliente: commessa.rifCliente?.numero || '', righe: righeDDT };
+      localStorage.setItem('prefillDDT', JSON.stringify(pf));
+      location.hash = '#/ddt';
+    } catch(e){ alert('Impossibile preparare il DDT: ' + e); }
   }
 
   function save(){
@@ -10352,9 +10451,7 @@ function CommesseView({ query = '' }) {
 
   // --- Import Ordine (PDF) ---
   const orderPdfInput = e('input', { id:'order-pdf-input', type:'file', accept:'application/pdf', style:{ display:'none' }, onChange: async ev => {
-      /* Logica di import PDF - mantenuta invariata dalla tua versione */
-      /* Se serve ri-implementarla integralmente fammelo sapere, per ora uso i placeholder se presenti nel tuo codice originale o la logica standard */
-       try{
+      try{
         const f = ev.target.files && ev.target.files[0];
         if (!f) return;
         const raw = await window.extractPdfText(f);
@@ -10467,8 +10564,10 @@ function CommesseView({ query = '' }) {
                     e('button', { className:'btn btn-outline', onClick: () => window.stampaCommessaV2 ? window.stampaCommessaV2(c): window.printCommessa && window.printCommessa(c) }, 'Stampa'), ' ',
                     e('button', { className:'btn btn-outline', onClick:()=>window.openEtichetteColliDialog && window.openEtichetteColliDialog(c) }, 'Etichette'), ' ',
                     e('a', { className:'btn btn-outline', href: `#/timbratura?job=${encodeURIComponent(c.id)}` }, 'QR/Timbr.'), ' ',
-                    e('button', { className:'btn btn-outline', onClick:()=>window.duplicaCommessa && window.duplicaCommessa(c), ...roBtnProps() }, '⧉'), ' ',
-                    e('button', { className:'btn btn-outline', onClick:()=>window.delCommessa && window.delCommessa(c), ...roBtnProps() }, '🗑️')
+                    e('button', { className:'btn btn-outline', onClick:()=>duplicaCommessa(c), ...roBtnProps() }, '⧉ Duplica'), ' ',
+                    e('button', { className:'btn btn-outline', onClick:()=>creaDDTdaCommessa(c), ...roBtnProps() }, '📦 DDT'), ' ',
+                    e('button', { className:'btn btn-outline', onClick:()=>segnaCompleta(c), ...roBtnProps() }, '✅ Completa'), ' ',
+                    e('button', { className:'btn btn-outline', onClick:()=>delCommessa(c), ...roBtnProps() }, '🗑️ Elimina')
                   )
               ))
             )
@@ -10535,7 +10634,7 @@ function CommesseView({ query = '' }) {
           e('div', {className:'actions'}, e('button', {className:'btn', onClick:addRiga}, '➕ Aggiungi riga'))
         ),
 
-        // --- EDITOR FASI RIGA (se attivo) ---
+        // --- EDITOR FASI RIGA (se attivo - SUBITO SOTTO) ---
         rowFasiEditIdx != null && e('div', {className:'subcard', style:{gridColumn:'1 / -1', background:'#f0fdf4'}},
             e('h4', null, 'Fasi per riga selezionata'),
             e('table', {className:'table'},
@@ -10551,39 +10650,6 @@ function CommesseView({ query = '' }) {
               e('button', {className:'btn', onClick:()=>addRigaFase(rowFasiEditIdx)}, '➕ Fase'),
               e('button', {className:'btn btn-outline', onClick:closeRowFasi}, 'Chiudi')
             )
-        ),
-
-        // --- FASI (Globali - fallback) ---
-        e('div', {className:'subcard', style:{gridColumn:'1 / -1'}},
-          e('h4', null, 'Fasi di lavorazione (globali/legacy)'),
-          e('table', {className:'table'},
-            e('thead', null, e('tr', null, e('th', null, '#'), e('th', null, 'Lavorazione'), e('th', null, 'HH:MM'), e('th', null, 'Q.tà'), e('th', null, 'Azioni'))),
-            e('tbody', null, (form.fasi||[]).map((f,idx)=> e('tr', {key:idx},
-               e('td', null, String(idx+1)),
-               e('td', null, e('input', { value:f.lav||'', list:'fasiStdList', onChange:ev=>onChangeFase(idx,'lav',ev.target.value) })),
-               e('td', null, e('input', { value:f.oreHHMM||'0:10', onChange:ev=>onChangeFase(idx,'oreHHMM',ev.target.value) })),
-               e('td', null, e('input', { type:'number', value:f.qtaPrevista||form.qtaPezzi||1, onChange:ev=>onChangeFase(idx,'qtaPrevista', ev.target.value) })),
-               e('td', null, e('button', {className:'btn btn-outline', onClick:()=>delFase(idx)}, '🗑'))
-            )))
-          ),
-          e('div', {className:'actions'}, e('button', {className:'btn', onClick:addFase}, '➕ Aggiungi fase'))
-        ),
-
-        // --- MATERIALI ---
-        e('div', {className:'subcard', style:{gridColumn:'1 / -1'}},
-          e('h4', null, 'Materiali previsti'),
-          e('table', {className:'table'},
-            e('thead', null, e('tr', null, e('th', null, 'Codice'), e('th', null, 'Descrizione'), e('th', null, 'UM'), e('th', {className:'right'}, 'Q.tà'), e('th', null, 'Note'), e('th', null, ''))),
-            e('tbody', null, (form.materiali||[]).map((m,idx)=> e('tr', {key:idx},
-               e('td', null, e('input', { value:m.codice||'', list:'artList', onChange:ev=>onChangeMat(idx,'codice',ev.target.value) })),
-               e('td', null, e('input', { value:m.descrizione||'', onChange:ev=>onChangeMat(idx,'descrizione',ev.target.value) })),
-               e('td', null, e('input', { value:m.um||'', onChange:ev=>onChangeMat(idx,'um',ev.target.value) })),
-               e('td', {className:'right'}, e('input', { type:'number', step:'0.01', value:m.qta||0, onChange:ev=>onChangeMat(idx,'qta',ev.target.value) })),
-               e('td', null, e('input', { value:m.note||'', onChange:ev=>onChangeMat(idx,'note',ev.target.value) })),
-               e('td', null, e('button', {className:'btn btn-outline', onClick:()=>delMat(idx)}, '🗑'))
-            )))
-          ),
-          e('div', {className:'actions'}, e('button', {className:'btn', onClick:addMat}, '➕ Aggiungi materiale'))
         ),
 
         // --- ALLEGATI (Smart + Ordinamento per data decrescente) ---
@@ -10642,11 +10708,45 @@ function CommesseView({ query = '' }) {
           );
         })(),
 
+        // --- MATERIALI ---
+        e('div', {className:'subcard', style:{gridColumn:'1 / -1'}},
+          e('h4', null, 'Materiali previsti'),
+          e('table', {className:'table'},
+            e('thead', null, e('tr', null, e('th', null, 'Codice'), e('th', null, 'Descrizione'), e('th', null, 'UM'), e('th', {className:'right'}, 'Q.tà'), e('th', null, 'Note'), e('th', null, ''))),
+            e('tbody', null, (form.materiali||[]).map((m,idx)=> e('tr', {key:idx},
+               e('td', null, e('input', { value:m.codice||'', list:'artList', onChange:ev=>onChangeMat(idx,'codice',ev.target.value) })),
+               e('td', null, e('input', { value:m.descrizione||'', onChange:ev=>onChangeMat(idx,'descrizione',ev.target.value) })),
+               e('td', null, e('input', { value:m.um||'', onChange:ev=>onChangeMat(idx,'um',ev.target.value) })),
+               e('td', {className:'right'}, e('input', { type:'number', step:'0.01', value:m.qta||0, onChange:ev=>onChangeMat(idx,'qta',ev.target.value) })),
+               e('td', null, e('input', { value:m.note||'', onChange:ev=>onChangeMat(idx,'note',ev.target.value) })),
+               e('td', null, e('button', {className:'btn btn-outline', onClick:()=>delMat(idx)}, '🗑'))
+            )))
+          ),
+          e('div', {className:'actions'}, e('button', {className:'btn', onClick:addMat}, '➕ Aggiungi materiale'))
+        ),
+
+        // --- FASI (Globali - fallback - spostato in fondo) ---
+        e('div', {className:'subcard', style:{gridColumn:'1 / -1'}},
+          e('h4', null, 'Fasi di lavorazione (globali/legacy)'),
+          e('table', {className:'table'},
+            e('thead', null, e('tr', null, e('th', null, '#'), e('th', null, 'Lavorazione'), e('th', null, 'HH:MM'), e('th', null, 'Q.tà'), e('th', null, 'Azioni'))),
+            e('tbody', null, (form.fasi||[]).map((f,idx)=> e('tr', {key:idx},
+               e('td', null, String(idx+1)),
+               e('td', null, e('input', { value:f.lav||'', list:'fasiStdList', onChange:ev=>onChangeFase(idx,'lav',ev.target.value) })),
+               e('td', null, e('input', { value:f.oreHHMM||'0:10', onChange:ev=>onChangeFase(idx,'oreHHMM',ev.target.value) })),
+               e('td', null, e('input', { type:'number', value:f.qtaPrevista||form.qtaPezzi||1, onChange:ev=>onChangeFase(idx,'qtaPrevista', ev.target.value) })),
+               e('td', null, e('button', {className:'btn btn-outline', onClick:()=>delFase(idx)}, '🗑'))
+            )))
+          ),
+          e('div', {className:'actions'}, e('button', {className:'btn', onClick:addFase}, '➕ Aggiungi fase'))
+        ),
+
         // Azioni finali
         e('div', {className:'actions', style:{gridColumn:'1 / -1', justifyContent:'space-between'}},
           e('div', null, e('a', { className:'btn btn-outline', href: `#/timbratura?job=${encodeURIComponent(form.id||editingId||'')}` }, 'Apri QR / Timbratura')),
           e('div', null,
             e('button', {className:'btn btn-outline', onClick:()=> {if (window.stampaCommessaV2) {window.stampaCommessaV2(form);} else if (window.printCommessa) {window.printCommessa(form);}}}, 'Stampa'),' ',
+            e('button', {className:'btn btn-outline', onClick:()=>window.openEtichetteColliDialog && window.openEtichetteColliDialog(form)}, 'Stampa etichette'),' ',
             e('button', {className:'btn btn-outline', onClick:cancelForm}, 'Annulla'),
             e('button', { className:'btn', onClick:save, ...roBtnProps() }, editingId ? 'Aggiorna' : 'Crea')
           )
