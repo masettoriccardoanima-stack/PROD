@@ -10529,7 +10529,7 @@ function CommesseView({ query = '' }) {
                 e('th', {className:'right', style:{width:'80px'}}, 'Spedita'),
                 e('th', {className:'right', style:{width:'80px'}}, 'Q.tà prod.'),
                 e('th', {style:{width:'90px'}}, 'Scadenza'),
-                e('th', {style:{minWidth:'260px'}}, 'Azioni')
+                e('th', {style:{minWidth:'340px'}}, 'Azioni')
               )
             ),
             e('tbody', null,
