@@ -10526,8 +10526,8 @@ function CommesseView({ query = '' }) {
                 e('th', null, 'Rif. cliente'),
                 // Ho stretto Q.tà e Spedita, e allargato Azioni per non far andare a capo i tasti
                 e('th', {className:'right', style:{width:'50px'}}, 'Q.tà'), 
-                e('th', {className:'right', style:{width:'80px'}}, 'Spedita'),
-                e('th', {className:'right', style:{width:'80px'}}, 'Q.tà prod.'),
+                e('th', {className:'right', style:{width:'60px'}}, 'Spedita'),
+                e('th', {className:'right', style:{width:'60px'}}, 'Q.tà prod.'),
                 e('th', {style:{width:'90px'}}, 'Scadenza'),
                 e('th', {style:{minWidth:'340px'}}, 'Azioni')
               )
@@ -14925,7 +14925,8 @@ window.renderDDTHTML = function(ddt){
   const pesoNetto = esc(ddt?.pesoNetto || '');
   const pesoLordo = esc(ddt?.pesoLordo || '');
 
-   let css = window.__PRINT_CSS({ top:10, right:12, bottom:14, left:12 });
+   // Bottom ridotto a 5mm per abbassare il piè di pagina
+let css = window.__PRINT_CSS({ top:10, right:12, bottom:5, left:12 });
 css += `
   <style>
     /* RIMOSSE dal tuo blocco originale:
@@ -15184,89 +15185,41 @@ css += `
 
 // ===== Stampa DDT con fallback numerazione pagina =====
 window.printDDT = function(state){
-  try{
+try {
     // 1) Sorgente dati
     let ddt = state;
     if (!ddt && typeof window.__DEBUG_DDT === 'function') {
-      try { ddt = window.__DEBUG_DDT(); } catch {}
+      try { ddt = window.__DEBUG_DDT(); } catch (e) {}
     }
-    if (!ddt || Object.keys(ddt||{}).length === 0) {
-      alert('Nessun DDT da stampare (stato vuoto).'); return;
+    if (!ddt || Object.keys(ddt || {}).length === 0) {
+      alert('Nessun DDT da stampare.');
+      return;
     }
 
     // 2) HTML
     const html = window.renderDDTHTML(ddt);
 
-    // 3) Finestra di stampa
-    const w = window.open('', '_blank');
-    if (!w) { alert('Popup bloccato: consenti i pop-up per la stampa.'); return; }
-    w.document.open(); w.document.write(html); w.document.close();
-
-    // DEDUPE legacy: ora i DDT hanno una pagebox per pagina, quindi non tocchiamo le pagebox
-    try{
-      const boxes = Array.from(w.document.querySelectorAll('#pagebox'));
-      boxes.forEach((el, i) => { if (i>0) el.remove(); });
-    }catch{}
-
-    // — Fallback pagina X/Y quando i counters CSS non funzionano —
-    const setupPageNum = () => {
-      try{
-        const pn = w.document.querySelector('#pagebox .pageNum') || w.document.querySelector('.pageNum');
-        if (!pn) return;
-
-        // prova prima in "modalità CSS"
-        pn.setAttribute('data-mode', 'css');
-
-        // leggi il contenuto generato dal ::after
-        const pseudo = w.getComputedStyle(pn, '::after').getPropertyValue('content') || '';
-
-        // alcune implementazioni restituiscono "normal", "none" o stringhe vuote "" oppure "0 / 0"
-        const bad = (!pseudo || !/\d/.test(pseudo)); // valido solo se vedo almeno una cifra
-
-        if (bad) {
-          // passa a fallback JS e scrivi "1 / N" come testo interno
-          pn.removeAttribute('data-mode');
-
-          // stima il numero di pagine in px convertendo i mm della pagina
-          const mmToPx = (() => {
-            const t = w.document.createElement('div');
-            t.style.height = '100mm';
-            t.style.position = 'absolute';
-            t.style.visibility = 'hidden';
-            w.document.body.appendChild(t);
-            const px = t.getBoundingClientRect().height || 0;
-            t.remove();
-            return px / 100;
-          })();
-
-          // altezza utile stimata (A4 297mm, margini @page top/bottom = 16/22mm)
-          const pageHeightMm = 297 - (16 + 22);
-          const pageHeightPx = (mmToPx > 0) ? (mmToPx * pageHeightMm) : (w.innerHeight || 1123); // fallback
-
-          const content = w.document.querySelector('.content') || w.document.body;
-          const h = Math.max(content.scrollHeight, content.offsetHeight, w.document.body.scrollHeight);
-          const total = Math.max(1, Math.ceil(h / pageHeightPx));
-
-          // NB: con fallback non possiamo mostrare "2 / N" su ogni pagina,
-          // quindi mettiamo "1 / N" uguale su tutte. Almeno evita "0/0".
-          pn.textContent = `1 / ${total}`;
-        }
-      }catch{}
-    };
-
-    // 4) Stampa dopo immagini/caricamenti
-    const finish = () => { try { w.focus(); setupPageNum(); w.print(); } catch {} };
-    const imgs = w.document.images;
-    if (imgs && imgs.length){
-      let done = 0;
-      const onOne = () => { done++; if (done >= imgs.length) setTimeout(finish, 80); };
-      for (const im of imgs) { im.addEventListener('load', onOne); im.addEventListener('error', onOne); }
-      setTimeout(finish, 1200); // fallback
+    // 3) Stampa Intelligente (Iframe prioritario, Popup solo come fallback)
+    if (window.safePrintHTMLStringWithPageNum) {
+      window.safePrintHTMLStringWithPageNum(html);
+    } else if (window.safePrintHTMLString) {
+      window.safePrintHTMLString(html);
     } else {
-      if (w.document.readyState === 'complete') finish();
-      else w.addEventListener('load', () => setTimeout(finish, 60));
+      // Metodo Fallback Popup
+      const w = window.open('', '_blank');
+      if (w) {
+        w.document.open();
+        w.document.write(html);
+        w.document.close();
+        w.focus();
+        setTimeout(function() {
+          try { w.print(); } catch (e) { console.warn(e); }
+        }, 500);
+      } else {
+        alert('Popup bloccato. Consenti i popup per stampare.');
+      }
     }
-  }catch(e){
+  } catch (e) {
     console.error('printDDT error', e);
     alert('Errore durante la stampa DDT');
   }
@@ -26518,7 +26471,7 @@ th{background:#f8fafc; font-weight:700}
 
 /* Footer + totale (coerente) */
 .content{margin-bottom:70mm}
-.footer{position:fixed; left:8mm; right:8mm; bottom:12mm; display:flex; justify-content:space-between; align-items:flex-end; gap:12px}
+.footer{position:fixed; left:8mm; right:8mm; bottom:5mm; display:flex; justify-content:space-between; align-items:flex-end; gap:12px}
 .sign{min-width:280px; padding:8px 2px}
 .sign .lab{color:#64748b; font-size:12px}
 .sign .line{height:26px; border-bottom:1px solid #cbd5e1}
