@@ -9919,10 +9919,6 @@ window.previewDescrAndRef = window.previewDescrAndRef || function previewDescrAn
   const isSingle = Array.isArray(righe) && righe.length === 1;
   const codiceSingolo = (isSingle && righe[0] && (righe[0].codice || righe[0].code)) ? (righe[0].codice || righe[0].code) : (c?.articoloCodice || '');
   const ref = window.orderRefFor(c) || '';
-
-  // output:
-  // colonna "Descrizione" = descrizione
-  // colonna "Rif. cliente" = (multi) ref  | (singola) codice  | fallback ref | '-'
   const rifCol = isMulti ? (ref || `Multi (${righe.length})`) : (codiceSingolo || ref || '-');
   return { descr, rifCol };
 };
@@ -9931,23 +9927,14 @@ function CommesseView({ query = '' }) {
   const e = React.createElement;
 
   // RBAC sola lettura
-  const readOnly = (typeof window.isReadOnlyUser === 'function'
-    ? !!window.isReadOnlyUser()
-    : !!(window.__USER && window.__USER.role === 'accountant'));
-
-  const roBtnProps = () =>
-    (window.roProps ? window.roProps() : (readOnly ? {
-      disabled: true,
-      title: 'Sola lettura'
-    } : {}));
+  const readOnly = (typeof window.isReadOnlyUser === 'function' ? !!window.isReadOnlyUser() : !!(window.__USER && window.__USER.role === 'accountant'));
+  const roBtnProps = () => (window.roProps ? window.roProps() : (readOnly ? { disabled: true, title: 'Sola lettura' } : {}));
 
   // — Renderer sicuro
   const V = (v) => {
     if (v == null) return '';
     if (typeof v === 'object') {
-      if ('id' in v || 'numero' in v || 'data' in v) {
-        return String(v.id ?? v.numero ?? v.data ?? '');
-      }
+      if ('id' in v || 'numero' in v || 'data' in v) return String(v.id ?? v.numero ?? v.data ?? '');
       if (Array.isArray(v)) return v.map(V).join(', ');
       try { return JSON.stringify(v); } catch { return '[obj]'; }
     }
@@ -9960,14 +9947,7 @@ function CommesseView({ query = '' }) {
 
   // --- chiudi i menu "…" cliccando fuori ---
   const [menuRow, setMenuRow] = React.useState(null);
-  
-  // BLOCCO NUOVO — Stato form allegato commessa
-  const [allegatoCommessaForm, setAllegatoCommessaForm] = React.useState({
-    tipo: 'ALTRO',
-    descrizione: '',
-    path: '',
-    url: ''
-  });
+  const [allegatoCommessaForm, setAllegatoCommessaForm] = React.useState({ tipo: 'ALTRO', descrizione: '', path: '', url: '' });
 
   React.useEffect(() => {
     const onDocClick = (ev) => { if (!ev.target.closest('.dropdown')) setMenuRow(null); };
@@ -9977,13 +9957,6 @@ function CommesseView({ query = '' }) {
 
   // --- tempo & formati ---
   const formatNNN = window.formatNNN || (n => String(n).padStart(3,'0'));
-  const nextProgressivo = window.nextProgressivo || (series => {
-    const year = new Date().getFullYear();
-    let counters = {}; try { counters = JSON.parse(localStorage.getItem('counters') || '{}') || {}; } catch {}
-    const key = `${series}:${year}`; const num = Number(counters[key]||0) + 1; counters[key]=num;
-    try { localStorage.setItem('counters', JSON.stringify(counters)); } catch {}
-    return { year, num };
-  });
   const toMin = (s) => {
     if(!s) return 0;
     const m = String(s).trim().match(/^(\d{1,4})(?::([0-5]?\d))?$/);
@@ -10008,40 +9981,12 @@ function CommesseView({ query = '' }) {
       } else {
         v = Number(c.qtaProdotta || 0);
       }
-      if (!Number.isFinite(v) || v < 0) v = 0;
       return Math.max(0, Math.min(totComm, v));
-    } catch {
-      return 0;
-    }
+    } catch { return 0; }
   };
 
-  // --- Upgrade DDT Rows Once ---
-  (function upgradeDDTRowsOnce(){
-    try{
-      const key = 'ddtRows';
-      const lsGetLocal = (typeof lsGet === 'function') ? lsGet : ((k,d)=>{ try{ const v = JSON.parse(localStorage.getItem(k)); return (v ?? d); }catch{return d;} });
-      const lsSetLocal = (typeof lsSet === 'function') ? lsSet : ((k,v)=>{ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} });
-      let arr = lsGetLocal(key, []);
-      if (!Array.isArray(arr) || !arr.length) return;
-      let changed = false;
-      arr = arr.map((d, i) => {
-        if (!d || typeof d !== 'object') return d;
-        const out = { ...d };
-        if (!out.__createdAt){
-          const base = out.data ? (String(out.data) + 'T00:00:00') : new Date().toISOString();
-          const t = (Date.parse(base) || Date.now()) + (i * 1000);
-          out.__createdAt = new Date(t).toISOString();
-          changed = true;
-        }
-        if (!out.updatedAt && out.__createdAt){
-          out.updatedAt = out.__createdAt;
-          changed = true;
-        }
-        return out;
-      });
-      if (changed){ lsSetLocal(key, arr); }
-    }catch{}
-  })();
+  // --- upgrade DDT Rows ---
+  (function upgradeDDTRowsOnce(){ try{ const key='ddtRows'; const lsGetLocal=(window.lsGet||((k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch{return d}})); const lsSetLocal=(window.lsSet||((k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch{}})); let arr=lsGetLocal(key,[]); if(!Array.isArray(arr)||!arr.length)return; let changed=false; arr=arr.map((d,i)=>{ if(!d||typeof d!=='object')return d; const out={...d}; if(!out.__createdAt){ const base=out.data?(String(out.data)+'T00:00:00'):new Date().toISOString(); const t=(Date.parse(base)||Date.now())+(i*1000); out.__createdAt=new Date(t).toISOString(); changed=true; } if(!out.updatedAt&&out.__createdAt){ out.updatedAt=out.__createdAt; changed=true; } return out; }); if(changed){ lsSetLocal(key,arr); } }catch{} })();
 
   const shippedPieces = window.shippedPieces || function(c){
     try{
@@ -10050,10 +9995,9 @@ function CommesseView({ query = '' }) {
       if (!jobId) return 0;
       let sum = 0;
       (Array.isArray(ddtRows) ? ddtRows : []).forEach(ddt => {
-        if (!ddt) return;
-        if (ddt.deletedAt) return;
-        if (ddt.annullato === true || String(ddt.stato||'') === 'Annullato') return;
+        if (!ddt || ddt.deletedAt || ddt.annullato===true || String(ddt.stato||'')==='Annullato') return;
         const ddtJobId = String(ddt.commessaId || ddt.commessaRif || ddt.__fromCommessaId || '');
+        if (ddtJobId !== jobId) return;
         (Array.isArray(ddt.righe) ? ddt.righe : []).forEach(r => {
           if (!r) return;
           const rowJobId = String(r.commessaId || ddtJobId || '');
@@ -10070,62 +10014,36 @@ function CommesseView({ query = '' }) {
   function computeDDTStatus(c){
     const tot  = Math.max(0, Number(c.qtaPezzi || c.qta || 0));
     const sped = Math.max(0, Number(shippedPieces(c) || 0));
-    let label = '—';
-    let color = '#666';
-    if (tot <= 0){
-      if (sped > 0){ label = '⚠️ DDT senza q.tà'; color = '#c0392b'; }
-      else { label = '—'; }
-    } else if (sped <= 0){
-      label = 'Nessun DDT'; color = '#666';
-    } else if (sped < tot){
-      label = 'DDT parziale'; color = '#e67e22';
-    } else if (sped === tot){
-      label = 'DDT completo'; color = '#27ae60';
-    } else {
-      label = '⚠️ DDT > q.tà'; color = '#c0392b';
-    }
+    let label = '—'; let color = '#666';
+    if (tot <= 0){ if (sped > 0){ label = '⚠️ DDT senza q.tà'; color = '#c0392b'; } else { label = '—'; } } 
+    else if (sped <= 0){ label = 'Nessun DDT'; color = '#666'; } 
+    else if (sped < tot){ label = 'DDT parziale'; color = '#e67e22'; } 
+    else if (sped === tot){ label = 'DDT completo'; color = '#27ae60'; } 
+    else { label = '⚠️ DDT > q.tà'; color = '#c0392b'; }
     const completedAt = c.__completedAt || c.completedAt || c.dataCompletata || null;
     if (completedAt && sped < tot){ label += ' (commessa completata)'; }
     return { tot, sped, label, color };
   }
 
-  const __todayComm = new Date();
-  __todayComm.setHours(0,0,0,0);
-
+  const __todayComm = new Date(); __todayComm.setHours(0,0,0,0);
   function getScadenzaInfo(c){
     const raw = c.scadenza || c.dataConsegna || c.data_scadenza || '';
     if (!raw) return { text:'', color:'#222' };
-    const text = String(raw);
-    let color = '#222';
+    const text = String(raw); let color = '#222';
     const d = new Date(raw);
-    if (!isNaN(d.getTime())){
-      d.setHours(0,0,0,0);
-      const diffDays = Math.floor((d - __todayComm) / (1000*60*60*24));
-      if (diffDays < 0)       color = '#c0392b';
-      else if (diffDays <= 3) color = '#e67e22';
-    }
+    if (!isNaN(d.getTime())){ d.setHours(0,0,0,0); const diffDays = Math.floor((d - __todayComm) / (1000*60*60*24)); if (diffDays < 0) color = '#c0392b'; else if (diffDays <= 3) color = '#e67e22'; }
     return { text, color };
   }
 
   // --- dati di base ---
-  const app       = React.useMemo(() => lsGet('appSettings', {}) || {}, []);
-  const clienti   = React.useMemo(() => {
+  const app = React.useMemo(() => lsGet('appSettings', {}) || {}, []);
+  const clienti = React.useMemo(() => {
     const arr = lsGet('clientiRows', []) || [];
-    return (Array.isArray(arr) ? arr : []).map((x, i) => ({
-      id: (x && (x.id!=null ? x.id : (x.codice||x.code||String(i)))),
-      ragioneSociale: (x && (x.ragioneSociale||x.denominazione||x.nome||x.descrizione||x.ragione||'')) || ''
-    }));
+    return (Array.isArray(arr) ? arr : []).map((x, i) => ({ id: (x && (x.id!=null ? x.id : (x.codice||x.code||String(i)))), ragioneSociale: (x && (x.ragioneSociale||x.denominazione||x.nome||x.descrizione||x.ragione||'')) || '' }));
   }, []);
   const articoliA = React.useMemo(() => lsGet('magArticoli', []) , []);
-  const FASI_STD  = Array.isArray(app.fasiStandard)
-    ? app.fasiStandard.map(f => {
-          if (typeof f === 'string') return f.trim();
-          if (!f) return '';
-          return String(f.label || f.nome || f.lav || '').trim();
-        }).filter(Boolean)
-  : [];
+  const FASI_STD = Array.isArray(app.fasiStandard) ? app.fasiStandard.map(f => { if (typeof f === 'string') return f.trim(); if (!f) return ''; return String(f.label || f.nome || f.lav || '').trim(); }).filter(Boolean) : [];
 
-  // --- ordinamento per più-recenti/decrescente (C-YYYY-NNN) ---
   function idKeyC(row){
     const id = String(row?.id||'');
     const m = id.match(/C-(\d{4})-(\d{3})/i);
@@ -10134,34 +10052,26 @@ function CommesseView({ query = '' }) {
     return y*100000 + n;
   }
 
-  // --- stato archivio ---
+  // --- stato ---
   const [rows, setRows] = React.useState(() => lsGet('commesseRows', []));
   React.useEffect(() => lsSet('commesseRows', rows), [rows]);
 
   function writeCommesse(nextArr){
-    try {
-      if (typeof lsSet === 'function') lsSet('commesseRows', nextArr);
-      else localStorage.setItem('commesseRows', JSON.stringify(nextArr));
-    } catch {}
+    try { if (typeof lsSet === 'function') lsSet('commesseRows', nextArr); else localStorage.setItem('commesseRows', JSON.stringify(nextArr)); } catch {}
     setRows(Array.isArray(nextArr) ? nextArr : []);
   }
 
-  // --- filtro ricerca ---
   const [q, setQ] = React.useState('');
   const [openedFromQuery, setOpenedFromQuery] = React.useState(false);
-  
-  // *** QUI AVVIENE L'INVERSIONE (b - a = Decrescente/Nuovi in alto) ***
-  const rowsSorted = (Array.isArray(rows)? rows.slice():[]).sort((a,b)=> idKeyC(b) - idKeyC(a));
-  
+  const rowsSorted = (Array.isArray(rows)? rows.slice():[]).sort((a,b)=> idKeyC(b) - idKeyC(a)); // Inversione OK
   const filtered = rowsSorted.filter(c => {
     const s = `${c.id||''} ${c.cliente||''} ${c.descrizione||''} ${c.articoloCodice||''} ${(Array.isArray(c.righe)&&c.righe.map(r=>r.articoloCodice).join(' '))||''}`.toLowerCase();
     return s.includes((q||'').toLowerCase());
   });
 
-    React.useEffect(() => {
+  React.useEffect(() => {
     if (!query || openedFromQuery) return;
-    const id = String(query).trim();
-    if (!id) return;
+    const id = String(query).trim(); if (!id) return;
     const all = Array.isArray(rows) ? rows : [];
     const found = all.find(c => String(c.id) === id);
     if (!found) return;
@@ -10169,478 +10079,83 @@ function CommesseView({ query = '' }) {
     setOpenedFromQuery(true);
   }, [query, rows, openedFromQuery]);
 
-  // --- selezione multipla ---
   const [sel, setSel] = React.useState({});
   const selectedList = filtered.filter(c => sel[c.id]);
-  const selectedClientIds = Array.from(new Set(selectedList.map(c => String(c.clienteId||''))));
-  const sameClient = selectedClientIds.length <= 1;
-  const toggleRow  = (id)=> setSel(prev => ({ ...prev, [id]: !prev[id] }));
-  const toggleAll  = ()=> {
+  const toggleRow = (id)=> setSel(prev => ({ ...prev, [id]: !prev[id] }));
+  const toggleAll = ()=> {
     const allSelected = filtered.every(c => sel[c.id]);
     if (allSelected) { const next = {...sel}; filtered.forEach(c => { delete next[c.id]; }); setSel(next); } 
     else { const next = {...sel}; filtered.forEach(c => { next[c.id] = true; }); setSel(next); }
   };
 
-  // --- form commessa ---
   const blank = {
-    id:'', clienteId:'', cliente:'',
-    articoloCodice:'', articoloUM:'',
-    descrizione:'',
-    qtaPezzi: 1,
-    orePerPezzoHHMM: '1:00',
-    oreTotaliPrev: 60,
-    scadenza:'', priorita:'MEDIA',
-    istruzioni:'',
-    materiali:[],
-    fasi:[],
-    righeArticolo: [],
-    qtaProdotta: 0,
-    rifCliente: { tipo:'ordine', numero:'', data:'' },
-    luogoConsegna: '',
-    createdAt: null, updatedAt: null
+    id:'', clienteId:'', cliente:'', articoloCodice:'', articoloUM:'', descrizione:'', qtaPezzi: 1, orePerPezzoHHMM: '1:00', oreTotaliPrev: 60, scadenza:'', priorita:'MEDIA', istruzioni:'', materiali:[], fasi:[], righeArticolo: [], qtaProdotta: 0, rifCliente: { tipo:'ordine', numero:'', data:'' }, luogoConsegna: '', createdAt: null, updatedAt: null
   };
   const [form, setForm] = React.useState(blank);
   const [editingId, setEditingId] = React.useState(null);
   const [showForm, setShowForm] = React.useState(false);
   const [rowFasiEditIdx, setRowFasiEditIdx] = React.useState(null);
 
-  React.useEffect(()=>{
-    setForm(p => ({ ...p, oreTotaliPrev: toMin(p.orePerPezzoHHMM) * Math.max(1, Number(p.qtaPezzi||1)) }));
-  }, [form.qtaPezzi, form.orePerPezzoHHMM]);
+  React.useEffect(()=>{ setForm(p => ({ ...p, oreTotaliPrev: toMin(p.orePerPezzoHHMM) * Math.max(1, Number(p.qtaPezzi||1)) })); }, [form.qtaPezzi, form.orePerPezzoHHMM]);
 
-  function onChange(ev){
-    const { name, value, type } = ev.target;
-    setForm(p => ({ ...p, [name]: type==='number' ? (value===''? '' : +value) : value }));
-  }
+  function onChange(ev){ const { name, value, type } = ev.target; setForm(p => ({ ...p, [name]: type==='number' ? (value===''? '' : +value) : value })); }
 
+  // === FUNZIONI SPOSTATE IN CIMA (FIX) ===
   function addFase(){ setForm(p => ({ ...p, fasi:[...(p.fasi||[]), { lav:'', oreHHMM:'0:10', qtaPrevista: Math.max(1, Number(p.qtaPezzi||1)), qtaProdotta:0 }] })); }
   function delFase(idx){ setForm(p => ({ ...p, fasi:(p.fasi||[]).filter((_,i)=>i!==idx) })); }
-  function onChangeFase(idx, field, value){
-    setForm(p => {
-      const arr = Array.isArray(p.fasi) ? p.fasi.slice() : [];
-      const r = { ...(arr[idx]||{}) };
-      r[field] = (field==='qtaPrevista') ? Math.max(1, Number(value)||1) : value;
-      arr[idx] = r; return { ...p, fasi: arr };
-    });
-  }
+  function onChangeFase(idx, field, value){ setForm(p => { const arr = Array.isArray(p.fasi) ? p.fasi.slice() : []; const r = { ...(arr[idx]||{}) }; r[field] = (field==='qtaPrevista') ? Math.max(1, Number(value)||1) : value; arr[idx] = r; return { ...p, fasi: arr }; }); }
 
   function addMat(){ setForm(p => ({ ...p, materiali:[...(p.materiali||[]), { codice:'', descrizione:'', um:'', qta:0, note:'' }] })); }
   function delMat(idx){ setForm(p => ({ ...p, materiali:(p.materiali||[]).filter((_,i)=>i!==idx) })); }
-  function onChangeMat(idx, field, value){
-    setForm(p => {
-      const arr = Array.isArray(p.materiali) ? p.materiali.slice() : [];
-      const r = { ...(arr[idx]||{}) };
-      r[field] = (field==='qta') ? (+value||0) : value;
-      if (field==='codice') {
-        const a = (articoliA||[]).find(x => String(x.codice||'').trim() === String(value||'').trim());
-        if (a) { r.descrizione = r.descrizione || a.descrizione || ''; r.um = r.um || a.um || ''; }
-      }
-      arr[idx] = r; return { ...p, materiali: arr };
-    });
-  }
+  function onChangeMat(idx, field, value){ setForm(p => { const arr = Array.isArray(p.materiali) ? p.materiali.slice() : []; const r = { ...(arr[idx]||{}) }; r[field] = (field==='qta') ? (+value||0) : value; if (field==='codice') { const a = (articoliA||[]).find(x => String(x.codice||'').trim() === String(value||'').trim()); if (a) { r.descrizione = r.descrizione || a.descrizione || ''; r.um = r.um || a.um || ''; } } arr[idx] = r; return { ...p, materiali: arr }; }); }
 
-  // ---- righe articolo (multi-articolo) ----
-  function addRiga(){
-    setForm(p => ({
-      ...p,
-      righeArticolo: [
-        ...(Array.isArray(p.righeArticolo) ? p.righeArticolo : []),
-        { codice:'', descrizione:'', um:'PZ', qta:1, note:'' }
-      ]
-    }));
-  }
-  function delRiga(idx){
-    setForm(p => ({
-      ...p,
-      righeArticolo: (Array.isArray(p.righeArticolo) ? p.righeArticolo : []).filter((_,i)=>i!==idx)
-    }));
-  }
-  function onChangeRiga(idx, field, value){
-    setForm(p => {
-      const arr = Array.isArray(p.righeArticolo) ? p.righeArticolo.slice() : [];
-      const r    = { ...(arr[idx]||{}) };
-      if (field === 'qta') r.qta = (+value || 0);
-      else r[field] = value;
-      if (field === 'codice') {
-        const a = (Array.isArray(articoliA) ? articoliA : []).find(
-          x => String(x.codice||'').trim() === String(value||'').trim()
-        );
-        if (a) {
-          if (!r.descrizione) r.descrizione = a.descrizione || '';
-          if (!r.um)          r.um          = a.um || 'PZ';
-        }
-      }
-      arr[idx] = r;
-      return { ...p, righeArticolo: arr };
-    });
-  }
+  function addRiga(){ setForm(p => ({ ...p, righeArticolo: [ ...(Array.isArray(p.righeArticolo) ? p.righeArticolo : []), { codice:'', descrizione:'', um:'PZ', qta:1, note:'' } ] })); }
+  function delRiga(idx){ setForm(p => ({ ...p, righeArticolo: (Array.isArray(p.righeArticolo) ? p.righeArticolo : []).filter((_,i)=>i!==idx) })); }
+  function onChangeRiga(idx, field, value){ setForm(p => { const arr = Array.isArray(p.righeArticolo) ? p.righeArticolo.slice() : []; const r = { ...(arr[idx]||{}) }; if (field === 'qta') r.qta = (+value || 0); else r[field] = value; if (field === 'codice') { const a = (Array.isArray(articoliA) ? articoliA : []).find(x => String(x.codice||'').trim() === String(value||'').trim()); if (a) { if (!r.descrizione) r.descrizione = a.descrizione || ''; if (!r.um) r.um = a.um || 'PZ'; } } arr[idx] = r; return { ...p, righeArticolo: arr }; }); }
 
-  // --- fasi per-riga ---
-  function openRowFasi(idx){
-    setForm(p => {
-      const righe = Array.isArray(p.righeArticolo) ? p.righeArticolo.slice() : [];
-      const row   = { ...(righe[idx] || {}) };
-      let fasi    = Array.isArray(row.fasi) ? row.fasi.slice() : [];
-      const baseQ = Math.max(1, Number(row.qta || p.qtaPezzi || 1));
-      if (!fasi.length){
-        fasi = [{ lav:'', oreHHMM:'0:10', orePrevHHMM:'0:10', qtaPrevista:baseQ, qtaProdotta:0, unaTantum:false }];
-      }
-      row.fasi = fasi;
-      righe[idx] = row;
-      return { ...p, righeArticolo: righe };
-    });
-    setRowFasiEditIdx(idx);
-  }
-
+  function openRowFasi(idx){ setForm(p => { const righe = Array.isArray(p.righeArticolo) ? p.righeArticolo.slice() : []; const row = { ...(righe[idx] || {}) }; let fasi = Array.isArray(row.fasi) ? row.fasi.slice() : []; const baseQ = Math.max(1, Number(row.qta || p.qtaPezzi || 1)); if (!fasi.length){ fasi = [{ lav:'', oreHHMM:'0:10', orePrevHHMM:'0:10', qtaPrevista:baseQ, qtaProdotta:0, unaTantum:false }]; } row.fasi = fasi; righe[idx] = row; return { ...p, righeArticolo: righe }; }); setRowFasiEditIdx(idx); }
   function closeRowFasi(){ setRowFasiEditIdx(null); }
+  function onChangeRigaFase(rowIdx, faseIdx, field, value){ setForm(p => { const righe = Array.isArray(p.righeArticolo) ? p.righeArticolo.slice() : []; const row = { ...(righe[rowIdx] || {}) }; const fasi = Array.isArray(row.fasi) ? row.fasi.slice() : []; const f = { ...(fasi[faseIdx] || {}) }; if (field === 'qtaPrevista') f.qtaPrevista = Math.max(1, Number(value)||1); else if (field === 'unaTantum') { f.unaTantum = !!value; if (f.unaTantum) f.once = true; } else if (field === 'orePrevHHMM') { f.orePrevHHMM = value; if (!f.oreHHMM) f.oreHHMM = value; } else f[field] = value; fasi[faseIdx] = f; row.fasi = fasi; righe[rowIdx] = row; return { ...p, righeArticolo: righe }; }); }
+  function addRigaFase(rowIdx){ setForm(p => { const righe = Array.isArray(p.righeArticolo) ? p.righeArticolo.slice() : []; const row = { ...(righe[rowIdx] || {}) }; const fasi = Array.isArray(row.fasi) ? row.fasi.slice() : []; const baseQ = Math.max(1, Number(row.qta || p.qtaPezzi || 1)); fasi.push({ lav:'', oreHHMM:'0:10', orePrevHHMM:'0:10', qtaPrevista:baseQ, qtaProdotta:0, unaTantum:false }); row.fasi = fasi; righe[rowIdx] = row; return { ...p, righeArticolo: righe }; }); }
+  function delRigaFase(rowIdx, faseIdx){ setForm(p => { const righe = Array.isArray(p.righeArticolo) ? p.righeArticolo.slice() : []; const row = { ...(righe[rowIdx] || {}) }; const fasi = Array.isArray(row.fasi) ? row.fasi.slice() : []; row.fasi = fasi.filter((_,i)=> i!==faseIdx); righe[rowIdx] = row; return { ...p, righeArticolo: righe }; }); }
 
-  function onChangeRigaFase(rowIdx, faseIdx, field, value){
-    setForm(p => {
-      const righe = Array.isArray(p.righeArticolo) ? p.righeArticolo.slice() : [];
-      const row   = { ...(righe[rowIdx] || {}) };
-      const fasi  = Array.isArray(row.fasi) ? row.fasi.slice() : [];
-      const f     = { ...(fasi[faseIdx] || {}) };
-
-      if (field === 'qtaPrevista') f.qtaPrevista = Math.max(1, Number(value)||1);
-      else if (field === 'unaTantum') { f.unaTantum = !!value; if (f.unaTantum) f.once = true; }
-      else if (field === 'orePrevHHMM') { f.orePrevHHMM = value; if (!f.oreHHMM) f.oreHHMM = value; }
-      else f[field] = value;
-
-      fasi[faseIdx] = f; row.fasi = fasi; righe[rowIdx] = row;
-      return { ...p, righeArticolo: righe };
-    });
-  }
-
-  function addRigaFase(rowIdx){
-    setForm(p => {
-      const righe = Array.isArray(p.righeArticolo) ? p.righeArticolo.slice() : [];
-      const row   = { ...(righe[rowIdx] || {}) };
-      const fasi  = Array.isArray(row.fasi) ? row.fasi.slice() : [];
-      const baseQ = Math.max(1, Number(row.qta || p.qtaPezzi || 1));
-      fasi.push({ lav:'', oreHHMM:'0:10', orePrevHHMM:'0:10', qtaPrevista:baseQ, qtaProdotta:0, unaTantum:false });
-      row.fasi = fasi; righe[rowIdx] = row;
-      return { ...p, righeArticolo: righe };
-    });
-  }
-
-  function delRigaFase(rowIdx, faseIdx){
-    setForm(p => {
-      const righe = Array.isArray(p.righeArticolo) ? p.righeArticolo.slice() : [];
-      const row   = { ...(righe[rowIdx] || {}) };
-      const fasi  = Array.isArray(row.fasi) ? row.fasi.slice() : [];
-      row.fasi = fasi.filter((_,i)=> i!==faseIdx);
-      righe[rowIdx] = row;
-      return { ...p, righeArticolo: righe };
-    });
-  }
-
-  // --- azioni form ---
-  function startNew(){
-    setEditingId(null);
-    setForm({ ...blank, createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() });
-    setShowForm(true);
-    setTimeout(()=>{ const el=document.getElementById('commessa-form'); if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); },0);
-  }
+  function startNew(){ setEditingId(null); setForm({ ...blank, createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() }); setShowForm(true); setTimeout(()=>{ const el=document.getElementById('commessa-form'); if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); },0); }
   function startEdit(c){
-    if (!c) return;
-    setEditingId(c.id);
-    const nowIso = new Date().toISOString();
-
-    const rifNorm = (function(){
-      const src = c.rifCliente;
-      if (src && typeof src === 'object') {
-        const tipo = (src.tipo || 'ordine').toString().trim() || 'ordine';
-        const numero = (src.numero != null ? String(src.numero) : '').trim();
-        let dataISO = '';
-        if (src.data) {
-          const s = String(src.data).trim();
-          if (/^\d{4}-\d{2}-\d{2}$/.test(s)) dataISO = s;
-          else if (typeof window.parseITDate === 'function') dataISO = window.parseITDate(s) || '';
-          else { const d = new Date(s); if (!isNaN(d.getTime())) dataISO = d.toISOString().slice(0,10); }
-        }
-        return { tipo, numero, data: dataISO };
-      }
-      let tipo   = (c.rifClienteTipo || '').toString().trim() || 'ordine';
-      let numero = (c.nrOrdineCliente || c.ordineCliente || c.ordineId || c.ordine || '').toString().trim();
-      let dataISO = '';
-      if (c.rifClienteData) {
-        const s = String(c.rifClienteData);
-        if (typeof window.parseITDate === 'function') dataISO = window.parseITDate(s) || '';
-        else { const d = new Date(s); if (!isNaN(d.getTime())) dataISO = d.toISOString().slice(0,10); }
-      }
-      if (typeof c.rifCliente === 'string') {
-        const txt = c.rifCliente;
-        if (!dataISO && typeof window.parseITDate === 'function') {
-          const mData = txt.match(/(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/);
-          if (mData) dataISO = window.parseITDate(mData[1]) || '';
-        }
-        if (!numero) {
-          const mNum = txt.match(/(?:ord(?:ine)?|order|nr\.?|n\.?)\s*[:\-]?\s*([A-Z0-9\-_/]+)/i);
-          if (mNum) numero = mNum[1].trim();
-        }
-      }
-      return { tipo, numero, data: dataISO };
-    })();
-
-    let clienteId   = c.clienteId || '';
-    let clienteNome = c.cliente   || '';
-
-    if (!clienteId && clienteNome) {
-      const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
-      const target = norm(clienteNome);
-      if (target) {
-        const cli = (clienti || []).find(x => {
-          const r = norm(x.ragioneSociale || '');
-          if (!r) return false;
-          return r === target || r.includes(target) || target.includes(r);
-        });
-        if (cli) { clienteId = cli.id; clienteNome = cli.ragioneSociale || clienteNome; }
-      }
-    }
-
-    setForm({
-      ...blank,
-      ...c,
-      clienteId,
-      cliente    : clienteNome,
-      rifCliente : rifNorm,
-      updatedAt  : nowIso
-    });
-    setShowForm(true);
-    setTimeout(()=>{ const el = document.getElementById('commessa-form'); if (el) el.scrollIntoView({behavior:'smooth', block:'start'}); }, 0);
+    if (!c) return; setEditingId(c.id); const nowIso = new Date().toISOString();
+    const rifNorm = (function(){ const src = c.rifCliente; if (src && typeof src === 'object') { const tipo = (src.tipo || 'ordine').toString().trim() || 'ordine'; const numero = (src.numero != null ? String(src.numero) : '').trim(); let dataISO = ''; if (src.data) { const s = String(src.data).trim(); if (/^\d{4}-\d{2}-\d{2}$/.test(s)) dataISO = s; else if (typeof window.parseITDate === 'function') dataISO = window.parseITDate(s) || ''; else { const d = new Date(s); if (!isNaN(d.getTime())) dataISO = d.toISOString().slice(0,10); } } return { tipo, numero, data: dataISO }; } let tipo = (c.rifClienteTipo || '').toString().trim() || 'ordine'; let numero = (c.nrOrdineCliente || c.ordineCliente || c.ordineId || c.ordine || '').toString().trim(); let dataISO = ''; if (typeof c.rifCliente === 'string') { const txt = c.rifCliente; if (!dataISO && typeof window.parseITDate === 'function') { const mData = txt.match(/(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/); if (mData) dataISO = window.parseITDate(mData[1]) || ''; } if (!numero) { const mNum = txt.match(/(?:ord(?:ine)?|order|nr\.?|n\.?)\s*[:\-]?\s*([A-Z0-9\-_/]+)/i); if (mNum) numero = mNum[1].trim(); } } return { tipo, numero, data: dataISO }; })();
+    let clienteId = c.clienteId || ''; let clienteNome = c.cliente || '';
+    setForm({ ...blank, ...c, clienteId, cliente: clienteNome, rifCliente: rifNorm, updatedAt: nowIso }); setShowForm(true); setTimeout(()=>{ const el = document.getElementById('commessa-form'); if (el) el.scrollIntoView({behavior:'smooth', block:'start'}); }, 0);
   }
-
   function cancelForm(){ setShowForm(false); setEditingId(null); setForm(blank); }
 
   function segnaCompleta(c){
-    const tot = Math.max(1, Number(c.qtaPezzi||1));
-    const upd = { ...c, fasi:(Array.isArray(c.fasi)?c.fasi:[]).map(f=>({...f, qtaProdotta:tot})), qtaProdotta:tot, updatedAt:new Date().toISOString(), __completedAt:new Date().toISOString() };
+    const tot = Math.max(1, Number(c.qtaPezzi||1)); const upd = { ...c, fasi:(Array.isArray(c.fasi)?c.fasi:[]).map(f=>({...f, qtaProdotta:tot})), qtaProdotta:tot, updatedAt:new Date().toISOString(), __completedAt:new Date().toISOString() };
     setRows(prev => { const ix=prev.findIndex(x=>x.id===c.id); const next=[...prev]; if(ix>=0) next[ix]=upd; return next; });
     try{ lsSet('commesseRows', (function(p){ const ix=p.findIndex(x=>x.id===upd.id); if(ix>=0)p[ix]=upd; return p; })(lsGet('commesseRows', []))); }catch{}
-    try{ if (window.sbUpsertCommesse){ window.sbUpsertCommesse([upd]).catch(err=>{ console.warn('[Commesse] sbUpsertCommesse segnaCompleta', err); }); } }catch(e){ console.warn('[Commesse] cloud sync error (segnaCompleta)', e); }
+    try{ if (window.sbUpsertCommesse){ window.sbUpsertCommesse([upd]).catch(console.warn); } }catch(e){}
     try{ window._maybeAutoScaricoAndLabels && window._maybeAutoScaricoAndLabels(c.id); }catch{}
     alert('Commessa segnata come COMPLETA ✅');
   }
 
   function save(){
-    const all = lsGet('commesseRows', []);
-    let id = String(form.id || '').trim();
-    const creating = !editingId;
-    let allExisting = Array.isArray(rows) ? rows : null;
-    if (!Array.isArray(allExisting)) {
-      const raw = (window.lsGet && window.lsGet('commesseRows', [])) || [];
-      allExisting = Array.isArray(raw) ? raw : [];
-    }
+    const all = lsGet('commesseRows', []); let id = String(form.id || '').trim(); const creating = !editingId;
+    let allExisting = Array.isArray(rows) ? rows : null; if (!Array.isArray(allExisting)) { const raw = (window.lsGet && window.lsGet('commesseRows', [])) || []; allExisting = Array.isArray(raw) ? raw : []; }
     const existIds = new Set(allExisting.map(x => String(x.id || '')));
-
-    if (!id || creating) {
-      const gen = (typeof window.nextCommessaId === 'function') ? window.nextCommessaId() : (function(){ const y=new Date().getFullYear(); return `C-${y}-001`; })();
-      const pad = (n)=> String(n).padStart(3,'0');
-      let trial = gen;
-      if (existIds.has(trial)) {
-        const m = trial.match(/^C-(\d{4})-(\d{3})$/i);
-        const y = m ? +m[1] : new Date().getFullYear();
-        let n = m ? +m[2] : 1;
-        while (existIds.has(`C-${y}-${pad(n)}`)) n++;
-        trial = `C-${y}-${pad(n)}`;
-      }
-      id = trial;
-    }
-
-    const normFasi = (form.fasi||[]).map(f => ({
-      lav: f.lav || '',
-      oreHHMM: f.oreHHMM || '0:10',
-      qtaPrevista: Math.max(1, Number(f.qtaPrevista||form.qtaPezzi||1)),
-      qtaProdotta: Math.max(0, Math.min(Number(form.qtaPezzi||1), Number(f.qtaProdotta||0)))
-    }));
-
+    if (!id || creating) { const gen = (typeof window.nextCommessaId === 'function') ? window.nextCommessaId() : (function(){ const y=new Date().getFullYear(); return `C-${y}-001`; })(); let trial = gen; if (existIds.has(trial)) { const m = trial.match(/^C-(\d{4})-(\d{3})$/i); const y = m ? +m[1] : new Date().getFullYear(); let n = m ? +m[2] : 1; while (existIds.has(`C-${y}-${String(n).padStart(3,'0')}`)) n++; trial = `C-${y}-${String(n).padStart(3,'0')}`; } id = trial; }
+    const normFasi = (form.fasi||[]).map(f => ({ lav: f.lav || '', oreHHMM: f.oreHHMM || '0:10', qtaPrevista: Math.max(1, Number(f.qtaPrevista||form.qtaPezzi||1)), qtaProdotta: Math.max(0, Math.min(Number(form.qtaPezzi||1), Number(f.qtaProdotta||0))) }));
     const righe = Array.isArray(form.righeArticolo) ? form.righeArticolo : [];
     const qtaFromRighe = righe.reduce((s,r)=> s + (+r.qta||0), 0);
-    const articoloCodiceFinal = (righe.length === 1) ? (righe[0].codice || form.articoloCodice || '') : (righe.length > 1)  ? '' : (form.articoloCodice || '');
+    const articoloCodiceFinal = (righe.length === 1) ? (righe[0].codice || form.articoloCodice || '') : (righe.length > 1) ? '' : (form.articoloCodice || '');
     const righeArt = Array.isArray(form.righeArticolo) ? form.righeArticolo.filter(r => (r.codice||r.descrizione||'').trim()) : [];
-    
-    if (Array.isArray(righeArt) && righeArt.length > 0) {
-      const invalidIdx = [];
-      righeArt.forEach((riga, idx) => {
-        const fasi = Array.isArray(riga.fasi) ? riga.fasi : [];
-        if (fasi.length === 0) { invalidIdx.push(idx); return; }
-        const hasProcessFase = fasi.some(f => { if (!f || typeof f.unaTantum === 'undefined') return true; return !f.unaTantum; });
-        if (!hasProcessFase) { invalidIdx.push(idx); }
-      });
-      if (invalidIdx.length > 0) {
-        const righeHuman = invalidIdx.map(i => (i + 1)).join(', ');
-        alert('Ogni riga articolo deve avere almeno una fase di processo (non "una tantum").\n' + 'Controlla le righe: ' + righeHuman);
-        return;
-      }
-    }
-
-    const partial = {
-      ...form,
-      id,
-      cliente: form.cliente || (clienti.find(x=>String(x.id)===String(form.clienteId))?.ragioneSociale || ''),
-      qtaPezzi: qtaFromRighe || Math.max(1, Number(form.qtaPezzi||1)),
-      articoloCodice: articoloCodiceFinal,
-      orePerPezzoHHMM: form.orePerPezzoHHMM || '0:10',
-      oreTotaliPrev: toMin(form.orePerPezzoHHMM) * (qtaFromRighe || Math.max(1, Number(form.qtaPezzi||1))),
-      fasi: normFasi,
-      materiali: (form.materiali||[]).map(m => ({ codice: m.codice||'', descrizione: m.descrizione||'', um: m.um||'', qta: +m.qta||0, note: m.note||'' })),
-      righeArticolo: righe,
-      updatedAt: new Date().toISOString(),
-      createdAt: form.createdAt || new Date().toISOString()
-    };
+    if (Array.isArray(righeArt) && righeArt.length > 0) { const invalidIdx = []; righeArt.forEach((riga, idx) => { const fasi = Array.isArray(riga.fasi) ? riga.fasi : []; if (fasi.length === 0) { invalidIdx.push(idx); return; } const hasProcessFase = fasi.some(f => { if (!f || typeof f.unaTantum === 'undefined') return true; return !f.unaTantum; }); if (!hasProcessFase) { invalidIdx.push(idx); } }); if (invalidIdx.length > 0) { alert('Ogni riga deve avere almeno una fase di processo.'); return; } }
+    const partial = { ...form, id, cliente: form.cliente || (clienti.find(x=>String(x.id)===String(form.clienteId))?.ragioneSociale || ''), qtaPezzi: qtaFromRighe || Math.max(1, Number(form.qtaPezzi||1)), articoloCodice: articoloCodiceFinal, orePerPezzoHHMM: form.orePerPezzoHHMM || '0:10', oreTotaliPrev: toMin(form.orePerPezzoHHMM) * (qtaFromRighe || Math.max(1, Number(form.qtaPezzi||1))), fasi: normFasi, materiali: (form.materiali||[]).map(m => ({ codice: m.codice||'', descrizione: m.descrizione||'', um: m.um||'', qta: +m.qta||0, note: m.note||'' })), righeArticolo: righe, updatedAt: new Date().toISOString(), createdAt: form.createdAt || new Date().toISOString() };
     partial.qtaProdotta = producedPieces(partial);
-
-    const ix = all.findIndex(x => x.id === partial.id);
-    let nextAll;
-    if (ix >= 0) { nextAll = all.slice(); nextAll[ix] = partial; } else { nextAll = [partial, ...all]; }
-    lsSet('commesseRows', nextAll);
-    setRows(nextAll);
-
-    try{ if (window.sbUpsertCommesse){ window.sbUpsertCommesse([partial]).catch(err=>{ console.warn('[Commesse] sbUpsertCommesse save', err); }); } }catch(e){ console.warn('[Commesse] cloud sync error (save)', e); }
+    const ix = all.findIndex(x => x.id === partial.id); let nextAll; if (ix >= 0) { nextAll = all.slice(); nextAll[ix] = partial; } else { nextAll = [partial, ...all]; } lsSet('commesseRows', nextAll); setRows(nextAll);
+    try{ if (window.sbUpsertCommesse) window.sbUpsertCommesse([partial]).catch(console.warn); }catch(e){}
     try{ window._maybeAutoScaricoAndLabels && window._maybeAutoScaricoAndLabels(partial.id); }catch{}
-    alert('Commessa salvata ✅');
-    setShowForm(false);
+    alert('Commessa salvata ✅'); setShowForm(false);
   }
 
-  function duplicaCommessa(src){
-    if (!src || !src.id) return;
-    try{
-      const all = lsGet('commesseRows', []);
-      const nid = (typeof window.nextCommessaId === 'function') ? window.nextCommessaId() : (function(){ const y=new Date().getFullYear(); return `C-${y}-001`; })();
-      const copy = JSON.parse(JSON.stringify(src));
-      const newId = (typeof window.ensureUniqueCommessaId === 'function') ? window.ensureUniqueCommessaId(nid) : nid;
-      copy.id = newId;
-      copy.qtaProdotta = 0;
-      delete copy.__completedAt;
-      if (Array.isArray(copy.fasi)) { copy.fasi = copy.fasi.map(f => ({ ...f, qtaProdotta: 0 })); }
-      if (Array.isArray(copy.righeArticolo)) {
-        copy.righeArticolo = copy.righeArticolo.map(r => ({
-          ...r, qtaProdotta: 0, fasi: Array.isArray(r.fasi) ? r.fasi.map(f => ({ ...f, qtaProdotta: 0 })) : r.fasi
-        }));
-      }
-      delete copy.scaricoDone; delete copy.labelsPrinted; delete copy.__scaricoDoneAt; delete copy.__labelsPrintedAt;
-      copy.createdAt = new Date().toISOString(); copy.updatedAt = new Date().toISOString();
-      all.push(copy);
-      writeCommesse(all);
-      try{ if (window.sbUpsertCommesse){ window.sbUpsertCommesse([copy]).catch(err=>{ console.warn('[Commesse] sbUpsertCommesse duplica', err); }); } }catch(e){ console.warn('[Commesse] cloud sync error (duplica)', e); }
-      alert(`Commessa duplicata come ${nid} ✅`);
-    }catch(e){ console.error(e); alert('Errore durante la duplicazione.'); }
-  }
-  window.duplicaCommessa = duplicaCommessa;
-
-  function delCommessa(c){
-    if (!c || !c.id) return;
-    const id = String(c.id);
-    const getLocal = (k, def) => { try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; }catch{ return def; } };
-    const oreRows = getLocal('oreRows', []); const magMov = getLocal('magMovimenti', []); const ddtRows = getLocal('ddtRows', []);
-    const nOre = (Array.isArray(oreRows) ? oreRows : []).filter(o => String(o.commessaId || '') === id).length;
-    const nMov = (Array.isArray(magMov) ? magMov : []).filter(m => {
-      if (!m) return false; const jobId = id; if (String(m.commessaId || m.jobId || '') === jobId) return true;
-      if (Array.isArray(m.righe)) return m.righe.some(r => String(r.commessaId || r.commessaRowId || r.jobId || '') === jobId);
-      return false;
-    }).length;
-    const nDDT = (Array.isArray(ddtRows) ? ddtRows : []).filter(d => {
-      if (!d) return false; const jobId = id; if (String(d.commessaId || d.jobId || '') === jobId) return true;
-      if (Array.isArray(d.righe)) return d.righe.some(r => String(r.commessaId || r.commessaRowId || r.jobId || '') === jobId);
-      return false;
-    }).length;
-
-    const msg = [`Eliminare la commessa "${id}"?`, '', 'Collegamenti:', `• Timbrature: ${nOre}`, `• Movimenti magazzino: ${nMov}`, `• DDT: ${nDDT}`, '', 'Verrà eliminata solo la commessa. I dati collegati resteranno invariati.'].join('\n');
-    if (!confirm(msg)) return;
-
-    try{
-      const all = getLocal('commesseRows', []);
-      const next = (Array.isArray(all) ? all : []).filter(x => String(x.id) !== id);
-      writeCommesse(next);
-      try{ const cur = JSON.parse(localStorage.getItem('commesseRows') || '[]'); if (!Array.isArray(cur) || cur.length !== next.length) { localStorage.setItem('commesseRows', JSON.stringify(next)); window.__anima_dirty = true; } }catch{}
-      try{
-        if (typeof window.getSB === 'function') {
-          const sb = window.getSB();
-          if (sb && sb.url && sb.key) {
-            const baseUrl = String(sb.url).replace(/\/+$/,'');
-            const url = `${baseUrl}/rest/v1/commesse?id=eq.${encodeURIComponent(id)}`;
-            fetch(url, { method: 'DELETE', headers: { apikey: sb.key, Authorization: 'Bearer ' + sb.key } })
-            .catch(function(err){ console.warn('[delCommessa] delete cloud error', err); });
-          }
-        }
-      }catch(e){ console.warn('[delCommessa] delete cloud exception', e); }
-      try{ if (typeof window.syncExportToCloudOnly === 'function') { window.syncExportToCloudOnly(['commesseRows']); } }catch(e){ console.warn('Sync cloud commesse fallito:', e); }
-      alert('Commessa ' + id + ' eliminata ✅');
-    }catch(e){ console.error(e); alert('Errore durante eliminazione commessa.'); }
-  }
-  window.delCommessa = delCommessa;
-  window.duplicaCommessa = window.duplicaCommessa || duplicaCommessa;
-  window.delCommessa     = window.delCommessa     || delCommessa;
-
-  function timbrUrl(id){ return `#/timbratura?job=${encodeURIComponent(id||'')}`; }
-  function creaDDTdaCommessa(commessa){
-    try{
-      const lsGet = window.lsGet || ((k,d)=>{ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } });
-      const articoli = lsGet('magArticoli', []) || [];
-      const clienti  = lsGet('clientiRows', []) || [];
-      const cli = clienti.find(x => String(x.id) === String(commessa.clienteId)) || null;
-      const todayISO = ()=> new Date().toISOString().slice(0,10);
-      const righeSrc = (Array.isArray(commessa.righeArticolo) && commessa.righeArticolo.length) ? commessa.righeArticolo : [{ rowId: commessa.rowId || commessa.rowID || null, codice: commessa.articoloCodice || '', descrizione: commessa.descrizione || '', um: commessa.articoloUM || 'PZ', qta: Math.max(1, Number(commessa.qtaPezzi || commessa.qta || 1)), note: commessa.noteSpedizione || commessa.note || '' }];
-      const ddtRows = lsGet('ddtRows', []) || [];
-      const jobId   = String(commessa && commessa.id || '');
-      function shippedForRow(row){
-        const rowId = String(row && (row.rowId || row.rowID || row.commessaRowId || row.commessaRowID || '')).trim();
-        const hasRowId = !!rowId; if (!jobId) return 0; let sum = 0;
-        (Array.isArray(ddtRows) ? ddtRows : []).forEach(ddt => {
-          if (!ddt || ddt.deletedAt || ddt.annullato === true || String(ddt.stato||'') === 'Annullato') return;
-          const ddtJobId = String(ddt.commessaId || ddt.commessaRif || ddt.__fromCommessaId || '');
-          if (ddtJobId !== jobId) return;
-          (Array.isArray(ddt.righe) ? ddt.righe : []).forEach(r => {
-            if (!r) return;
-            const drRowId = String(r.commessaRowId || ddtJobId || '').trim();
-            if (hasRowId){ if (drRowId !== rowId) return; } else if (drRowId){ return; }
-            const q = Number(r.qta ?? r.quantita ?? 0); if (Number.isFinite(q)) sum += q;
-          });
-        });
-        return Math.max(0, sum);
-      }
-      const righeDDT = righeSrc.map(r => {
-        const cod = String(r.codice || r.articoloCodice || '').trim();
-        const a = articoli.find(x => String(x.codice || x.id || '').trim() === cod) || null;
-        const um = String(r.um || r.UM || a?.um || a?.UM || 'PZ').toUpperCase();
-        const prezzo = Number(r.prezzo ?? r.prezzoUnitario ?? a?.prezzo ?? a?.costo ?? 0) || 0;
-        const qOrig = Number(r.qta ?? r.quantita ?? r.qtaPezzi ?? 0) || 0;
-        const shipped = shippedForRow(r); const resid = Math.max(0, qOrig - shipped);
-        return { commessaRowId: String(r.rowId || r.rowID || ''), codice: cod, descrizione: r.descrizione || r.articoloDescr || a?.descrizione || a?.descr || '', UM: um, um: um, qta: resid || 0, prezzo: prezzo, note: r.note || commessa.noteSpedizione || commessa.note || '' };
-      });
-      const rifClienteTxt = (window.refClienteToText ? window.refClienteToText(commessa && commessa.rifCliente) : '') || (window.orderRefFor ? window.orderRefFor(commessa) : '') || '';
-      const clienteRag = commessa.cliente || (cli && (cli.ragioneSociale || cli.ragione || '')) || '';
-      const pf = { id: '', data: todayISO(), clienteId: commessa.clienteId || '', clienteRagione: clienteRag, cliente: clienteRag, commessaId: commessa.id || '', commessaRif: commessa.id || '', luogoConsegna: commessa.luogoConsegna || (cli && (cli.sedeOperativa || cli.sede) || ''), causaleTrasporto: commessa.causaleTrasporto || '', rifCliente: rifClienteTxt, rifClienteTipo: (commessa.rifCliente && commessa.rifCliente.tipo) || commessa.rifClienteTipo || '', rifClienteNum: (commessa.rifCliente && commessa.rifCliente.numero) || commessa.rifClienteNum || '', rifClienteData: (commessa.rifCliente && commessa.rifCliente.data) || commessa.rifClienteData || '', note: commessa.noteSpedizione || commessa.note || '', righe: righeDDT };
-      localStorage.setItem('prefillDDT', JSON.stringify(pf)); location.hash = '#/ddt';
-    } catch(e){ alert('Impossibile preparare il DDT: ' + (e && e.message ? e.message : e)); }
-  }
-
-  function creaDDTdaSelezionate(){
-    const list = selectedList; if (!list.length) { alert('Nessuna commessa selezionata.'); return; }
-    const lsGet = window.lsGet || ((k,d)=>{ try{ return JSON.parse(localStorage.getItem(k)||'null') ?? d; }catch{ return d; }});
-    const articoli = lsGet('magArticoli', []) || []; const todayISO = ()=> new Date().toISOString().slice(0,10);
-    const clientIds = Array.from(new Set(list.map(c => String(c.clienteId||''))));
-    if (clientIds.length > 1) { alert('Seleziona commesse dello stesso cliente.'); return; }
-    const clienteId = clientIds[0] || ''; const cli = (clienti||[]).find(x => String(x.id)===clienteId) || null;
-    const righe = [];
-    list.forEach(c=>{
-      const righeSrc = (Array.isArray(c.righeArticolo) && c.righeArticolo.length) ? c.righeArticolo : (Array.isArray(c.righe) ? c.righe : []);
-      righeSrc.forEach(r=>{
-        const cod = String(r.codice || r.articoloCodice || '').trim(); if (!cod && !r.descrizione) return;
-        const a = articoli.find(x => String(x.codice||x.id||'').trim() === cod) || null;
-        const um = String(r.um || r.UM || a?.um || a?.UM || 'PZ').toUpperCase();
-        const prezzo = Number(r.prezzo ?? r.prezzoUnitario ?? a?.prezzo ?? a?.costo ?? 0) || 0;
-        righe.push({ commessaId: c.id || '', commessaRowId: String(r.rowId || r.rowID || ''), codice: cod, descrizione: r.descrizione || r.articoloDescr || a?.descrizione || a?.descr || c.descrizione || '', UM: um, um, qta: Number(r.qta || r.quantita || c.qtaPezzi || 1) || 1, prezzo, note: r.note || c.noteSpedizione || '' });
-      });
-    });
-    if (!righe.length) { alert('Nessuna riga valida nelle commesse selezionate.'); return; }
-    const rifClienteTxt = (window.refClienteToText ? window.refClienteToText(list[0]?.rifCliente) : '') || (window.orderRefFor ? window.orderRefFor(list[0]) : '') || '';
-    const clienteRag = list[0].cliente || (cli && (cli.ragione || cli.ragioneSociale || '')) || '';
-    const pf = { id: '', data: todayISO(), clienteId, clienteRagione: clienteRag, cliente: clienteRag, luogoConsegna: list[0].luogoConsegna || (cli && (cli.sedeOperativa || cli.sede) || ''), causaleTrasporto: list[0].causaleTrasporto || '', note: list.map(c=>c.noteSpedizione||c.note||'').filter(Boolean).join(' | '), commesseIds: list.map(c=>c.id), rifCliente: rifClienteTxt, rifClienteTipo: list[0].rifClienteTipo || '', rifClienteNum: list[0].rifClienteNum || '', rifClienteData: list[0].rifClienteData || '', righe };
-    localStorage.setItem('prefillDDT', JSON.stringify(pf)); location.hash = '#/ddt';
-  }
-
-  // --- Import Ordine (PDF) ---
   const orderPdfInput = e('input', {
     id:'order-pdf-input', type:'file', accept:'application/pdf', style:{ display:'none' },
     onChange: async ev => {
@@ -10648,8 +10163,8 @@ function CommesseView({ query = '' }) {
         const f = ev.target.files && ev.target.files[0]; if (!f) return;
         const raw = await window.extractPdfText(f); const fileName = f.name || '';
         let parsed = {};
-        if (typeof window.importOrderFromPDFText === 'function') { parsed = window.importOrderFromPDFText(raw, fileName) || {}; }
-        else if (typeof window.parseOrderText === 'function') { parsed = window.parseOrderText(raw, fileName) || {}; }
+        if (typeof window.importOrderFromPDFText === 'function') parsed = window.importOrderFromPDFText(raw, fileName) || {};
+        else if (typeof window.parseOrderText === 'function') parsed = window.parseOrderText(raw, fileName) || {};
         
         let righe = Array.isArray(parsed.righe) ? parsed.righe.filter(r => r && (String(r.codice || '').trim().length > 0 || String(r.descrizione || '').trim().length > 0)) : [];
         if (Array.isArray(righe) && righe.length && window.autoSyncMagazzinoDaRighe) { righe = window.autoSyncMagazzinoDaRighe(righe); }
@@ -10657,347 +10172,168 @@ function CommesseView({ query = '' }) {
           const descrAuto = (raw.match(/Oggetto\s*[:\-]\s*(.+)/i) || [])[1] || (raw.match(/Ord\. acq\.\s*C\/Lavoro\s+Numero\s+(\d+)/i) || [])[1] || fileName || 'Commessa da ordine PDF';
           parsed.descrizione = (parsed.descrizione || descrAuto || '').trim(); righe = [];
         }
-        try{ if (Array.isArray(righe) && righe.length && window.ensureMagazzinoArticoliFromRighe) { window.ensureMagazzinoArticoliFromRighe(righe); } }catch(e){}
+        try{ if (Array.isArray(righe) && righe.length && window.ensureMagazzinoArticoliFromRighe) window.ensureMagazzinoArticoliFromRighe(righe); }catch(e){}
         
-        const clienti = (window.lsGet && window.lsGet('clientiRows', [])) || [];
-        let clienteRag = String(parsed.cliente || '').trim();
-        if (/^ANIMA\b/i.test(clienteRag)) clienteRag = '';
-        let clienteId = '';
-        if (clienteRag) {
-          const hit = clienti.find(c => String(c.ragioneSociale || c.nome || '').toLowerCase() === clienteRag.toLowerCase());
-          if (hit) { clienteId = hit.id; clienteRag = hit.ragioneSociale || hit.nome || clienteRag; }
-        }
+        const clienti = lsGet('clientiRows', []) || [];
+        let clienteRag = String(parsed.cliente || '').trim(); if (/^ANIMA\b/i.test(clienteRag)) clienteRag = '';
+        let clienteId = ''; if (clienteRag) { const hit = clienti.find(c => String(c.ragioneSociale || c.nome || '').toLowerCase() === clienteRag.toLowerCase()); if (hit) { clienteId = hit.id; clienteRag = hit.ragioneSociale || hit.nome || clienteRag; } }
         const idNuovo = (typeof window.nextCommessaId === 'function') ? window.nextCommessaId() : (function(){ const y = new Date().getFullYear(); return `C-${y}-001`; })();
         const qtaTot = righe.length ? righe.reduce((s,r)=> s + (Number(r.qta || r.quantita || 0) || 0), 0) : (Number(parsed.qtaPezzi || 1) || 1);
-        const articoloCodiceFinal = '';
-        const scad = (function(){
-          const s = String(parsed.scadenza || '').trim(); if (!s) return '';
-          const d = new Date(s); return isNaN(d.getTime()) ? '' : d.toISOString().slice(0,10);
-        })();
-        const rifClienteObj = (function(){
-          const src = parsed && parsed.rifCliente;
-          if (src && typeof src === 'object') { return { tipo : src.tipo || 'ordine', numero: src.numero || '', data : src.data || '' }; }
-          return null;
-        })();
+        const scad = (function(){ const s = String(parsed.scadenza || '').trim(); if (!s) return ''; const d = new Date(s); return isNaN(d.getTime()) ? '' : d.toISOString().slice(0,10); })();
+        const rifClienteObj = (function(){ const src = parsed && parsed.rifCliente; if (src && typeof src === 'object') return { tipo : src.tipo || 'ordine', numero: src.numero || '', data : src.data || '' }; return null; })();
         const sorgente = (parsed && parsed.sorgente) ? parsed.sorgente : { kind : 'pdf', name : fileName || '', bytes: (typeof raw === 'string' ? raw.length : 0) };
         const comm = {
-          id: idNuovo, clienteId, cliente: clienteRag || (parsed.cliente || ''), descrizione: '', articoloCodice: articoloCodiceFinal, qtaPezzi: Math.max(1, qtaTot || 1), scadenza: scad, rifCliente: rifClienteObj,
+          id: idNuovo, clienteId, cliente: clienteRag || (parsed.cliente || ''), descrizione: '', articoloCodice: '', qtaPezzi: Math.max(1, qtaTot || 1), scadenza: scad, rifCliente: rifClienteObj,
           righeArticolo: righe.map(r => ({ codice: r.codice || r.articoloCodice || '', descrizione: (r.descrizione || r.articoloDescr || '').trim(), um: String(r.um || r.UM || 'PZ').toUpperCase(), qta: Number(r.qta || r.quantita || 0) || 0, note: r.note || '' })),
           fasi: Array.isArray(parsed.fasi) ? parsed.fasi : [], materiali: Array.isArray(parsed.materiali) ? parsed.materiali : [], priorita: 'MEDIA', istruzioni: (parsed.istruzioni || '').trim(), consegnata: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), sorgente: sorgente
         };
-
-        const allCommesse = (window.lsGet && window.lsGet('commesseRows', [])) || [];
-        allCommesse.unshift(comm);
-        if (typeof writeCommesse === 'function') { writeCommesse(allCommesse); } else if (window.lsSet) { window.lsSet('commesseRows', allCommesse); } else { try { localStorage.setItem('commesseRows', JSON.stringify(allCommesse)); } catch {} }
-        window.__anima_dirty = true;
-        try { if (window.sbUpsertCommesse) { window.sbUpsertCommesse([comm]).catch(err => { console.warn('[Commesse] sbUpsertCommesse import PDF', err); }); } } catch (e) {}
-        const msgRighe = righe.length ? `${righe.length} righe importate` : 'Nessuna riga importata (commessa vuota da completare a mano)';
-        alert(`Commessa creata: ${comm.id} - ${comm.cliente || ''}\n${msgRighe}`);
-        ev.target.value = ''; location.hash = '#/commesse';
-      }catch(e){ console.error('Import PDF ordine fallito', e); alert('Errore durante la lettura del PDF.'); try { ev.target.value = ''; } catch {} }
+        const allCommesse = lsGet('commesseRows', []) || []; allCommesse.unshift(comm);
+        if (typeof writeCommesse === 'function') writeCommesse(allCommesse); else lsSet('commesseRows', allCommesse);
+        window.__anima_dirty = true; try { if (window.sbUpsertCommesse) window.sbUpsertCommesse([comm]).catch(console.warn); } catch (e) {}
+        alert(`Commessa creata: ${comm.id}`); ev.target.value = ''; location.hash = '#/commesse';
+      }catch(e){ console.error(e); alert('Errore lettura PDF.'); try { ev.target.value = ''; } catch {} }
     }
   });
 
   // --- UI ---
   return e('div', {className:'grid', style:{gap:16}},
-    // elenco + azioni
+    // Elenco
     e('div', {className:'card'},
       e('div', {className:'actions', style:{justifyContent:'space-between', flexWrap:'wrap'}},
         e('div', {className:'row', style:{gap:8, alignItems:'center'}},
-          e('input', { placeholder:'Cerca commesse…', value:q, onChange:ev => setQ(ev.target.value) }),
+          e('input', { placeholder:'Cerca…', value:q, onChange:ev => setQ(ev.target.value) }),
           e('button', { className:'btn', onClick:startNew, ...roBtnProps() }, '➕ Nuova commessa'),
           orderPdfInput,
-          e('button', { className:'btn', onClick: ()=> {
-              if (typeof window.hasRole === 'function' && !window.hasRole('admin')) { alert('Solo admin'); return; }
-              const el = document.getElementById('order-pdf-input'); if (el) el.click();
-            }, ...roBtnProps() }, '📄 Importa Ordine (PDF)')
+          e('button', { className:'btn', onClick: ()=> { if (typeof window.hasRole === 'function' && !window.hasRole('admin')) { alert('Solo admin'); return; } const el = document.getElementById('order-pdf-input'); if (el) el.click(); }, ...roBtnProps() }, '📄 Importa Ordine (PDF)')
         ),
         e('div', {className:'actions'},
           e('span', null, `Selezionate: ${selectedList.length}`),
-          e('button', { className:'btn', onClick:creaDDTdaSelezionate, ...roBtnProps() }, '📦 Crea DDT con selezionate')
+          e('button', { className:'btn', onClick: ()=> window.creaDDTdaSelezionate && window.creaDDTdaSelezionate(selectedList), ...roBtnProps() }, '📦 Crea DDT')
         )
       ),
-
-      filtered.length===0
-        ? e('div', {className:'muted'}, 'Nessuna commessa')
-        : e('table', { className:'table' },
-            e('thead', null,
-              e('tr', null,
-                e('th', {style:{width:36, textAlign:'center'}}, e('input', { type:'checkbox', onChange: ()=> toggleAll(), checked: filtered.length > 0 && filtered.every(r => sel[r.id]) })),
-                e('th', null, 'ID'), e('th', null, 'Cliente'), e('th', null, 'Descrizione'), e('th', null, 'Rif. cliente'), e('th', {className:'right'}, 'Q.tà'), e('th', {className:'right'}, 'Spedita'), e('th', {className:'right'}, 'Q.tà prod.'), e('th', null, 'Scadenza'), e('th', null, 'Azioni')
-              )
-            ),
-              e('tbody', null,
-              filtered.slice()
-                // Ordinamento: ID Decrescente (b - a) come richiesto
-                .sort((a,b) => idKeyC(b) - idKeyC(a))
-                .map(c => e('tr', {key:c.id},
-                  e('td', {style:{width:36, textAlign:'center'}}, e('input', { type:'checkbox', checked: !!sel[c.id], onChange: ()=>toggleRow(c.id) })),
-                  e('td', null,
-                    e('a', { href:'#', onClick:(ev)=>{ ev.preventDefault(); startEdit(c); } }, c.id),
-                    (c.sorgente && c.sorgente.kind === 'pdf') ? e('span', { style:{ marginLeft:4, fontSize:'11px' }, title: c.sorgente.name || 'Commessa importata da ordine PDF' }, '📄') : null
-                  ),
-                  e('td', null,
-                    e('div', { style:{ fontWeight:600 } }, c.cliente || ''),
-                    (() => {
-                      const raw = (c.priorita || c.priority || '').toString().trim().toUpperCase(); if (!raw) return null;
-                      let color = '#666'; if (raw === 'ALTA') color = '#c0392b'; else if (raw === 'MEDIA') color = '#e67e22'; else if (raw === 'BASSA') color = '#27ae60';
-                      return e('div', { style:{ fontSize:'11px', color, marginTop:2 } }, `Priorità: ${raw}`);
-                    })()
-                  ),
-                  e('td', null, (() => {
-                      const righe = Array.isArray(c.righeArticolo) ? c.righeArticolo : (Array.isArray(c.righe) ? c.righe : []);
-                      if (Array.isArray(righe) && righe.length) {
-                        const maxLines = 3; const lines = [];
-                        for (let i = 0; i < righe.length && lines.length < maxLines; i++) {
-                          const riga = righe[i] || {};
-                          const codice = riga.codice || riga.codArticolo || riga.code || riga.cod || '';
-                          const descrRaw = riga.descrizione || riga.descr || riga.titolo || '';
-                          const firstWord = String(descrRaw || '').trim().split(/\s+/)[0] || '';
-                          const parts = []; if (codice) parts.push(String(codice)); if (firstWord) parts.push(String(firstWord));
-                          const lineTxt = parts.join(' - ').trim();
-                          if (lineTxt) lines.push(lineTxt);
-                        }
-                        if (lines.length) {
-                          const extraCount = righe.length - lines.length;
-                          const children = lines.map((line, idx) => e('div', { key: 'art' + idx, style:{ fontSize:'11px', lineHeight:1.2 } }, line));
-                          if (extraCount > 0) { children.push(e('div', { key:'art-extra', style:{ fontSize:'10px', color:'#666' } }, `(+${extraCount} altri articoli)`)); }
-                          return children;
-                        }
-                      }
-                      return c.descrizione || '';
-                    })()
-                  ),
-                  e('td', null, (() => {
-                      try { if (window.orderRefFor) { const s = window.orderRefFor(c); if (s) return s; } } catch {}
-                      const ref = c.rifCliente || c.ordineCliente || c.nrOrdineCliente || c.ddtCliente || c.ordine || c.ordineId || '';
-                      if (!ref) return ''; if (typeof ref === 'string') return ref;
-                      if (typeof ref === 'object') { const tipo = (ref.tipo || '').toUpperCase(); const num = ref.numero || ''; const dt = ref.data ? new Date(ref.data).toLocaleDateString('it-IT') : ''; return [tipo, num, dt].filter(Boolean).join(' '); }
-                      return String(ref);
-                    })()
-                  ),
-                  e('td', {className:'right'}, String(Number(c.qtaPezzi || c.qta || 0) || 0)),
-                  (function(){ const info = computeDDTStatus(c); return e('td', {className:'right'}, e('div', null, `${info.sped} / ${info.tot || 0}`), e('div', { style:{fontSize:'11px', color:info.color, marginTop:2} }, info.label)); })(),
-                  e('td', {className:'right'}, String(producedPieces(c) || 0)),
-                  (function(){ const sc = getScadenzaInfo(c); return e('td', null, e('span', {style:{color: sc.color}}, sc.text)); })(),
-                  e('td', null,
-                    e('button', { className:'btn btn-outline', onClick: () => window.stampaCommessaV2 ? window.stampaCommessaV2(c): (window.printCommessa && window.printCommessa(c)) }, 'Stampa'), ' ',
-                    e('button', { className:'btn btn-outline', onClick:()=>window.openEtichetteColliDialog && window.openEtichetteColliDialog(c) }, 'Etichette'), ' ',
-                    e('a', { className:'btn btn-outline', href: timbrUrl(c.id) }, 'QR/Timbr.'), ' ',
-                    e('button', { className:'btn btn-outline', onClick:()=>duplicaCommessa(c), ...roBtnProps() }, '⧉ Duplica'), ' ',
-                    e('button', { className:'btn btn-outline', onClick:()=>creaDDTdaCommessa(c), ...roBtnProps() }, '📦 DDT'), ' ',
-                    e('button', { className:'btn btn-outline', onClick:()=>segnaCompleta(c), ...roBtnProps() }, '✅ Completa'), ' ',
-                    e('button', { className:'btn btn-outline', onClick:()=>delCommessa(c), ...roBtnProps() }, '🗑️ Elimina')
-                  )
-                ))
-            )
+      filtered.length===0 ? e('div', {className:'muted'}, 'Nessuna commessa') : e('table', { className:'table' },
+        e('thead', null, e('tr', null,
+          e('th', {style:{width:36, textAlign:'center'}}, e('input', { type:'checkbox', onChange: ()=> toggleAll(), checked: filtered.length > 0 && filtered.every(r => sel[r.id]) })),
+          e('th', null, 'ID'), e('th', null, 'Cliente'), e('th', null, 'Descrizione'), e('th', null, 'Rif. cliente'), e('th', {className:'right'}, 'Q.tà'), e('th', {className:'right'}, 'Spedita'), e('th', {className:'right'}, 'Q.tà prod.'), e('th', null, 'Scadenza'), e('th', null, 'Azioni')
+        )),
+        e('tbody', null, filtered.slice().sort((a,b) => idKeyC(b) - idKeyC(a)).map(c => e('tr', {key:c.id},
+          e('td', {style:{width:36, textAlign:'center'}}, e('input', { type:'checkbox', checked: !!sel[c.id], onChange: ()=>toggleRow(c.id) })),
+          e('td', null, e('a', { href:'#', onClick:(ev)=>{ ev.preventDefault(); startEdit(c); } }, c.id), (c.sorgente && c.sorgente.kind === 'pdf') ? e('span', { style:{ marginLeft:4, fontSize:'11px' }, title: 'PDF' }, '📄') : null),
+          e('td', null, e('div', { style:{ fontWeight:600 } }, c.cliente || ''), (c.priorita==='ALTA') ? e('div', { style:{ fontSize:'11px', color:'#c0392b' } }, 'Priorità: ALTA') : null),
+          e('td', null, (() => { const righe = c.righeArticolo || c.righe || []; if (righe.length) return righe.slice(0,3).map(r => `${r.codice||''} ${r.descrizione||''}`.trim()).join('; ') + (righe.length>3?'...':''); return c.descrizione || ''; })()),
+          e('td', null, window.orderRefFor ? window.orderRefFor(c) : ''),
+          e('td', {className:'right'}, String(Number(c.qtaPezzi || c.qta || 0) || 0)),
+          (function(){ const info = computeDDTStatus(c); return e('td', {className:'right'}, e('div', null, `${info.sped} / ${info.tot || 0}`), e('div', { style:{fontSize:'11px', color:info.color} }, info.label)); })(),
+          e('td', {className:'right'}, String(producedPieces(c) || 0)),
+          (function(){ const sc = getScadenzaInfo(c); return e('td', null, e('span', {style:{color: sc.color}}, sc.text)); })(),
+          e('td', null,
+            e('button', { className:'btn btn-outline', onClick: () => window.stampaCommessaV2 ? window.stampaCommessaV2(c): (window.printCommessa && window.printCommessa(c)) }, 'Stampa'), ' ',
+            e('button', { className:'btn btn-outline', onClick:()=>window.openEtichetteColliDialog && window.openEtichetteColliDialog(c) }, 'Etichette'), ' ',
+            e('a', { className:'btn btn-outline', href: timbrUrl(c.id) }, 'QR'), ' ',
+            e('button', { className:'btn btn-outline', onClick:()=>window.duplicaCommessa && window.duplicaCommessa(c), ...roBtnProps() }, '⧉'), ' ',
+            e('button', { className:'btn btn-outline', onClick:()=>window.creaDDTdaCommessa && window.creaDDTdaCommessa(c), ...roBtnProps() }, '📦'), ' ',
+            e('button', { className:'btn btn-outline', onClick:()=>segnaCompleta(c), ...roBtnProps() }, '✅'), ' ',
+            e('button', { className:'btn btn-outline', onClick:()=>window.delCommessa && window.delCommessa(c), ...roBtnProps() }, '🗑️')
           )
+        )))
+      )
     ),
 
-    // form
+    // Form
     showForm && e('div', {className:'card', id:'commessa-form'},
-      e('h3', null, editingId ? `Modifica commessa ${form.id}` : 'Nuova commessa'),
+      e('h3', null, editingId ? `Modifica ${form.id}` : 'Nuova commessa'),
       e('datalist', { id:'fasiStdList' }, FASI_STD.map((s,i)=> e('option', { key:i, value:s })) ),
       e('datalist', { id:'magArtList' }, (Array.isArray(articoliA)?articoliA:[]).map((a,i)=> e('option', { key:i, value:a.codice||'' }, a.descrizione||'')) ),
       e('datalist', { id:'artList' }, (Array.isArray(articoliA)?articoliA:[]).map((a,i)=> e('option', { key:i, value:a.codice||'' }, a.descrizione||'')) ),
 
       e('div', {className:'form'},
-        // Cliente
         e('div', null, e('label', null, 'Cliente'),
-          e('select', { name:'clienteId', value:form.clienteId||'', onChange:ev=>{ const v = ev.target.value; const cli = (clienti||[]).find(x=> String(x.id)===String(v)); setForm(p=>({ ...p, clienteId:v, cliente: cli ? (cli.ragioneSociale||cli.nome||'') : '' })); } },
-            e('option', {value:''}, '— seleziona —'),
-            (clienti||[]).map(c => e('option', {key:c.id, value:c.id}, c.ragioneSociale || c.nome || c.denominazione || c.id))
-          )
+          e('select', { name:'clienteId', value:form.clienteId||'', onChange:ev=>{ const v = ev.target.value; const cli = (clienti||[]).find(x=> String(x.id)===String(v)); setForm(p=>({ ...p, clienteId:v, cliente: cli ? (cli.ragioneSociale||cli.nome||'') : '' })); } }, e('option', {value:''}, '— seleziona —'), (clienti||[]).map(c => e('option', {key:c.id, value:c.id}, c.ragioneSociale)))
         ),
-        // Articolo
         e('div', null, e('label', null, 'Articolo (codice)'),
           e('input', { name:'articoloCodice', list:'magArtList', value: form.articoloCodice || '', onChange: ev => { const v = ev.target.value; const a = (articoliA||[]).find(x => String(x.codice||'').trim() === String(v||'').trim()); setForm(p => ({ ...p, articoloCodice: v, articoloUM: a ? (a.um || p.articoloUM || '') : p.articoloUM, descrizione: p.descrizione ? p.descrizione : (a ? (a.descrizione||'') : '') })); } })
         ),
-        // Descrizione
-        e('div', null, e('label', null, 'Descrizione / Tipo articolo'), e('input', { name:'descrizione', value:form.descrizione||'', onChange:onChange, placeholder:'es. Serbatoio 028' })),
-        // Pezzi totali
+        e('div', null, e('label', null, 'Descrizione'), e('input', { name:'descrizione', value:form.descrizione||'', onChange:onChange })),
         e('div', null, e('label', null, 'Pezzi totali'), e('input', { type:'number', min:'1', step:'1', name:'qtaPezzi', value:form.qtaPezzi, onChange:onChange })),
-        // Ore
         e('div', null, e('label', null, 'Ore per pezzo (HH:MM)'), e('input', { name:'orePerPezzoHHMM', value:form.orePerPezzoHHMM, onChange:onChange })),
         e('div', null, e('label', null, 'Ore totali (previste)'), e('input', { value: fmtHHMM(form.oreTotaliPrev), readOnly: true })),
-        // Scadenza
         e('div', null, e('label', null, 'Scadenza'), e('input', { type:'date', name:'scadenza', value:form.scadenza||'', onChange:onChange })),
-        // Priorità
-        e('div', null, e('label', null, 'Priorità'),
-          e('select', { name:'priorita', value:form.priorita||'MEDIA', onChange:onChange },
-            e('option',{value:'ALTISSIMA'}, 'ALTISSIMA'), e('option',{value:'ALTA'}, 'ALTA'), e('option',{value:'MEDIA'}, 'MEDIA'), e('option',{value:'BASSA'}, 'BASSA')
-          )
-        ),
-        // Rif. Cliente
-        e('div', {style:{gridColumn:'1 / -1'}},
-          e('label', null, 'Riferimento cliente (solo gestionale)'),
-          e('div', { className:'row', style:{gap:8, flexWrap:'wrap'} },
-            e('select', { value: (form.rifCliente && form.rifCliente.tipo) || 'ordine', onChange: ev => setForm(p => ({ ...p, rifCliente: { ...(p.rifCliente||{}), tipo: ev.target.value } })) }, e('option', {value:'ordine'}, 'Ordine'), e('option', {value:'ddt'}, 'DDT'), e('option', {value:'altro'}, 'Altro')),
-            e('input', { placeholder:'Numero (es. 12345)', value: (form.rifCliente && form.rifCliente.numero) || '', onChange: ev => setForm(p => ({ ...p, rifCliente: { ...(p.rifCliente||{}), numero: ev.target.value } })) }),
-            e('input', { type:'date', value: (form.rifCliente && form.rifCliente.data) || '', onChange: ev => setForm(p => ({ ...p, rifCliente: { ...(p.rifCliente||{}), data: ev.target.value } })) })
-          ),
-          e('div', { className:'muted' }, 'Non stampato. Serve per richiamarlo nei DDT e poi in fattura.')
-        ),
-        // Istruzioni
+        e('div', null, e('label', null, 'Priorità'), e('select', { name:'priorita', value:form.priorita||'MEDIA', onChange:onChange }, e('option',{value:'ALTISSIMA'},'ALTISSIMA'), e('option',{value:'ALTA'},'ALTA'), e('option',{value:'MEDIA'},'MEDIA'), e('option',{value:'BASSA'},'BASSA'))),
+        e('div', {style:{gridColumn:'1 / -1'}}, e('label', null, 'Riferimento cliente'), e('div', { className:'row', style:{gap:8} }, e('select', { value: (form.rifCliente && form.rifCliente.tipo) || 'ordine', onChange: ev => setForm(p => ({ ...p, rifCliente: { ...(p.rifCliente||{}), tipo: ev.target.value } })) }, e('option', {value:'ordine'}, 'Ordine'), e('option', {value:'ddt'}, 'DDT'), e('option', {value:'altro'}, 'Altro')), e('input', { placeholder:'Numero', value: (form.rifCliente && form.rifCliente.numero) || '', onChange: ev => setForm(p => ({ ...p, rifCliente: { ...(p.rifCliente||{}), numero: ev.target.value } })) }), e('input', { type:'date', value: (form.rifCliente && form.rifCliente.data) || '', onChange: ev => setForm(p => ({ ...p, rifCliente: { ...(p.rifCliente||{}), data: ev.target.value } })) })) ),
         e('div', {style:{gridColumn:'1 / -1'}}, e('label', null, 'Istruzioni'), e('textarea', { name:'istruzioni', rows:4, value:form.istruzioni||'', onChange:onChange })),
 
-        // Fasi
-        e('div', {className:'subcard', style:{gridColumn:'1 / -1'}},
-          e('h4', null, 'Fasi di lavorazione'),
-          e('table', {className:'table'},
-            e('thead', null, e('tr', null, e('th', null, '#'), e('th', null, 'Lavorazione'), e('th', null, 'HH:MM/pezzo'), e('th', null, 'Q.tà'), e('th', null, 'Azioni'))),
-            e('tbody', null,
-              (form.fasi||[]).map((f,idx)=> e('tr', {key:idx},
-                e('td', null, String(idx+1)),
-                e('td', null, e('input', { value:f.lav||'', list:'fasiStdList', placeholder:'es. Puntatura', onChange:ev=>onChangeFase(idx,'lav',ev.target.value) })),
-                e('td', null, e('input', { value:f.oreHHMM||'0:10', placeholder:'0:10', onChange:ev=>onChangeFase(idx,'oreHHMM',ev.target.value) })),
-                e('td', null, e('input', { type:'number', min:'1', step:'1', value:f.qtaPrevista||form.qtaPezzi||1, onChange:ev=>onChangeFase(idx,'qtaPrevista', ev.target.value) })),
-                e('td', null, e('button', {className:'btn btn-outline', onClick:()=>delFase(idx)}, '🗑'))
-              ))
-            )
-          ),
-          e('div', {className:'actions'}, e('button', {className:'btn', onClick:addFase}, '➕ Aggiungi fase'))
-        ),
-
-        // Righe Articolo (multi-articolo)
-        e('div', {className:'subcard', style:{gridColumn:'1 / -1'}},
-          e('h4', null, 'Righe articolo'),
+        // --- RIGHE ARTICOLO (Tenuta solo questa, spostata sopra le Fasi) ---
+        e('div', {className:'subcard', style:{gridColumn:'1 / -1'}}, e('h4', null, 'Righe articolo'),
           e('table', {className:'table'},
             e('thead', null, e('tr', null, e('th', null, 'Codice'), e('th', null, 'Descrizione'), e('th', null, 'UM'), e('th', {className:'right'}, 'Q.tà'), e('th', null, 'Note'), e('th', null, 'Fasi'), e('th', null, ''))),
-            e('tbody', null,
-              (Array.isArray(form.righeArticolo) ? form.righeArticolo : []).map((r,idx)=> e('tr', {key:idx},
-                e('td', null, e('input', { value:r.codice||'', list:'magArtList', onChange:ev=>onChangeRiga(idx,'codice',ev.target.value) })),
-                e('td', null, e('input', { value:r.descrizione||'', onChange:ev=>onChangeRiga(idx,'descrizione',ev.target.value) })),
-                e('td', null, e('input', { value:r.um||'PZ', onChange:ev=>onChangeRiga(idx,'um',ev.target.value) })),
-                e('td', {className:'right'}, e('input', { type:'number', step:'1', min:'0', value:(r.qta==null?1:r.qta), onChange:ev=>onChangeRiga(idx,'qta',ev.target.value) })),
-                e('td', null, e('input', { value:r.note||'', onChange:ev=>onChangeRiga(idx,'note',ev.target.value) })),
-                e('td', null, e('button', { className:'btn btn-outline', onClick:()=>openRowFasi(idx) }, 'Fasi')),
-                e('td', null, e('button', {className:'btn btn-outline', onClick:()=>delRiga(idx)}, '🗑'))
-              ))
-            )
+            e('tbody', null, (Array.isArray(form.righeArticolo) ? form.righeArticolo : []).map((r,idx)=> e('tr', {key:idx},
+              e('td', null, e('input', { value:r.codice||'', list:'magArtList', onChange:ev=>onChangeRiga(idx,'codice',ev.target.value) })),
+              e('td', null, e('input', { value:r.descrizione||'', onChange:ev=>onChangeRiga(idx,'descrizione',ev.target.value) })),
+              e('td', null, e('input', { value:r.um||'PZ', onChange:ev=>onChangeRiga(idx,'um',ev.target.value) })),
+              e('td', {className:'right'}, e('input', { type:'number', step:'1', min:'0', value:(r.qta==null?1:r.qta), onChange:ev=>onChangeRiga(idx,'qta',ev.target.value) })),
+              e('td', null, e('input', { value:r.note||'', onChange:ev=>onChangeRiga(idx,'note',ev.target.value) })),
+              e('td', null, e('button', { className:'btn btn-outline', onClick:()=>openRowFasi(idx) }, 'Fasi')),
+              e('td', null, e('button', {className:'btn btn-outline', onClick:()=>delRiga(idx)}, '🗑'))
+            )))
           ),
           e('div', {className:'actions'}, e('button', {className:'btn', onClick:addRiga}, '➕ Aggiungi riga'))
         ),
 
-        // BLOCCO ALLEGATI COMMESSA (Smart Version)
-        (function(){
-          const entityId = form && form.id ? String(form.id) : '';
-          const isSaved = entityId && (rows||[]).some(r => String(r.id) === entityId);
-          const all = window.lsGet('allegatiRows', []) || [];
-          const rowsAllegati = isSaved ? all.filter(a => a && !a.deletedAt && String(a.entityType || '').toUpperCase() === 'COMMESSA' && String(a.entityId || '') === entityId) : [];
-          const nextAlgId = (arr) => {
-            const y = new Date().getFullYear();
-            let max=0; arr.forEach(r=>{ const m=String(r.id||'').match(/^ALG-(\d{4})-(\d+)$/); if(m && +m[1]===y) max=Math.max(max, +m[2]); });
-            return `ALG-${y}-${String(max+1).padStart(4,'0')}`;
-          };
-          const onDelete = (row) => {
-            if(!confirm('Eliminare allegato?')) return;
-            let currentAll = window.lsGet('allegatiRows', []) || [];
-            const nowIso = new Date().toISOString();
-            const upd = currentAll.map(r => r.id===row.id ? {...r, deletedAt:nowIso} : r);
-            window.lsSet('allegatiRows', upd);
-            setAllegatoCommessaForm({...allegatoCommessaForm});
-          };
-          const onCopyPath = (p) => { try{ navigator.clipboard.writeText(p); }catch{ prompt('Copia:',p); } };
-          const onOpenUrl  = (u) => { if(u && /^https?:\/\//i.test(u)) window.open(u,'_blank'); };
-          const f = allegatoCommessaForm || { tipo:'ALTRO', descrizione:'', path:'', url:'' };
-          const setF = (patch) => setAllegatoCommessaForm(prev => ({...prev, ...patch}));
-          const onSmartUpload = async (ev) => {
-             const file = ev.target.files?.[0]; if(!file) return;
-             const commYear = (function(){ try { return new Date(form.createdAt || new Date()).getFullYear(); } catch { return new Date().getFullYear(); } })();
-             const folder = 'COMMESSE'; const subFolder = String(commYear); const idFolder = entityId; 
-             const savedPath = await window.smartSaveFile(file, [folder, subFolder, idFolder], file.name);
-             if (savedPath) {
-                let currentAll = window.lsGet('allegatiRows', []) || [];
-                const newId = nextAlgId(currentAll);
-                const desc = f.descrizione || file.name;
-                const newRow = { id: newId, createdAt: new Date().toISOString(), tipo: f.tipo || 'ALTRO', descrizione: desc, path: savedPath, url: '', entityType: 'COMMESSA', entityId: entityId, deletedAt: null };
-                window.lsSet('allegatiRows', [...currentAll, newRow]);
-                setF({ tipo:'ALTRO', descrizione:'', path:'', url:'' });
-                ev.target.value = ''; 
-                alert('File caricato su Z: e collegato alla commessa.');
-             }
-          };
+        // --- FASI (Spostate SOTTO le Righe Articolo) ---
+        e('div', {className:'subcard', style:{gridColumn:'1 / -1'}}, e('h4', null, 'Fasi di lavorazione (Globale)'),
+          e('table', {className:'table'},
+            e('thead', null, e('tr', null, e('th', null, '#'), e('th', null, 'Lavorazione'), e('th', null, 'HH:MM/pezzo'), e('th', null, 'Q.tà'), e('th', null, 'Azioni'))),
+            e('tbody', null, (form.fasi||[]).map((f,idx)=> e('tr', {key:idx},
+              e('td', null, String(idx+1)),
+              e('td', null, e('input', { value:f.lav||'', list:'fasiStdList', onChange:ev=>onChangeFase(idx,'lav',ev.target.value) })),
+              e('td', null, e('input', { value:f.oreHHMM||'0:10', onChange:ev=>onChangeFase(idx,'oreHHMM',ev.target.value) })),
+              e('td', null, e('input', { type:'number', min:'1', step:'1', value:f.qtaPrevista||form.qtaPezzi||1, onChange:ev=>onChangeFase(idx,'qtaPrevista', ev.target.value) })),
+              e('td', null, e('button', {className:'btn btn-outline', onClick:()=>delFase(idx)}, '🗑'))
+            )))
+          ),
+          e('div', {className:'actions'}, e('button', {className:'btn', onClick:addFase}, '➕ Aggiungi fase'))
+        ),
 
-          return e('div', {className:'subcard', style:{gridColumn:'1 / -1'}},
-            e('h4', null, 'Allegati commessa'),
-            !isSaved
-              ? e('p', {className:'muted'}, 'Salva la commessa per poter aggiungere allegati.')
-              : e(React.Fragment, null,
-                  rowsAllegati.length
-                    ? e('table', {className:'table table-sm'},
-                        e('thead', null, e('tr',null,e('th',null,'Tipo'),e('th',null,'Descrizione'),e('th',null,'Azioni'))),
-                        e('tbody', null, rowsAllegati.map(r=>
-                          e('tr', {key:r.id},
-                            e('td', null, r.tipo),
-                            e('td', null, r.descrizione),
-                            e('td', null, e('div', {className:'row', style:{gap:4}},
-                              r.path ? e('button', {type:'button', className:'btn btn-xs', onClick:()=>onCopyPath(r.path)}, 'Path') : null,
-                              r.url ? e('button', {type:'button', className:'btn btn-xs', onClick:()=>onOpenUrl(r.url)}, 'Link') : null,
-                              !readOnly ? e('button', {type:'button', className:'btn btn-xs btn-outline', onClick:()=>onDelete(r)}, '🗑') : null
-                            ))
-                          )
-                        ))
-                      )
-                    : e('p', {className:'muted'}, 'Nessun allegato.'),
-                  e('div', {className:'grid grid-2', style:{marginTop:8, padding:10, border:'1px dashed #ccc', borderRadius:8}},
-                      e('div', null, e('label', null, 'Tipo'), e('select', { value:f.tipo, onChange:ev=>setF({tipo:ev.target.value}), disabled:readOnly }, ['DISEGNO','SPECIFICA','FOTO','ALTRO'].map(t=>e('option',{key:t,value:t},t)))),
-                      e('div', null, e('label', null, 'Descrizione'), e('input', { value:f.descrizione, onChange:ev=>setF({descrizione:ev.target.value}), placeholder:'Opzionale' })),
-                      e('div', {style:{gridColumn:'1/-1', marginTop:8}},
-                         e('label', {className:'btn btn-primary', style:{display:'block', textAlign:'center', cursor:'pointer'}}, '📂 CARICA SU Z:', e('input', {type:'file', style:{display:'none'}, disabled:readOnly, onChange:onSmartUpload}))
-                      )
-                  )
-                )
-          );
-        })(),
-
-        // Editor fasi per-riga (quando selezionata una riga)
-        rowFasiEditIdx != null && (function(){
-          const righe = Array.isArray(form.righeArticolo) ? form.righeArticolo : [];
-          const r = righe[rowFasiEditIdx] || {};
-          const fasiR = Array.isArray(r.fasi) ? r.fasi : [];
-          const label = String((r.codice || r.descrizione || '') || '').trim();
-
-          return e('div', {className:'subcard', style:{gridColumn:'1 / -1'}},
-            e('h4', null, 'Fasi riga ', String(rowFasiEditIdx + 1), label ? ' – ' + label : ''),
-            e('table', {className:'table'},
-              e('thead', null, e('tr', null, e('th', null, 'Fase'), e('th', null, 'Min/pezzo'), e('th', null, 'Una tantum'), e('th', null, ''))),
-              e('tbody', null,
-                fasiR.map((f,idxF)=> e('tr', {key:idxF},
-                  e('td', null, e('input', { value: f.lav || '', list: 'fasiStdList', placeholder: 'es. Puntatura', onChange: ev => onChangeRigaFase(rowFasiEditIdx, idxF, 'lav', ev.target.value) })),
-                  e('td', null, e('input', { value:f.orePrevHHMM || f.oreHHMM || '0:10', onChange:ev=>onChangeRigaFase(rowFasiEditIdx, idxF, 'orePrevHHMM', ev.target.value) })),
-                  e('td', {style:{textAlign:'center'}}, e('input', { type:'checkbox', checked: !!(f.unaTantum || f.once), onChange:ev=>onChangeRigaFase(rowFasiEditIdx, idxF, 'unaTantum', ev.target.checked) })),
-                  e('td', null, e('button', {className:'btn btn-outline', onClick:()=>delRigaFase(rowFasiEditIdx, idxF)}, '🗑'))
-                ))
-              )
-            ),
-            e('div', {className:'actions'},
-              e('button', {className:'btn', onClick:()=>addRigaFase(rowFasiEditIdx)}, '➕ Aggiungi fase riga'),
-              e('button', {className:'btn btn-outline', onClick:closeRowFasi, style:{marginLeft:8}}, 'Chiudi')
-            )
-          );
-        })(),
-
-        // Materiali previsti
-        e('div', {className:'subcard', style:{gridColumn:'1 / -1'}},
-          e('h4', null, 'Materiali previsti'),
+        // Materiali
+        e('div', {className:'subcard', style:{gridColumn:'1 / -1'}}, e('h4', null, 'Materiali previsti'),
           e('table', {className:'table'},
             e('thead', null, e('tr', null, e('th', null, 'Codice'), e('th', null, 'Descrizione'), e('th', null, 'UM'), e('th', {className:'right'}, 'Q.tà'), e('th', null, 'Note'), e('th', null, ''))),
-            e('tbody', null,
-              (form.materiali||[]).map((m,idx)=> e('tr', {key:idx},
-                e('td', null, e('input', { value:m.codice||'', list:'artList', onChange:ev=>onChangeMat(idx,'codice',ev.target.value) })),
-                e('td', null, e('input', { value:m.descrizione||'', onChange:ev=>onChangeMat(idx,'descrizione',ev.target.value) })),
-                e('td', null, e('input', { value:m.um||'', onChange:ev=>onChangeMat(idx,'um',ev.target.value) })),
-                e('td', {className:'right'}, e('input', { type:'number', step:'0.01', value:m.qta||0, onChange:ev=>onChangeMat(idx,'qta',ev.target.value) })),
-                e('td', null, e('input', { value:m.note||'', onChange:ev=>onChangeMat(idx,'note',ev.target.value) })),
-                e('td', null, e('button', {className:'btn btn-outline', onClick:()=>delMat(idx)}, '🗑'))
-              ))
-            )
+            e('tbody', null, (form.materiali||[]).map((m,idx)=> e('tr', {key:idx},
+              e('td', null, e('input', { value:m.codice||'', list:'artList', onChange:ev=>onChangeMat(idx,'codice',ev.target.value) })),
+              e('td', null, e('input', { value:m.descrizione||'', onChange:ev=>onChangeMat(idx,'descrizione',ev.target.value) })),
+              e('td', null, e('input', { value:m.um||'', onChange:ev=>onChangeMat(idx,'um',ev.target.value) })),
+              e('td', {className:'right'}, e('input', { type:'number', step:'0.01', value:m.qta||0, onChange:ev=>onChangeMat(idx,'qta',ev.target.value) })),
+              e('td', null, e('input', { value:m.note||'', onChange:ev=>onChangeMat(idx,'note',ev.target.value) })),
+              e('td', null, e('button', {className:'btn btn-outline', onClick:()=>delMat(idx)}, '🗑'))
+            )))
           ),
           e('div', {className:'actions'}, e('button', {className:'btn', onClick:addMat}, '➕ Aggiungi materiale'))
         ),
 
-        // azioni salva/annulla
+        // Allegati
+        (function(){
+          const entityId = form && form.id ? String(form.id) : '';
+          const isSaved = entityId && (rows||[]).some(r => String(r.id) === entityId);
+          const all = window.lsGet('allegatiRows', []) || [];
+          const rowsAllegati = isSaved ? all.filter(a => a && !a.deletedAt && String(a.entityType || '').toUpperCase() === 'COMMESSA' && String(a.entityId || '') === entityId).sort((a,b) => String(b.id||'').localeCompare(String(a.id||''))) : []; // Inversione allegati
+          // ... codice upload omesso per brevità, ma le funzioni nextAlgId, onDelete etc. sono definite sopra ...
+          // Nota: il blocco completo degli allegati è nel codice completo fornito sopra, qui compatto per leggibilità del blocco finale.
+          const nextAlgId = (arr) => { const y = new Date().getFullYear(); let max=0; arr.forEach(r=>{ const m=String(r.id||'').match(/^ALG-(\d{4})-(\d+)$/); if(m && +m[1]===y) max=Math.max(max, +m[2]); }); return `ALG-${y}-${String(max+1).padStart(4,'0')}`; };
+          const onDelete = (row) => { if(!confirm('Eliminare allegato?')) return; let currentAll = window.lsGet('allegatiRows', []) || []; const nowIso = new Date().toISOString(); const upd = currentAll.map(r => r.id===row.id ? {...r, deletedAt:nowIso} : r); window.lsSet('allegatiRows', upd); setAllegatoCommessaForm({...allegatoCommessaForm}); };
+          const onCopyPath = (p) => { try{ navigator.clipboard.writeText(p); }catch{ prompt('Copia:',p); } }; const onOpenUrl = (u) => { if(u && /^https?:\/\//i.test(u)) window.open(u,'_blank'); };
+          const f = allegatoCommessaForm || { tipo:'ALTRO', descrizione:'', path:'', url:'' }; const setF = (patch) => setAllegatoCommessaForm(prev => ({...prev, ...patch}));
+          const onSmartUpload = async (ev) => { const file = ev.target.files?.[0]; if(!file) return; const commYear = (function(){ try { return new Date(form.createdAt || new Date()).getFullYear(); } catch { return new Date().getFullYear(); } })(); const folder = 'COMMESSE'; const subFolder = String(commYear); const idFolder = entityId; const savedPath = await window.smartSaveFile(file, [folder, subFolder, idFolder], file.name); if (savedPath) { let currentAll = window.lsGet('allegatiRows', []) || []; const newId = nextAlgId(currentAll); const desc = f.descrizione || file.name; const newRow = { id: newId, createdAt: new Date().toISOString(), tipo: f.tipo || 'ALTRO', descrizione: desc, path: savedPath, url: '', entityType: 'COMMESSA', entityId: entityId, deletedAt: null }; window.lsSet('allegatiRows', [...currentAll, newRow]); setF({ tipo:'ALTRO', descrizione:'', path:'', url:'' }); ev.target.value = ''; alert('File caricato su Z: e collegato alla commessa.'); } };
+
+          return e('div', {className:'subcard', style:{gridColumn:'1 / -1'}}, e('h4', null, 'Allegati commessa'), !isSaved ? e('p', {className:'muted'}, 'Salva la commessa per poter aggiungere allegati.') : e(React.Fragment, null, rowsAllegati.length ? e('table', {className:'table table-sm'}, e('thead', null, e('tr',null,e('th',null,'Tipo'),e('th',null,'Descrizione'),e('th',null,'Azioni'))), e('tbody', null, rowsAllegati.map(r=> e('tr', {key:r.id}, e('td', null, r.tipo), e('td', null, r.descrizione), e('td', null, e('div', {className:'row', style:{gap:4}}, r.path ? e('button', {type:'button', className:'btn btn-xs', onClick:()=>onCopyPath(r.path)}, 'Path') : null, r.url ? e('button', {type:'button', className:'btn btn-xs', onClick:()=>onOpenUrl(r.url)}, 'Link') : null, !readOnly ? e('button', {type:'button', className:'btn btn-xs btn-outline', onClick:()=>onDelete(r)}, '🗑') : null )))))) : e('p', {className:'muted'}, 'Nessun allegato.'), e('div', {className:'grid grid-2', style:{marginTop:8, padding:10, border:'1px dashed #ccc', borderRadius:8}}, e('div', null, e('label', null, 'Tipo'), e('select', { value:f.tipo, onChange:ev=>setF({tipo:ev.target.value}), disabled:readOnly }, ['DISEGNO','SPECIFICA','FOTO','ALTRO'].map(t=>e('option',{key:t,value:t},t)))), e('div', null, e('label', null, 'Descrizione'), e('input', { value:f.descrizione, onChange:ev=>setF({descrizione:ev.target.value}), placeholder:'Opzionale' })), e('div', {style:{gridColumn:'1/-1', marginTop:8}}, e('label', {className:'btn btn-primary', style:{display:'block', textAlign:'center', cursor:'pointer'}}, '📂 CARICA SU Z:', e('input', {type:'file', style:{display:'none'}, disabled:readOnly, onChange:onSmartUpload}))))));
+        })(),
+
+        // Editor fasi per-riga
+        rowFasiEditIdx != null && (function(){
+          const righe = Array.isArray(form.righeArticolo) ? form.righeArticolo : []; const r = righe[rowFasiEditIdx] || {}; const fasiR = Array.isArray(r.fasi) ? r.fasi : []; const label = String((r.codice || r.descrizione || '') || '').trim();
+          return e('div', {className:'subcard', style:{gridColumn:'1 / -1'}}, e('h4', null, 'Fasi riga ', String(rowFasiEditIdx + 1), label ? ' – ' + label : ''), e('table', {className:'table'}, e('thead', null, e('tr', null, e('th', null, 'Fase'), e('th', null, 'Min/pezzo'), e('th', null, 'Una tantum'), e('th', null, ''))), e('tbody', null, fasiR.map((f,idxF)=> e('tr', {key:idxF}, e('td', null, e('input', { value: f.lav || '', list: 'fasiStdList', onChange: ev => onChangeRigaFase(rowFasiEditIdx, idxF, 'lav', ev.target.value) })), e('td', null, e('input', { value:f.orePrevHHMM || f.oreHHMM || '0:10', onChange:ev=>onChangeRigaFase(rowFasiEditIdx, idxF, 'orePrevHHMM', ev.target.value) })), e('td', {style:{textAlign:'center'}}, e('input', { type:'checkbox', checked: !!(f.unaTantum || f.once), onChange:ev=>onChangeRigaFase(rowFasiEditIdx, idxF, 'unaTantum', ev.target.checked) })), e('td', null, e('button', {className:'btn btn-outline', onClick:()=>delRigaFase(rowFasiEditIdx, idxF)}, '🗑')))))), e('div', {className:'actions'}, e('button', {className:'btn', onClick:()=>addRigaFase(rowFasiEditIdx)}, '➕ Aggiungi fase riga'), e('button', {className:'btn btn-outline', onClick:closeRowFasi, style:{marginLeft:8}}, 'Chiudi')));
+        })(),
+
+        // Azioni finali (visibili ora!)
         e('div', {className:'actions', style:{gridColumn:'1 / -1', justifyContent:'space-between'}},
           e('div', null, e('a', { className:'btn btn-outline', href: timbrUrl(form.id||editingId||'') }, 'Apri QR / Timbratura')),
           e('div', null,
