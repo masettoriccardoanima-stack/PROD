@@ -10524,11 +10524,12 @@ function CommesseView({ query = '' }) {
                 e('th', null, 'Cliente'),
                 e('th', null, 'Descrizione'),
                 e('th', null, 'Rif. cliente'),
-                e('th', {className:'right'}, 'Q.tà'),
-                e('th', {className:'right'}, 'Spedita'),
-                e('th', {className:'right'}, 'Q.tà prod.'),
-                e('th', null, 'Scadenza'),
-                e('th', null, 'Azioni')
+                // Ho stretto Q.tà e Spedita, e allargato Azioni per non far andare a capo i tasti
+                e('th', {className:'right', style:{width:'50px'}}, 'Q.tà'), 
+                e('th', {className:'right', style:{width:'80px'}}, 'Spedita'),
+                e('th', {className:'right', style:{width:'80px'}}, 'Q.tà prod.'),
+                e('th', {style:{width:'90px'}}, 'Scadenza'),
+                e('th', {style:{minWidth:'260px'}}, 'Azioni')
               )
             ),
             e('tbody', null,
