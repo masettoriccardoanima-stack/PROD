@@ -14850,336 +14850,169 @@ window.safePrintHTMLStringWithPageNum = function(html){
   // HTML della stampa DDT (idempotente)
   if (!window.renderDDTHTML) {
       // ===== HTML della stampa DDT (layout classico) =====
-  // ===== HTML stampa DDT (header/footer fissi + pagina X/Y + sedi in header) =====
+// ===== HTML stampa DDT (Layout a margini ridotti per piè pagina basso) =====
 window.renderDDTHTML = function(ddt){
   const esc = v => String(v ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
-
-  // Config azienda
-  let cfg = {};
-  try { cfg = JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; } catch {}
-  const logoUrl  = cfg.logoDataUrl || cfg.logoUrl || cfg.logo || '';
-  const ragAzi   = esc(
-    cfg.ragioneSociale || cfg.ragione || cfg.ragioneAzienda ||
-    cfg.companyName ||
-    (cfg.azienda && (cfg.azienda.ragione || cfg.azienda.ragioneSociale)) || ''
-  );
-  const pivaAzi  = esc(
-    cfg.piva || cfg.partitaIva || cfg.companyVat ||
-    (cfg.azienda && (cfg.azienda.piva || cfg.azienda.partitaIva)) || ''
-  );
-  const sedeLeg  = esc(
-    cfg.sedeLegale || cfg.companyLegal || (cfg.azienda && cfg.azienda.sedeLegale) || ''
-  );
-  const sedeOp   = esc(
-    cfg.sedeOperativa || (cfg.azienda && cfg.azienda.sedeOperativa) || ''
-  );
-  const telAzi   = esc(cfg.telefono || cfg.phone || (cfg.azienda && (cfg.azienda.telefono || cfg.azienda.phone)) || '');
-  const emailAzi = esc(cfg.email || (cfg.azienda && cfg.azienda.email) || '');
-  const pecAzi   = esc(cfg.pec   || (cfg.azienda && cfg.azienda.pec)   || '');
-
-  // Cliente
+  let cfg = {}; try { cfg = JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; } catch {}
+  
+  const logoUrl  = cfg.logoDataUrl || cfg.logoUrl || '';
+  const ragAzi   = esc(cfg.ragioneSociale || 'Azienda');
+  const pivaAzi  = esc(cfg.piva || '');
+  const sedeLeg  = esc(cfg.sedeLegale || '');
+  const sedeOp   = esc(cfg.sedeOperativa || '');
+  
   const cliRag   = esc(ddt?.cliente || ddt?.clienteRagione || '');
   const cliPiva  = esc(ddt?.clientePiva || '');
-
-  // Luogo di consegna (evita duplicati col cliente)
   const lcRaw    = String(ddt?.luogoConsegna||'').trim();
-  const luogoTxt = (!lcRaw || lcRaw.toLowerCase() === String(ddt?.cliente||'').trim().toLowerCase()) ? '' : esc(lcRaw);
+  const rifClienteTxt = (typeof window.refClienteToText === 'function') ? window.refClienteToText(ddt?.rifCliente) : '';
 
-  // Riferimento cliente (usa util globale se c'è)
-  let rifClienteTxt = '';
-  try{
-    const ref = ddt?.rifCliente || {
-      tipo  : ddt?.rifClienteTipo || '',
-      numero: ddt?.rifClienteNum  || '',
-      data  : ddt?.rifClienteData || ''
-    };
-    if (typeof window.refClienteToText === 'function') {
-      rifClienteTxt = window.refClienteToText(ref);
-    } else {
-      const t = String(ref?.tipo||'').toUpperCase();
-      const n = String(ref?.numero||'');
-      const ds= String(ref?.data||'');
-      rifClienteTxt = [t, n && ('n. '+n), ds && ('del '+ds)].filter(Boolean).join(' ');
-    }
-  }catch{}
-
-  // Righe
   const righe = Array.isArray(ddt?.righe) ? ddt.righe : (Array.isArray(ddt?.articoli) ? ddt.articoli : []);
   const hasNote = (righe||[]).some(r => r && r.note);
-  const rowsHTML = (righe && righe.length ? righe : [{}]).map((r,i)=>`
-    <tr>
-      <td class="ctr">${righe.length ? (i+1) : ''}</td>
-      <td>${esc(r.codice || r.articoloCodice || '')}</td>
-      <td>${esc(r.descrizione || '')}</td>
-      <td class="ctr">${esc(r.UM || r.um || '')}</td>
-      <td class="ctr">${r.qta ?? r.quantita ?? ''}</td>
-      ${hasNote ? `<td>${esc(r.note||'')}</td>` : ''}
-    </tr>
-  `).join('');
-
-  // Footer (trasporto) — ripetuto a ogni pagina
+  
   const vettore   = esc(ddt?.vettore || '');
-  const aspetto   = esc(ddt?.aspetto || ddt?.aspettoBeni || '');
   const colli     = esc(ddt?.colli || '');
-  const dataOra   = esc(ddt?.dataOra || '');
   const pesoNetto = esc(ddt?.pesoNetto || '');
   const pesoLordo = esc(ddt?.pesoLordo || '');
+  const firmaVettore      = esc(ddt?.firmaVettore||'');
+  const firmaConducente   = esc(ddt?.firmaConducente||'');
+  const firmaDestinatario = esc(ddt?.firmaDestinatario||'');
 
-   // Bottom ridotto a 5mm per abbassare il piè di pagina
-let css = window.__PRINT_CSS({ top:10, right:12, bottom:5, left:12 });
-css += `
-  <style>
-    /* RIMOSSE dal tuo blocco originale:
-       - @page { ... }              → gestita dal tema
-       - .pageNum[data-mode="css"]  → non serve
-       - .pageNum[data-mode="css"]::after { ... } → non serve
-    */
-
-    html,body{margin:0;padding:0}
-        body{
-      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;
-      font-size:12px; color:#0f172a;
-      -webkit-print-color-adjust:exact; print-color-adjust:exact;
-    }
-
-        .header{
-      /* posizione normale, non fissa */
-      position:relative;
-      top:auto; left:auto; right:auto;
-      height:auto;
-      border-bottom:2px solid #111; padding:6px 0;
-      display:flex; justify-content:space-between; align-items:center; gap:12px;
-      background:#fff;
-    }
-    .header .logo{height:80px; max-height:80px; object-fit:contain; margin-left:2mm}
-    .header .tit{ text-align:right; padding-top:4mm }
-    .header .docTitle{ font-size:20px; font-weight:800; margin:0 }
-    .header .muted{ color:#64748b }
-
-            /* FOOTER in fondo pagina dentro il layout flessibile */
-    .footer{
-      position:relative;
-      bottom:auto; left:auto; right:auto;
-      height:auto;
-      border-top:1px solid #cbd5e1; background:#fff;
-      padding:4mm 0 4mm 0;         /* spazio interno per pagebox */
-      margin-top:8mm;
-    }
-    .footer .grid{
-      display:grid;
-      grid-template-columns:repeat(3,1fr);
-      gap:6px;
-      padding:0 8mm;               /* respiro a destra per non toccare la numerazione */
-    }
-    .footer .box{ font-size:11px; border:1px solid #e5e7eb; border-radius:6px; padding:6px }
-    /* tolto .footer { position:fixed; } per evitare la seconda pagina vuota */
-    
-    /* Numeratore in basso a destra ALL’INTERNO del footer */
-    .footer .pagebox{
-      position: static;
-      margin-top: 6px;     /* va sotto "Peso lordo" */
-      margin-left: auto;   /* allineato a destra */
-      font-weight: 700;
-      text-align: right;
-    }
-    .footer .pagebox .pageNumDDT{
-      display:inline-block;
-      min-width:38px;
-      text-align:right;
-    }
-
-             /* Layout verticale: pagina intera, footer spinto in basso */
-    .page{
-      /* Altezza minima ≈ area utile A4 (margini 16/22mm) per spingere il footer in basso */
-      display:flex;
-      flex-direction:column;
-      min-height:255mm;
-      page-break-after: always;      /* OGNI .page va su un foglio */
-    }
-    .page:last-child{
-      page-break-after: auto;        /* l’ultima non aggiunge pagina bianca */
-    }
-
-    .content{
-      flex:1;
-      margin:4mm 0 4mm 0;
-    }
-
-    /* pagebox: lasciamo quello del tema; se vuoi tenerlo qui, ok ma NON toccare ::after */
-    /* .footer .pagebox{ min-width:68px; text-align:right; padding-right:2mm; font-weight:700; } */
-
-    .muted{color:#64748b}
-    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
-    .box{border:1px solid #cbd5e1;border-radius:8px;padding:8px}
-    .lbl{font-weight:600;margin-bottom:4px}
-
-    table{width:100%;border-collapse:collapse;margin-top:10px}
-    thead{display:table-header-group}
-    th,td{border:1px solid #e5e7eb;padding:6px;vertical-align:top}
-    th{background:#f8fafc}
-    .ctr{text-align:center}.right{text-align:right}
-    .footer .grid{
-  display:grid;
-  grid-template-columns:repeat(3,minmax(0,1fr));
-  gap:6px
-}
-.footer .box{
-  border:1px solid #e5e7eb;
-  padding:6px;
-  border-radius:6px;
-  font-size:11px
-}
-.pagebox{margin-top:6px;font-weight:700;text-align:right}
-.pagebox .pageNum{display:inline-block;min-width:38px;text-align:right}
-
-  </style>`;
+  // 1. GENERATORE CSS BASE (margini interni minimi)
+  let css = window.__PRINT_CSS({ top:10, right:10, bottom:0, left:10 }); 
   
+  // 2. STILI SPECIFICI DDT
+  css += `
+  <style>
+    /* FORZATURA MARGINI PAGINA FISICA: 
+       Lascia solo 5mm bianchi in fondo al foglio. 
+       Se la stampante taglia, aumenta a 7mm o 10mm qui sotto. */
+    @page { margin-bottom: 5mm; margin-left: 10mm; margin-right: 10mm; margin-top: 10mm; }
+
+    html, body { margin:0; padding:0; font-family:system-ui,Arial; font-size:12px; color:#0f172a; }
+    
+    .header { border-bottom:2px solid #111; padding:6px 0; display:flex; justify-content:space-between; align-items:center; gap:12px; }
+    .header .logo { height:80px; max-height:80px; object-fit:contain; }
+    .header .docTitle { font-size:20px; font-weight:800; margin:0; }
+    
+    .footer {
+      position: fixed; 
+      left: 0; 
+      right: 0; 
+      bottom: 0;  /* Inchiodato al limite inferiore dell'area di stampa */
+      border-top: 1px solid #cbd5e1; 
+      padding-top: 2mm; 
+      background: #fff;
+      font-size: 11px;
+    }
+    
+    .footer .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+    .footer .box { border:1px solid #e5e7eb; border-radius:6px; padding:4px 6px; }
+    
+    /* Layout pagina A4 */
+    .page { display:flex; flex-direction:column; min-height:95vh; page-break-after:always; position:relative; }
+    .page:last-child { page-break-after:auto; }
+    
+    /* Il contenuto si ferma 35mm prima del fondo per lasciare spazio al footer */
+    .content { flex:1; margin:4mm 0 35mm 0; } 
+    
+    .pagebox { margin-top:4px; text-align:right; font-weight:700; font-size:10px; }
+    
+    .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:8px; }
+    .box-head { border:1px solid #cbd5e1; border-radius:8px; padding:8px; }
+    
+    table { width:100%; border-collapse:collapse; margin-top:8px; }
+    th, td { border:1px solid #e5e7eb; padding:6px; vertical-align:top; }
+    th { background:#f8fafc; font-weight:700; }
+    .ctr { text-align:center; } 
+    .right { text-align:right; }
+  </style>`;
+
   const header = `
     <div class="header">
       <div style="display:flex;gap:12px;align-items:center">
         ${logoUrl ? `<img class="logo" src="${logoUrl}">` : ``}
         <div>
-          <div class="doc">${ragAzi}</div>
-          ${pivaAzi ? `<div class="muted">P.IVA: ${pivaAzi}</div>` : ``}
-          ${sedeLeg ? `<div class="muted">Sede legale: ${sedeLeg}</div>` : ``}
-          ${sedeOp  ? `<div class="muted">Sede operativa: ${sedeOp}</div>` : ``}
-          ${telAzi   ? `<div class="muted">Tel: ${telAzi}</div>`   : ``}
-          ${emailAzi ? `<div class="muted">Email: ${emailAzi}</div>` : ``}
-          ${pecAzi   ? `<div class="muted">PEC: ${pecAzi}</div>`   : ``}
+          <div style="font-weight:700;font-size:14px">${ragAzi}</div>
+          <div style="color:#666;font-size:11px">
+             ${pivaAzi ? `P.IVA: ${pivaAzi}` : ''} ${sedeLeg ? `· ${sedeLeg}` : ''}
+          </div>
         </div>
       </div>
-      <div class="tit">
-        <div class="docTitle">DOCUMENTO DI TRASPORTO</div>
-        <div class="muted"><b>${esc(ddt?.id||'')}</b></div>
-        <div class="muted">Data: <b>${esc(ddt?.data||'')}</b></div>
+      <div style="text-align:right">
+        <div class="docTitle">DDT</div>
+        <div>N. <b>${esc(ddt?.id||'')}</b></div>
+        <div>Data: <b>${esc(ddt?.data||'')}</b></div>
       </div>
     </div>`;
 
   const mittDest = `
     <div class="grid2">
-      <div class="box">
-        <div class="lbl">Mittente</div>
-        <div><b>${ragAzi}</b></div>
-        ${pivaAzi ? `<div class="muted">P.IVA: ${pivaAzi}</div>` : ``}
-        ${sedeLeg ? `<div class="muted">${sedeLeg}</div>` : ``}
-        ${sedeOp  ? `<div class="muted">${sedeOp}</div>` : ``}
+      <div class="box-head">
+        <div style="font-weight:600;color:#666">Mittente</div>
+        <b>${ragAzi}</b><br>${sedeOp||sedeLeg}
       </div>
-      <div class="box">
-        <div class="lbl">Destinatario</div>
-        <div><b>${cliRag || '—'}</b></div>
-        ${cliPiva ? `<div class="muted">P.IVA: ${cliPiva}</div>` : ``}
-        ${luogoTxt ? `<div class="muted">Luogo di consegna: ${luogoTxt}</div>` : ``}
-        ${rifClienteTxt ? `<div class="muted" style="margin-top:4px">Rif. doc. cliente: ${rifClienteTxt}</div>` : ``}
-        ${ddt?.commessaRif ? `<div class="muted">Commessa: ${esc(ddt.commessaRif)}</div>` : ``}
+      <div class="box-head">
+        <div style="font-weight:600;color:#666">Destinatario</div>
+        <b>${cliRag || '—'}</b><br>${lcRaw ? `Dest: ${esc(lcRaw)}` : (cliPiva ? `P.IVA: ${cliPiva}` : '')}
+        ${rifClienteTxt ? `<div style="margin-top:4px;font-size:11px">Rif: ${rifClienteTxt}</div>` : ''}
       </div>
     </div>`;
 
-  const causale = (ddt?.causaleTrasporto)
-    ? `<div class="box" style="margin-top:8px">Causale del trasporto: <b>${esc(ddt.causaleTrasporto)}</b></div>`
-    : ``;
-
-  const vettoreHtml   = vettore   ? `<b>${vettore}</b>` : '';
-  const aspettoHtml   = aspetto   ? `<b>${aspetto}</b>` : '';
-  const colliHtml     = colli     ? `<b>${colli}</b>` : '';
-  const dataOraHtml   = dataOra   ? `<b>${dataOra}</b>` : '';
-  const pesoNettoHtml = pesoNetto ? `<b>${pesoNetto}</b>` : '';
-  const pesoLordoHtml = pesoLordo ? `<b>${pesoLordo}</b>` : '';
-
-  const firmaVettoreHtml      = esc(ddt?.firmaVettore||'');
-  const firmaConducenteHtml   = esc(ddt?.firmaConducente||'');
-  const firmaDestinatarioHtml = esc(ddt?.firmaDestinatario||'');
-
   const rows = (righe && righe.length) ? righe : [{}];
-
-  // numero righe per pagina:
-  // usiamo un valore più prudente per essere sicuri che header + tabella + footer
-  // stiano sempre nello stesso foglio
-  const ROWS_PER_PAGE = hasNote ? 8 : 12;
-
+  // Righe per pagina (aggiustato per il nuovo spazio verticale)
+  const ROWS_PER_PAGE = hasNote ? 14 : 18; 
   const pages = [];
   for (let i = 0; i < rows.length; i += ROWS_PER_PAGE) {
-    pages.push({ start: i, rows: rows.slice(i, i + ROWS_PER_PAGE) });
+    pages.push(rows.slice(i, i + ROWS_PER_PAGE));
   }
-  if (!pages.length) pages.push({ start: 0, rows: [{}] });
+  if (!pages.length) pages.push([{}]);
 
-  const totalPages = pages.length;
-
-  const tableHeadHTML = `
-    <table>
-      <thead><tr>
-        <th class="ctr" style="width:26px">#</th>
-        <th style="width:140px">Codice</th>
-        <th>Descrizione</th>
-        <th class="ctr" style="width:60px">UM</th>
-        <th class="ctr" style="width:64px">Q.tà</th>
-        ${hasNote ? `<th style="width:160px">Note</th>` : ``}
-      </tr></thead>`;
-
-  const pagesHTML = pages.map((p, pageIdx) => {
-    const bodyRowsHTML = (p.rows && p.rows.length ? p.rows : [{}]).map((r, i) => `
+  const pagesHTML = pages.map((pRows, idx) => {
+    const trs = pRows.map((r, i) => `
       <tr>
-        <td class="ctr">${righe.length ? (p.start + i + 1) : ''}</td>
-        <td>${esc(r.codice || r.articoloCodice || '')}</td>
-        <td>${esc(r.descrizione || '')}</td>
-        <td class="ctr">${esc(r.UM || r.um || '')}</td>
-        <td class="ctr">${r.qta ?? r.quantita ?? ''}</td>
-        ${hasNote ? `<td>${esc(r.note||'')}</td>` : ``}
+        <td class="ctr">${(idx*ROWS_PER_PAGE)+i+1}</td>
+        <td>${esc(r.codice||r.articoloCodice||'')}</td>
+        <td>${esc(r.descrizione||'')}</td>
+        <td class="ctr">${esc(r.UM||r.um||'')}</td>
+        <td class="ctr">${r.qta||''}</td>
+        ${hasNote ? `<td>${esc(r.note||'')}</td>` : ''}
       </tr>
     `).join('');
 
-    const tabellaPagina = `
-      ${tableHeadHTML}
-      <tbody>${bodyRowsHTML}</tbody>
-    </table>`;
-
-    const footerPagina = `
-  <div class="footer">
-    <div class="grid">
-      <div class="box">Vettore: ${vettoreHtml}</div>
-      <div class="box">Aspetto beni: ${aspettoHtml}</div>
-      <div class="box">Colli: ${colliHtml}</div>
-      <div class="box">Data/ora: ${dataOraHtml}</div>
-      <div class="box">Peso netto: ${pesoNettoHtml}</div>
-      <div class="box">Peso lordo: ${pesoLordoHtml}</div>
-    </div>
-
-    <!-- FIRME come a video -->
-    <div class="grid firme" style="margin-top:6px; display:grid; grid-template-columns:repeat(3,1fr); gap:6px">
-      <div class="box" style="min-height:40px">
-        Firma vettore:
-        <div style="margin-top:6px; font-weight:700">${firmaVettoreHtml}</div>
-      </div>
-      <div class="box" style="min-height:40px">
-        Firma conducente:
-        <div style="margin-top:6px; font-weight:700">${firmaConducenteHtml}</div>
-      </div>
-      <div class="box" style="min-height:40px">
-        Firma destinatario:
-        <div style="margin-top:6px; font-weight:700">${firmaDestinatarioHtml}</div>
-      </div>
-    </div>
-
-    <div class="pagebox">Pag. <span class="pageNumDDT">${pageIdx+1} / ${totalPages}</span></div>
-  </div>
-`;
-
     return `
     <div class="page">
+      ${header}
+      ${mittDest}
       <div class="content">
-        ${header}
-        ${mittDest}
-        ${causale}
-        ${tabellaPagina}
+        <table>
+          <thead><tr>
+            <th class="ctr" style="width:30px">#</th>
+            <th style="width:120px">Codice</th>
+            <th>Descrizione</th>
+            <th class="ctr" style="width:50px">UM</th>
+            <th class="ctr" style="width:60px">Q.tà</th>
+            ${hasNote ? `<th>Note</th>` : ''}
+          </tr></thead>
+          <tbody>${trs}</tbody>
+        </table>
       </div>
-      ${footerPagina}
+      <div class="footer">
+        <div class="grid">
+          <div class="box">Vettore: <b>${vettore}</b></div>
+          <div class="box">Colli: <b>${colli}</b></div>
+          <div class="box">Peso Kg: <b>${pesoNetto}/${pesoLordo}</b></div>
+        </div>
+        <div class="grid" style="margin-top:4px">
+          <div class="box" style="height:35px">Firma Vettore:<br><b>${firmaVettore}</b></div>
+          <div class="box" style="height:35px">Firma Conducente:<br><b>${firmaConducente}</b></div>
+          <div class="box" style="height:35px">Firma Destinatario:<br><b>${firmaDestinatario}</b></div>
+        </div>
+        <div class="pagebox">Pag. ${idx+1} / ${pages.length}</div>
+      </div>
     </div>`;
   }).join('');
 
-  return `<!doctype html><html><head><meta charset="utf-8">${css}</head>
-  <body>
-    ${pagesHTML}
-  </body></html>`;
-
+  return `<!doctype html><html><head><meta charset="utf-8">${css}</head><body>${pagesHTML}</body></html>`;
 };
 
 
