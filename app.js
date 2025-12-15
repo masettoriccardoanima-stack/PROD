@@ -2995,7 +2995,7 @@ window.sbInsert = window.sbInsert || async function(table, row){
 
   try {
     const s = JSON.parse(localStorage.getItem('appSettings')||'{}') || {};
-    if (typeof s.cloudEnabled === 'undefined') s.cloudEnabled = true;
+    if (typeof s.cloudEnabled === 'undefined') s.cloudEnabled = false;
     if (!('supabaseTable' in s)) s.supabaseTable = 'anima_sync';
     localStorage.setItem('appSettings', JSON.stringify(s));
   } catch {}
@@ -4340,11 +4340,11 @@ window.ensureXLSX = window.ensureXLSX || (function () {
     } catch { return {}; }
   }
 
-  function sbReady(cfg){
-    // Rispetta cloudEnabled (default: ON). Se cloudEnabled === false, sync disabilitato.
-    if (cfg && cfg.cloudEnabled === false) return false;
-    return !!(cfg && cfg.supabaseUrl && cfg.supabaseKey && (cfg.supabaseTable||'').trim());
-  }
+    function sbReady(cfg){  
+      // Rispetta cloudEnabled (default: ON). Se cloudEnabled === false, sync disabilitato.
+      if (cfg && cfg.cloudEnabled === false) return false;
+      return !!(cfg && cfg.supabaseUrl && cfg.supabaseKey && (cfg.supabaseTable||'').trim());
+    }
     function sbEndpoint(cfg, tail){
     return cfg.supabaseUrl.replace(/\/+$/,'') + tail;
   }
@@ -17622,9 +17622,11 @@ function OrdiniFornitoriView({ query = '' }) {
     alert('Ordine duplicato: ' + copy.id);
   }
 
-  async function saveDraft(){
+  async function saveDraft(docOverride){
     const now = new Date().toISOString();
-    const doc = JSON.parse(JSON.stringify(draft));
+    const base = docOverride || draft;
+    if (!base) return;
+    const doc = JSON.parse(JSON.stringify(base));
     if (!doc.id) {
       const idObj = (typeof window.nextIdOF === 'function') ? await window.nextIdOF() : { id:`OF-${new Date().getFullYear()}-001` };
       doc.id = idObj.id;
@@ -17702,8 +17704,7 @@ function OrdiniFornitoriView({ query = '' }) {
     const d = clone(draft);
     d.righe = d.righe.map(r => { const res = Math.max(0, num(r.qta)-num(r.qtaRicevuta)); return res>0 ? {...r, qtaRicevuta: num(r.qtaRicevuta)+res} : r; });
     d.stato = 'Chiuso'; // auto-close
-    setDraft(d);
-    saveDraft();
+    saveDraft(d);
   }
 
   // Lista
