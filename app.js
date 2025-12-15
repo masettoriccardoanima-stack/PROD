@@ -23953,7 +23953,6 @@ window.findCommessaById = window.findCommessaById || function(id){
     defView('ReportMaterialiView',     'Report materiali');
     defView('PreventiviView',          'Preventivi');
     defView('DiagnosticaView',         'Diagnostica');
-    defView('SettingsView',            'Impostazioni');
     defView('ImpostazioniView',        'Impostazioni');
     defView('TimbraturaMobileView',    'Timbratura');
 
@@ -23983,7 +23982,7 @@ window.findCommessaById = window.findCommessaById || function(id){
       '#/report':           window.ReportView,
 
       '#/diagnostica':      window.DiagnosticaView,
-      '#/impostazioni':     (window.SettingsView || window.ImpostazioniView),
+      '#/impostazioni':     (window.ImpostazioniView || window.SettingsView),
 
       '#/login':            window.LoginView,
       '#/timbratura':       window.TimbraturaMobileView
