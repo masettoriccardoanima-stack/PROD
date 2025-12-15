@@ -14851,36 +14851,52 @@ window.safePrintHTMLStringWithPageNum = function(html){
   if (!window.renderDDTHTML) {
       // ===== HTML della stampa DDT (layout classico) =====
   // ===== HTML stampa DDT (header/footer fissi + pagina X/Y + sedi in header) =====
-// ===== HTML stampa DDT (Layout A4 Fisso + Header Completo + Footer Basso) =====
+// ===== HTML stampa DDT (Versione COMPLETA + Layout Basso e Header Corretto) =====
 window.renderDDTHTML = function(ddt){
   const esc = v => String(v ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
 
-  // --- 1. RECUPERO DATI (identico al tuo originale per non perdere nulla) ---
+  // Config azienda
   let cfg = {};
   try { cfg = JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; } catch {}
   const logoUrl  = cfg.logoDataUrl || cfg.logoUrl || cfg.logo || '';
-  
-  // Dati Azienda Completi
-  const ragAzi   = esc(cfg.ragioneSociale || cfg.ragione || cfg.ragioneAzienda || cfg.companyName || (cfg.azienda && (cfg.azienda.ragione || cfg.azienda.ragioneSociale)) || '');
-  const pivaAzi  = esc(cfg.piva || cfg.partitaIva || cfg.companyVat || (cfg.azienda && (cfg.azienda.piva || cfg.azienda.partitaIva)) || '');
-  const sedeLeg  = esc(cfg.sedeLegale || cfg.companyLegal || (cfg.azienda && cfg.azienda.sedeLegale) || '');
-  const sedeOp   = esc(cfg.sedeOperativa || (cfg.azienda && cfg.azienda.sedeOperativa) || '');
+  const ragAzi   = esc(
+    cfg.ragioneSociale || cfg.ragione || cfg.ragioneAzienda ||
+    cfg.companyName ||
+    (cfg.azienda && (cfg.azienda.ragione || cfg.azienda.ragioneSociale)) || ''
+  );
+  const pivaAzi  = esc(
+    cfg.piva || cfg.partitaIva || cfg.companyVat ||
+    (cfg.azienda && (cfg.azienda.piva || cfg.azienda.partitaIva)) || ''
+  );
+  const sedeLeg  = esc(
+    cfg.sedeLegale || cfg.companyLegal || (cfg.azienda && cfg.azienda.sedeLegale) || ''
+  );
+  const sedeOp   = esc(
+    cfg.sedeOperativa || (cfg.azienda && cfg.azienda.sedeOperativa) || ''
+  );
   const telAzi   = esc(cfg.telefono || cfg.phone || (cfg.azienda && (cfg.azienda.telefono || cfg.azienda.phone)) || '');
   const emailAzi = esc(cfg.email || (cfg.azienda && cfg.azienda.email) || '');
   const pecAzi   = esc(cfg.pec   || (cfg.azienda && cfg.azienda.pec)   || '');
 
-  // Dati Cliente
+  // Cliente
   const cliRag   = esc(ddt?.cliente || ddt?.clienteRagione || '');
   const cliPiva  = esc(ddt?.clientePiva || '');
+
+  // Luogo di consegna (evita duplicati col cliente)
   const lcRaw    = String(ddt?.luogoConsegna||'').trim();
   const luogoTxt = (!lcRaw || lcRaw.toLowerCase() === String(ddt?.cliente||'').trim().toLowerCase()) ? '' : esc(lcRaw);
 
-  // Rif. Cliente
+  // Riferimento cliente (usa util globale se c'è)
   let rifClienteTxt = '';
   try{
-    const ref = ddt?.rifCliente || { tipo: ddt?.rifClienteTipo, numero: ddt?.rifClienteNum, data: ddt?.rifClienteData };
-    if (typeof window.refClienteToText === 'function') rifClienteTxt = window.refClienteToText(ref);
-    else {
+    const ref = ddt?.rifCliente || {
+      tipo  : ddt?.rifClienteTipo || '',
+      numero: ddt?.rifClienteNum  || '',
+      data  : ddt?.rifClienteData || ''
+    };
+    if (typeof window.refClienteToText === 'function') {
+      rifClienteTxt = window.refClienteToText(ref);
+    } else {
       const t = String(ref?.tipo||'').toUpperCase();
       const n = String(ref?.numero||'');
       const ds= String(ref?.data||'');
@@ -14888,200 +14904,241 @@ window.renderDDTHTML = function(ddt){
     }
   }catch{}
 
-  // Dati Trasporto
+  // Righe
+  const righe = Array.isArray(ddt?.righe) ? ddt.righe : (Array.isArray(ddt?.articoli) ? ddt.articoli : []);
+  const hasNote = (righe||[]).some(r => r && r.note);
+
+  // Footer (trasporto)
   const vettore   = esc(ddt?.vettore || '');
   const aspetto   = esc(ddt?.aspetto || ddt?.aspettoBeni || '');
   const colli     = esc(ddt?.colli || '');
   const dataOra   = esc(ddt?.dataOra || '');
   const pesoNetto = esc(ddt?.pesoNetto || '');
   const pesoLordo = esc(ddt?.pesoLordo || '');
-  const firmaVettore      = esc(ddt?.firmaVettore||'');
-  const firmaConducente   = esc(ddt?.firmaConducente||'');
-  const firmaDestinatario = esc(ddt?.firmaDestinatario||'');
 
-  // --- 2. CONFIGURAZIONE LAYOUT ---
-  const righe = Array.isArray(ddt?.righe) ? ddt.righe : (Array.isArray(ddt?.articoli) ? ddt.articoli : []);
-  const hasNote = (righe||[]).some(r => r && r.note);
+  const firmaVettoreHtml      = esc(ddt?.firmaVettore||'');
+  const firmaConducenteHtml   = esc(ddt?.firmaConducente||'');
+  const firmaDestinatarioHtml = esc(ddt?.firmaDestinatario||'');
+  
+  // --- LAYOUT CSS: Uso margini a 0 per controllare il fondo pagina ---
+  let css = window.__PRINT_CSS({ top:10, right:12, bottom:0, left:12 }); // bottom: 0 per forzare il controllo
 
-  // Riduco leggermente le righe per pagina per evitare sovrapposizioni col footer
-  const ROWS_PER_PAGE = hasNote ? 10 : 14;
-
-  const pages = [];
-  for (let i = 0; i < righe.length; i += ROWS_PER_PAGE) {
-    pages.push({ start: i, rows: righe.slice(i, i + ROWS_PER_PAGE) });
-  }
-  if (!pages.length) pages.push({ start: 0, rows: [{}] });
-
-  const totalPages = pages.length;
-
-  // --- 3. CSS (Margini a 0 + Footer Assoluto) ---
-  const css = `
+  css += `
   <style>
-    @page { size: A4; margin: 0; }
-    
-    html, body { margin:0; padding:0; height:100%; font-family: Arial, Helvetica, sans-serif; font-size: 11px; color:#0f172a; }
-    
-    /* Contenitore foglio A4 */
-    .page {
-      width: 210mm;
-      height: 296mm; /* 297mm nominale, 296mm per sicurezza */
-      position: relative;
-      page-break-after: always;
-      overflow: hidden;
-      /* Padding laterale e superiore. IL FONDO È GESTITO DAL FOOTER ASSOLUTO */
-      padding: 10mm 10mm 0 10mm;
+    /* Forzatura Margini Stampa: 5mm in fondo sono il minimo per la maggior parte delle stampanti */
+    @page { margin-bottom: 5mm; margin-left: 12mm; margin-right: 12mm; margin-top: 10mm; }
+
+    html,body{margin:0;padding:0}
+    body{
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;
+      font-size:12px; color:#0f172a;
+      -webkit-print-color-adjust:exact; print-color-adjust:exact;
     }
-    .page:last-child { page-break-after: auto; }
 
     /* HEADER */
-    .header {
-      display: flex; justify-content: space-between; align-items: center; gap: 12px;
-      border-bottom: 2px solid #111; padding-bottom: 8px; margin-bottom: 10px;
-      height: 35mm; /* Altezza riservata header */
+    .header{
+      position:relative;
+      height:auto;
+      border-bottom:2px solid #111; padding:6px 0;
+      display:flex; justify-content:space-between; align-items:center; gap:12px;
+      background:#fff;
     }
-    .header .logo { height: 65px; max-width: 180px; object-fit: contain; margin-left: 2mm; }
-    .header .info { font-size: 10px; line-height: 1.3; }
-    .header .docTitle { font-size: 20px; font-weight: 800; margin: 0; text-align: right; }
-    .header .tit { text-align: right; }
-
-    /* GRIGLIA INDIRIZZI */
-    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px; height: 28mm; }
-    .box { border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px; font-size: 11px; }
-    .lbl { font-weight: 700; text-transform: uppercase; font-size: 9px; color: #64748b; margin-bottom: 2px; }
-
-    /* TABELLA */
-    .content { 
-      /* Altezza fissa per evitare che la tabella scenda troppo */
-      height: 155mm; 
-      display: block;
+    .header .logo{
+      height:80px; /* Logo più grande come richiesto */
+      max-height:80px; 
+      object-fit:contain; 
+      margin-left:2mm
     }
-    table { width: 100%; border-collapse: collapse; margin-top: 4px; }
-    th, td { border: 1px solid #e5e7eb; padding: 5px; vertical-align: top; font-size: 11px; }
-    th { background: #f8fafc; font-weight: 700; }
-    .ctr { text-align: center; }
-    .right { text-align: right; }
+    .header .tit{ text-align:right; padding-top:4mm }
+    .header .docTitle{ font-size:20px; font-weight:800; margin:0 }
+    .header .muted{ color:#64748b }
 
-    /* FOOTER (Inchiodato in basso) */
-    .footer {
-      position: absolute;
-      left: 10mm; 
-      right: 10mm;
-      bottom: 5mm; /* 5mm dal bordo inferiore del foglio */
-      height: 48mm; /* Altezza fissa per griglia + firme */
-      border-top: 1px solid #cbd5e1;
-      padding-top: 4px;
-      background: #fff;
+    /* FOOTER: Fissato in basso all'area di stampa */
+    .footer{
+      position: fixed; /* Lo tiene sulla pagina */
+      bottom: 0; 
+      left: 0; 
+      right: 0;
+      height: auto;
+      border-top: 1px solid #cbd5e1; background: #fff;
+      padding: 4mm 12mm 4mm 12mm; /* 4mm verticali per respiro. 12mm laterali */
+      margin-top: 8mm; /* Spazio sopra il footer in caso di contenuto corto */
+      box-sizing: border-box;
     }
-    .footer .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-    .footer .firme { margin-top: 6px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-    .firma-box { height: 30px; border-bottom: 1px solid #ccc; margin-top: 14px; }
-    
-    .pagebox { position: absolute; bottom: 0; right: 0; font-weight: 700; font-size: 11px; }
-    
-    .muted { color: #64748b; }
+    .footer .grid{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:6px
+    }
+    .footer .box{
+      border:1px solid #e5e7eb;
+      padding:6px;
+      border-radius:6px;
+      font-size:11px
+    }
+    /* Numeratore in basso a destra */
+    .footer .pagebox{
+      position: static;
+      margin-top: 6px; 
+      margin-left: auto; 
+      font-weight: 700;
+      text-align: right;
+    }
+    .footer .pagebox .pageNumDDT{
+      display:inline-block;
+      min-width:38px;
+      text-align:right;
+    }
+
+    /* Layout verticale */
+    .page{
+      /* Altezza minima forzata per spingere il footer in basso (297mm - 12mm - 12mm) */
+      display:flex;
+      flex-direction:column;
+      min-height:273mm; 
+      page-break-after: always; 
+    }
+    .page:last-child{ page-break-after: auto; }
+
+    .content{
+      flex:1;
+      margin:4mm 0 4mm 0;
+    }
+
+    .muted{color:#64748b}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+    .box{border:1px solid #cbd5e1;border-radius:8px;padding:8px}
+    .lbl{font-weight:600;margin-bottom:4px}
+
+    table{width:100%;border-collapse:collapse;margin-top:10px}
+    thead{display:table-header-group}
+    th,td{border:1px solid #e5e7eb;padding:6px;vertical-align:top}
+    th{background:#f8fafc}
+    .ctr{text-align:center}.right{text-align:right}
   </style>`;
-
-  // --- 4. HTML TEMPLATE ---
-  const headerHtml = `
+  
+  // --- HTML HEADER (Con DOCUMENTO DI TRASPORTO) ---
+  const header = `
     <div class="header">
-      <div style="display:flex; gap:12px; align-items:center">
+      <div style="display:flex;gap:12px;align-items:center">
         ${logoUrl ? `<img class="logo" src="${logoUrl}">` : ``}
-        <div class="info">
-          <div style="font-size:14px; font-weight:700; margin-bottom:2px">${ragAzi}</div>
-          ${pivaAzi ? `<div>P.IVA: ${pivaAzi}</div>` : ``}
-          ${sedeLeg ? `<div>Sede legale: ${sedeLeg}</div>` : ``}
-          ${sedeOp  ? `<div>Sede operativa: ${sedeOp}</div>` : ``}
-          ${telAzi   ? `<div>Tel: ${telAzi}</div>`   : ``}
-          ${emailAzi ? `<div>Email: ${emailAzi}</div>` : ``}
-          ${pecAzi   ? `<div>PEC: ${pecAzi}</div>`   : ``}
+        <div style="font-size:10px">
+          <div class="doc" style="font-weight:700">${ragAzi}</div>
+          ${pivaAzi ? `<div class="muted">P.IVA: ${pivaAzi}</div>` : ``}
+          ${sedeLeg ? `<div class="muted">Sede legale: ${sedeLeg}</div>` : ``}
+          ${sedeOp  ? `<div class="muted">Sede operativa: ${sedeOp}</div>` : ``}
+          ${telAzi   ? `<div class="muted">Tel: ${telAzi}</div>`   : ``}
+          ${emailAzi ? `<div class="muted">Email: ${emailAzi}</div>` : ``}
+          ${pecAzi   ? `<div class="muted">PEC: ${pecAzi}</div>`   : ``}
         </div>
       </div>
       <div class="tit">
-        <div class="docTitle">DDT</div>
-        <div class="muted"><b>${esc(ddt?.id||'')}</b></div>
+        <div class="docTitle">DOCUMENTO DI TRASPORTO</div>
+        <div class="muted">N. <b>${esc(ddt?.id||'')}</b></div>
         <div class="muted">Data: <b>${esc(ddt?.data||'')}</b></div>
       </div>
     </div>`;
 
-  const mittDestHtml = `
+  // --- HTML MITTENTE/DESTINATARIO (Con tutti i dati mittente) ---
+  const mittDest = `
     <div class="grid2">
       <div class="box">
         <div class="lbl">Mittente</div>
         <div><b>${ragAzi}</b></div>
-        ${sedeOp||sedeLeg}
-      </div>
+        ${pivaAzi ? `<div class="muted">P.IVA: ${pivaAzi}</div>` : ``} ${sedeLeg ? `<div class="muted">S. Legale: ${sedeLeg}</div>` : ``} ${sedeOp  ? `<div class="muted">S. Operativa: ${sedeOp}</div>` : ``} </div>
       <div class="box">
         <div class="lbl">Destinatario</div>
         <div><b>${cliRag || '—'}</b></div>
-        ${cliPiva ? `<div>P.IVA: ${cliPiva}</div>` : ``}
-        ${luogoTxt ? `<div class="muted">Dest: ${luogoTxt}</div>` : ``}
-        ${rifClienteTxt ? `<div class="muted" style="margin-top:4px">Rif: ${rifClienteTxt}</div>` : ``}
-        ${ddt?.commessaRif ? `<div class="muted">Comm: ${esc(ddt.commessaRif)}</div>` : ``}
+        ${cliPiva ? `<div class="muted">P.IVA: ${cliPiva}</div>` : ``}
+        ${luogoTxt ? `<div class="muted">Luogo di consegna: ${luogoTxt}</div>` : ``}
+        ${rifClienteTxt ? `<div class="muted" style="margin-top:4px">Rif. doc. cliente: ${rifClienteTxt}</div>` : ``}
+        ${ddt?.commessaRif ? `<div class="muted">Commessa: ${esc(ddt.commessaRif)}</div>` : ``}
       </div>
     </div>`;
 
-  const causaleHtml = (ddt?.causaleTrasporto)
-    ? `<div class="box" style="margin:4px 0 8px 0">Causale: <b>${esc(ddt.causaleTrasporto)}</b></div>`
+  const causale = (ddt?.causaleTrasporto)
+    ? `<div class="box" style="margin-top:8px">Causale del trasporto: <b>${esc(ddt.causaleTrasporto)}</b></div>`
     : ``;
 
+  const rows = (righe && righe.length) ? righe : [{}];
+  
+  // --- PAGINAZIONE ---
   const tableHeadHTML = `
     <table>
       <thead><tr>
-        <th class="ctr" style="width:30px">#</th>
-        <th style="width:130px">Codice</th>
+        <th class="ctr" style="width:26px">#</th>
+        <th style="width:140px">Codice</th>
         <th>Descrizione</th>
-        <th class="ctr" style="width:50px">UM</th>
-        <th class="ctr" style="width:60px">Q.tà</th>
-        ${hasNote ? `<th style="width:150px">Note</th>` : ``}
+        <th class="ctr" style="width:60px">UM</th>
+        <th class="ctr" style="width:64px">Q.tà</th>
+        ${hasNote ? `<th style="width:160px">Note</th>` : ``}
       </tr></thead>`;
 
-  // Generazione pagine
   const pagesHTML = pages.map((p, pageIdx) => {
-    const bodyRows = (p.rows).map((r, i) => `
+    const bodyRowsHTML = (p.rows && p.rows.length ? p.rows : [{}]).map((r, i) => `
       <tr>
-        <td class="ctr">${p.start + i + 1}</td>
+        <td class="ctr">${righe.length ? (p.start + i + 1) : ''}</td>
         <td>${esc(r.codice || r.articoloCodice || '')}</td>
         <td>${esc(r.descrizione || '')}</td>
         <td class="ctr">${esc(r.UM || r.um || '')}</td>
-        <td class="ctr"><b>${r.qta ?? r.quantita ?? ''}</b></td>
+        <td class="ctr">${r.qta ?? r.quantita ?? ''}</td>
         ${hasNote ? `<td>${esc(r.note||'')}</td>` : ``}
       </tr>
     `).join('');
 
-    return `
-    <div class="page">
-      ${headerHtml}
-      ${mittDestHtml}
-      ${causaleHtml}
-      
-      <div class="content">
-        ${tableHeadHTML}
-        <tbody>${bodyRows}</tbody>
-        </table>
-      </div>
+    const tabellaPagina = `
+      ${tableHeadHTML}
+      <tbody>${bodyRowsHTML}</tbody>
+    </table>`;
 
+    const footerPagina = `
       <div class="footer">
         <div class="grid">
-          <div class="box"><div class="lbl">Vettore</div>${vettore}</div>
-          <div class="box"><div class="lbl">Aspetto</div>${aspetto}</div>
-          <div class="box"><div class="lbl">Colli</div>${colli}</div>
-          <div class="box"><div class="lbl">Data/Ora</div>${dataOra}</div>
-          <div class="box"><div class="lbl">Peso Netto</div>${pesoNetto}</div>
-          <div class="box"><div class="lbl">Peso Lordo</div>${pesoLordo}</div>
+          <div class="box">Vettore: <b>${vettore}</b></div>
+          <div class="box">Aspetto beni: <b>${aspetto}</b></div>
+          <div class="box">Colli: <b>${colli}</b></div>
+          <div class="box">Data/ora: <b>${dataOra}</b></div>
+          <div class="box">Peso netto: <b>${pesoNetto}</b></div>
+          <div class="box">Peso lordo: <b>${pesoLordo}</b></div>
         </div>
 
-        <div class="firme">
-          <div class="box"><div class="lbl">Firma Vettore</div><div class="firma-box"></div>${firmaVettore}</div>
-          <div class="box"><div class="lbl">Firma Conducente</div><div class="firma-box"></div>${firmaConducente}</div>
-          <div class="box"><div class="lbl">Firma Destinatario</div><div class="firma-box"></div>${firmaDestinatario}</div>
+        <div class="grid firme" style="margin-top:6px; display:grid; grid-template-columns:repeat(3,1fr); gap:6px">
+          <div class="box" style="min-height:40px">
+            Firma vettore:
+            <div style="margin-top:6px; font-weight:700">${firmaVettoreHtml}</div>
+          </div>
+          <div class="box" style="min-height:40px">
+            Firma conducente:
+            <div style="margin-top:6px; font-weight:700">${firmaConducenteHtml}</div>
+          </div>
+          <div class="box" style="min-height:40px">
+            Firma destinatario:
+            <div style="margin-top:6px; font-weight:700">${firmaDestinatarioHtml}</div>
+          </div>
         </div>
 
-        <div class="pagebox">Pag. ${pageIdx+1} / ${totalPages}</div>
+        <div class="pagebox">Pag. <span class="pageNumDDT">${pageIdx+1} / ${totalPages}</span></div>
       </div>
-    </div>`;
+    `;
+
+    return `
+      <div class="page">
+        <div class="content">
+          ${header}
+          ${mittDest}
+          ${causale}
+          ${tabellaPagina}
+        </div>
+        ${footerPagina}
+      </div>
+    `;
   }).join('');
 
-  return `<!doctype html><html><head><meta charset="utf-8">${css}</head><body>${pagesHTML}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8">${css}</head>
+  <body>
+    ${pagesHTML}
+  </body></html>`;
+
 };
 
 
