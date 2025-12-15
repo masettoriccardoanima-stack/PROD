@@ -1016,6 +1016,15 @@ window.sortNewestFirst = window.sortNewestFirst || function listSort(arr, opts){
     // Stato utente in memoria (fonte unica: __USER)
   window.__USER = window.__USER || null;
 
+  // ================== RBAC (fonte unica) ==================
+  // Read-only: accountant, viewer, mobile (coerente con "consultazione-only").
+  // Worker e admin possono scrivere.
+  window.isReadOnlyUser = function(){
+    const u = window.__USER || window.currentUser || null;
+    const role = (u && u.role) ? String(u.role).toLowerCase() : '';
+    return (role === 'accountant' || role === 'viewer' || role === 'mobile');
+  };
+
   // Wrapper: usa SEMPRE apiMe se esiste
   window.getMe = async function(){
     const fn = window.apiMe || global.apiMe || null;
@@ -1085,10 +1094,10 @@ window.sortNewestFirst = window.sortNewestFirst || function listSort(arr, opts){
 
   // Sola lettura: l’accountant non può scrivere; se non loggato → NON blocchiamo (così puoi lavorare offline)
   // --- RBAC: unica fonte di verità ---
-  window.isReadOnlyUser = function(){
-      const r = window.__USER && window.__USER.role;
-    return r === 'accountant' || r === 'viewer' || r === 'mobile';
-  };
+  //window.isReadOnlyUser = function(){
+    //  const r = window.__USER && window.__USER.role;
+  //  return r === 'accountant' || r === 'viewer' || r === 'mobile';
+  // };
  
   // Props da spalmare sui pulsanti che scrivono
   window.roProps = function(){
@@ -1368,14 +1377,14 @@ window.persistKV = window.persistKV || function persistKV(key, value){
 
 // ==== RBAC helper: true se ruolo = accountant (sola lettura) ====
 // Allineato al modello nuovo: fonte unica = utente corrente (__USER / currentUser)
-window.isReadOnlyUser = function(){
-  const u =
-    window.__USER ||
-    window.currentUser ||
-    null;
+//window.isReadOnlyUser = function(){
+//  const u =
+//    window.__USER ||
+//    window.currentUser ||
+//    null;
 
-  return !!(u && u.role === 'accountant');
-};
+//  return !!(u && u.role === 'accountant');
+// };
 
 // Zeri a sinistra per i progressivi
   g.formatNNN = g.formatNNN || (n => String(n).padStart(3,'0'));
@@ -3577,10 +3586,10 @@ global.apiMe = global.apiMe || (async () => {
 });
 
   // opzionale ma utile: unifica anche il RO helper
-  window.isReadOnlyUser = function(){
-    const u = window.__USER || window.currentUser || null;
-    return !!(u && u.role === 'accountant');
-  };
+  //window.isReadOnlyUser = function(){
+  //  const u = window.__USER || window.currentUser || null;
+  //  return !!(u && u.role === 'accountant');
+  // };
 })(window);
 
 
