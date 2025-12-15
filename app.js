@@ -2425,7 +2425,7 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
   }catch(e){ console.warn('safePrintHTMLString', e); }
 };
 
-// ================== PREVENTIVI: STAMPA (Layout Fix Logo + Margini Anti-Sovrapposizione) ==================
+// ================== PREVENTIVI: STAMPA (Layout Fix: Logo Grande, Margini Sicuri, No Sovrapposizioni) ==================
 (function(){
   // Helper locali
   const esc = s => String(s ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
@@ -2436,8 +2436,9 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
     return isNaN(date.getTime()) ? d : date.toLocaleDateString('it-IT');
   };
 
+  // 1. Generatore HTML
   window.generatePreventivoHTML = function(pv){
-    // 1. Recupero Dati
+    // Recupero Dati
     const app = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; }catch{return{}} })();
     const clienti = (function(){ try{ return JSON.parse(localStorage.getItem('clientiRows')||'[]')||[]; }catch{return[]} })();
     
@@ -2466,7 +2467,7 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
     const righe = Array.isArray(pv?.righe) ? pv.righe : (Array.isArray(pv?.righeArticolo) ? pv.righeArticolo : []);
     const DEFAULT_IVA = Number(app.defaultIva) || 22;
 
-    // 2. Calcoli
+    // Calcoli
     let imponibile = 0;
     let totIva = 0;
     const ivaMap = {};
@@ -2499,7 +2500,7 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
 
     const totaleDoc = imponibile + totIva;
 
-    // --- 3. TEMPLATE HTML ---
+    // Template HTML parti comuni
     const headerHTML = `
       <div class="header">
         <div class="brand">
@@ -2587,8 +2588,9 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         </div>
       </div>`;
 
-    // --- Paginazione ---
-    const MAX_ROWS = 10; 
+    // --- Paginazione Sicura ---
+    // Riduco a 8 righe per pagina per garantire spazio ai totali senza sovrapposizioni
+    const MAX_ROWS = 8; 
     const pages = [];
     
     if (rowsData.length === 0) {
@@ -2652,8 +2654,8 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
           width: 210mm; height: 297mm;
           position: relative;
           page-break-after: always;
-          /* FIX: Aumentato padding-bottom a 25mm per evitare sovrapposizioni coi totali */
-          padding: 10mm 10mm 25mm 10mm; 
+          /* Padding fondo 30mm: spazio sicuro per evitare sovrapposizioni */
+          padding: 10mm 10mm 30mm 10mm; 
           display: flex; flex-direction: column; 
           overflow: hidden;
         }
@@ -2665,7 +2667,7 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         .header { display: flex; justify-content: space-between; border-bottom: 2px solid #111; padding-bottom: 8px; margin-bottom: 12px; }
         .brand { display: flex; gap: 15px; align-items: center; }
         
-        /* FIX: Logo più grande */
+        /* Logo Grande 80px */
         .logo { height: 80px; max-width: 220px; object-fit: contain; }
         
         .az-info { font-size: 9pt; line-height: 1.3; }
@@ -2706,11 +2708,38 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         .sign-box .line { position: absolute; bottom: 10mm; left: 10%; width: 80%; border-bottom: 1px solid #000; }
         .sign-box .center { position: absolute; bottom: 4mm; width: 100%; text-align: center; }
         
-        /* FIX: Numero pagina spostato ancora più in basso (5mm dal fondo) */
-        .page-num { position: absolute; bottom: 5mm; right: 10mm; font-size: 9pt; color: #888; font-weight: bold; }
+        /* Numerazione Pagina molto bassa */
+        .page-num { position: absolute; bottom: 8mm; right: 10mm; font-size: 9pt; color: #888; font-weight: bold; }
       </style>`;
 
     return `<!DOCTYPE html><html><head><meta charset="utf-8">${css}</head><body>${htmlPages}</body></html>`;
+  };
+
+  // 2. Funzione di stampa (RIPRISTINATA)
+  window.printPreventivo = function(pv){
+    try {
+      if (!pv || !pv.id) { alert('Preventivo non valido'); return; }
+      
+      const html = window.generatePreventivoHTML(pv);
+      
+      // Usa il sistema di stampa sicuro
+      if (window.safePrintHTMLStringWithPageNum) {
+        window.safePrintHTMLStringWithPageNum(html);
+      } else if (window.safePrintHTMLString) {
+        window.safePrintHTMLString(html);
+      } else {
+        // Fallback estremo
+        const w = window.open('', '_blank');
+        if (w) {
+          w.document.write(html);
+          w.document.close();
+          setTimeout(() => { w.focus(); w.print(); }, 500);
+        }
+      }
+    } catch(e) {
+      console.warn('printPreventivo error', e);
+      alert('Errore nella stampa del preventivo.');
+    }
   };
 })();
 
