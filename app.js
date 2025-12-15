@@ -26536,15 +26536,63 @@ window.nextIdFor = async function({ prefix, storageKey, seriesKey, width=3 }) {
   };
 })();
 
-/* ================== PATCH XML FATTURA ELETTRONICA (Anti-Scarto + REA + DDT) ================== */
+/* ================== PATCH XML V2: LOGICA TD24 + PARSING INDIRIZZI ROBUSTO ================== */
 (function(){
   // Helpers XML sicuri
   const xmlEsc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
   const num2   = n => Number(n||0).toFixed(2);
-  const clean  = s => String(s||'').replace(/\s+/g, '').toUpperCase(); // Rimuove spazi da PIVA/CF
+  const clean  = s => String(s||'').replace(/\s+/g, '').toUpperCase(); 
   const isoDate= d => { try{ return new Date(d).toISOString().slice(0,10); }catch{ return ''; } };
 
-  // Calcolo riepilogo IVA per il footer XML
+  // Funzione avanzata per spaccare l'indirizzo (Via, CAP, Città, Prov)
+  function parseAddress(fullAddr, defaultCap, defaultProv) {
+    let addr = (fullAddr || '').trim();
+    let cap = defaultCap || '00000';
+    let prov = defaultProv || 'PD';
+    let comune = '.';
+
+    // 1. Cerca il CAP (5 cifre)
+    const capMatch = addr.match(/\b\d{5}\b/);
+    if (capMatch) {
+      cap = capMatch[0];
+      // Rimuoviamo il CAP dalla stringa per non confonderci dopo
+      // addr = addr.replace(cap, '').trim(); // Meglio non rimuoverlo brutalmente per ora
+    }
+
+    // 2. Cerca la Provincia (2 lettere maiuscole isolate o tra parentesi, alla fine o vicino al CAP)
+    // Es: "Padova (PD)" o "Padova PD"
+    const provMatch = addr.match(/(\(|^|\s)([A-Z]{2})(\)|$|\s)/); 
+    if (provMatch) {
+      prov = provMatch[2];
+    }
+
+    // 3. Tentativo di estrarre il Comune
+    // Strategia: Assumiamo che dopo il CAP ci sia il Comune
+    if (capMatch) {
+      const parts = addr.split(cap);
+      if (parts[1]) {
+        // Prende tutto ciò che c'è dopo il CAP, pulendo la prov
+        let afterCap = parts[1].replace(prov, '').replace(/[()]/g,'').trim();
+        // Se c'è una virgola, prendiamo solo il primo pezzo
+        if (afterCap.includes(',')) afterCap = afterCap.split(',')[0];
+        if (afterCap.length > 2) comune = afterCap;
+      }
+    }
+    
+    // Fallback Comune: se non l'abbiamo trovato, usiamo una logica "tutto tranne il CAP"
+    if (comune === '.') {
+       // Se l'indirizzo è "Via X, 35010 Comune", proviamo a prendere l'ultima parola se non è provincia
+       // Questo è rischioso, meglio lasciare "." che causa errore formale visibile ma non scarto tecnico immediato su struttura
+       comune = 'Vedi Indirizzo'; 
+    }
+
+    // Pulizia indirizzo principale (togliamo CAP e Prov per non ripeterli troppo, opzionale)
+    // Per sicurezza XML, lasciamo l'indirizzo completo nel campo Indirizzo
+    
+    return { indirizzo: addr, cap, comune, prov };
+  }
+
+  // Calcolo riepilogo IVA
   function riepilogoPerAliquota(righe){
     const map = new Map();
     (righe||[]).forEach(r=>{
@@ -26553,14 +26601,10 @@ window.nextIdFor = async function({ prefix, storageKey, seriesKey, width=3 }) {
       const sc    = Number(r.sconto||r.scontoPerc||0);
       const iva   = Number(r.iva||0);
       const impon = qty * pr * (1 - sc/100);
-      
-      // Se iva=0, serve la Natura (es. N3.1). Se manca nella riga, è un errore, ma qui raggruppiamo.
       const nat   = (iva===0) ? String(r.natura||'').trim() : ''; 
       const key   = `${iva.toFixed(2)}_${nat}`;
-      
       map.set(key, (map.get(key)||0) + impon);
     });
-
     return Array.from(map.entries()).map(([k, imponibile]) => {
       const [aliqStr, natura] = k.split('_');
       const aliquota = Number(aliqStr);
@@ -26569,9 +26613,8 @@ window.nextIdFor = async function({ prefix, storageKey, seriesKey, width=3 }) {
     });
   }
 
-  // Costruttore XML principale
+  // --- COSTRUTTORE XML ---
   window.buildFatturaPAXml = function(fa){
-    // 1. Recupero Dati
     const app = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; }catch{return{}} })();
     
     // Recupero Cliente
@@ -26579,86 +26622,67 @@ window.nextIdFor = async function({ prefix, storageKey, seriesKey, width=3 }) {
     try{ clienti = JSON.parse(localStorage.getItem('clientiRows')||'[]')||[]; }catch{}
     const cli = clienti.find(c => String(c.id)===String(fa.clienteId)) || { ragione: fa.cliente||'' };
 
-    // Dati Cedente (Noi)
+    // Parsing Indirizzi (PIÙ ROBUSTO)
+    const sedeAzi = parseAddress(app.sedeLegale || app.indirizzo, '35011', 'PD');
+    const sedeCli = parseAddress(cli.sedeLegale || cli.indirizzo, '00000', 'XX');
+
+    // Dati Cedente
     const cedente = {
       denominazione : app.ragioneSociale || 'ANIMA SRL',
       piva          : clean(app.piva || ''),
       cf            : clean(app.cf || app.codiceFiscale || ''),
       regime        : app.regimeFiscale || 'RF01',
       sede          : {
-        indirizzo : app.sedeLegale || '', // Semplificato: tutto in indirizzo se non strutturato
-        cap       : '35011',              // Fallback se non parsato (da migliorare se hai i campi divisi)
-        comune    : 'CAMPODARSEGO',
-        prov      : 'PD',
+        indirizzo : xmlEsc(sedeAzi.indirizzo),
+        cap       : sedeAzi.cap,
+        comune    : xmlEsc(sedeAzi.comune === '.' ? 'CAMPODARSEGO' : sedeAzi.comune), // Fallback azienda
+        prov      : sedeAzi.prov,
         nazione   : 'IT'
       },
-      // Dati Iscrizione REA (Fondamentali per SRL)
       rea: {
-        ufficio : 'PD', // Default Padova (o da impostazioni se c'è)
+        ufficio : 'PD',
         numero  : (app.rea || '').replace(/\D/g,''),
         capitale: num2(parseFloat((app.capitaleSociale||'').replace(/[^0-9,.]/g,'').replace(',','.')) || 0),
-        socio   : 'SU', // Socio Unico (Default sicuro)
-        stato   : 'LN'  // Non in liquidazione (Default sicuro)
+        socio   : 'SU',
+        stato   : 'LN'
       }
     };
 
-    // Parsing indirizzo sede legale (se è una stringa unica "Via X, CAP Città PROV")
-    // Questo è un tentativo "best effort" per spaccare la stringa sedeLegale
-    if (cedente.sede.indirizzo) {
-      // Regex base: Via..., 12345 Città XX
-      const m = cedente.sede.indirizzo.match(/(\d{5})\s+([^\d]+)\s+([A-Z]{2})/);
-      if (m) {
-        cedente.sede.cap    = m[1];
-        cedente.sede.comune = m[2].trim().replace(/,/g,'');
-        cedente.sede.prov   = m[3];
-        // Rimuoviamo la parte CAP Città Prov dall'indirizzo
-        cedente.sede.indirizzo = cedente.sede.indirizzo.replace(m[0], '').replace(/,$/, '').trim();
-      }
-    }
-
-    // Dati Cessionario (Cliente)
+    // Dati Cessionario
     const cessionario = {
       denominazione : cli.ragione || cli.ragioneSociale || fa.cliente || 'CLIENTE',
       piva          : clean(cli.piva || ''),
       cf            : clean(cli.cf || cli.codiceFiscale || ''),
-      indirizzo     : cli.sedeLegale || cli.indirizzo || 'Sede legale',
-      cap           : '00000', // Placeholder se manca
-      comune        : '.',
-      prov          : 'XX',
+      indirizzo     : xmlEsc(sedeCli.indirizzo),
+      cap           : sedeCli.cap,
+      comune        : xmlEsc(sedeCli.comune),
+      prov          : sedeCli.prov,
       nazione       : 'IT'
     };
-    
-    // Parsing indirizzo cliente (stesso metodo)
-    if (cessionario.indirizzo) {
-      const m = cessionario.indirizzo.match(/(\d{5})\s+([^\d]+)\s+([A-Z]{2})/);
-      if (m) {
-        cessionario.cap    = m[1];
-        cessionario.comune = m[2].trim().replace(/,/g,'');
-        cessionario.prov   = m[3];
-        cessionario.indirizzo = cessionario.indirizzo.replace(m[0], '').replace(/,$/, '').trim();
-      }
-    }
-    // Se è estero, PIVA generica? No, lasciamo vuoto se non c'è, ma PIVA o CF serve.
-    if (!cessionario.piva && !cessionario.cf) cessionario.cf = '00000000000'; // Anti-crash estremo
+    if (!cessionario.piva && !cessionario.cf) cessionario.cf = '00000000000'; 
 
-    // Dati Trasmissione
+    // Header
     const idTrasmittente = cedente.piva || cedente.cf;
-    const progInvio      = (fa.id || '00001').replace(/[^a-zA-Z0-9]/g, '').slice(-5); // Ultimi 5 char
+    const progInvio      = (fa.id || '00001').replace(/[^a-zA-Z0-9]/g, '').slice(-5);
     const codDest        = (fa.codiceUnivoco || cli.codiceUnivoco || '0000000').trim();
     const pecDest        = (fa.pec || cli.pec || '').trim();
 
-    // Dati Generali
-    const numeroDoc = (fa.id || '1').replace(/\//g,'_'); // XML non ama le slash nei numeri talvolta
+    // Dati Generali e LOGICA TD24
+    const numeroDoc = (fa.id || '1').replace(/\//g,'_');
     const dataDoc   = isoDate(fa.data || new Date());
     const importoBollo = fa.bolloVirtuale ? num2(fa.importoBollo || 2) : '0.00';
 
-    // Riferimento DDT (Fondamentale)
-    // Raccoglie tutti i DDT citati nelle righe o nel campo globale
-    const ddtSet = new Map(); // Id -> Data
+    // Riferimento DDT
+    const ddtSet = new Map();
     if (fa.ddtId) ddtSet.set(fa.ddtId, fa.ddtData);
-    (fa.righe||[]).forEach(r => {
-      if (r.ddtId) ddtSet.set(r.ddtId, r.ddtData);
-    });
+    (fa.righe||[]).forEach(r => { if (r.ddtId) ddtSet.set(r.ddtId, r.ddtData); });
+
+    // *** QUI C'È LA LOGICA INTELLIGENTE ***
+    // Se c'è almeno un DDT collegato, diventa TD24. Altrimenti TD01.
+    // A meno che l'utente non abbia forzato un tipo diverso manualmente.
+    let tipoDocumentoAuto = 'TD01';
+    if (ddtSet.size > 0) tipoDocumentoAuto = 'TD24';
+    const tipoDocumentoFinale = fa.tipoDocumento || tipoDocumentoAuto;
 
     const blocchiDDT = Array.from(ddtSet.entries()).map(([id, data]) => `
       <DatiDDT>
@@ -26666,22 +26690,19 @@ window.nextIdFor = async function({ prefix, storageKey, seriesKey, width=3 }) {
         <DataDDT>${xmlEsc(isoDate(data || dataDoc))}</DataDDT>
       </DatiDDT>`).join('\n');
 
-
-    // Righe e Riepiloghi
+    // Righe
     const righeNormalizzate = (fa.righe||[]).map(r => {
       const iva = Number(r.iva||0);
       return {
         ...r,
-        natura: (iva === 0) ? (r.natura || fa.naturaIva || 'N3.5') : '' // Default N3.5 se manca
+        natura: (iva === 0) ? (r.natura || fa.naturaIva || 'N3.5') : '' 
       };
     });
     
     const riepiloghi = riepilogoPerAliquota(righeNormalizzate);
-    
-    // Totale Documento (per pagamento)
     const totDoc = riepiloghi.reduce((acc, x) => acc + x.imponibile + x.imposta, 0) + Number(importoBollo);
 
-    // 2. Generazione XML
+    // BUILD XML
     return `<?xml version="1.0" encoding="UTF-8"?>
 <p:FatturaElettronica versione="FPR12" xmlns:p="http://ivaservizi.agenziaentrate.gov.it/docs/xsd/fatture/v1.2">
   <FatturaElettronicaHeader>
@@ -26747,7 +26768,7 @@ window.nextIdFor = async function({ prefix, storageKey, seriesKey, width=3 }) {
   <FatturaElettronicaBody>
     <DatiGenerali>
       <DatiGeneraliDocumento>
-        <TipoDocumento>${fa.tipoDocumento || 'TD01'}</TipoDocumento>
+        <TipoDocumento>${tipoDocumentoFinale}</TipoDocumento>
         <Divisa>EUR</Divisa>
         <Data>${dataDoc}</Data>
         <Numero>${xmlEsc(numeroDoc)}</Numero>
@@ -26795,7 +26816,7 @@ window.nextIdFor = async function({ prefix, storageKey, seriesKey, width=3 }) {
 </p:FatturaElettronica>`;
   };
 
-  // Funzione export wrapper
+  // Funzione export wrapper (Confermata)
   window.exportFatturaPAXML = function(fa){
     try {
       const xml = window.buildFatturaPAXml(fa);
