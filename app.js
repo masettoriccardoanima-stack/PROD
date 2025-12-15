@@ -25513,19 +25513,37 @@ window.buildFatturaPAXml = function(fa){
 </p:FatturaElettronica>`;
 };
 
-  window.exportFatturaPAXML = function(fa){
-    try{
-      const xml = window.buildFatturaPAXml(fa);
-      const name = (fa.id ? String(fa.id) : 'FATTURA') + '.xml';
-      const blob = new Blob([xml], {type:'application/xml'});
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = name;
-      a.click(); URL.revokeObjectURL(a.href);
-    }catch(e){
-      alert('Export XML FatturaPA non riuscito: ' + (e && e.message || e));
-    }
-  };
+// ===== EXPORT: Crea e Scarica il file XML =====
+window.exportFatturaPAXML = function(fa){
+  try {
+    // 1. Genera il contenuto XML usando la funzione "Intelligente"
+    const xmlContent = window.buildFatturaPAXml(fa);
+    
+    if (!xmlContent) throw new Error("XML vuoto generato.");
+
+    // 2. Calcola il nome del file secondo standard SDI: IT + PIVA + _ + ID.xml
+    // (Es: IT05463690288_FA_2025_001.xml)
+    const app = JSON.parse(localStorage.getItem('appSettings')||'{}') || {};
+    const piva = String(app.piva || app.pIva || '00000000000').replace(/[^0-9]/g,'');
+    const docId = String(fa.id || 'doc').replace(/[^a-zA-Z0-9]/g, '_'); // Sostituisce / con _
+    
+    const fileName = `IT${piva}_${docId}.xml`;
+
+    // 3. Crea il blob e simula il click per il download
+    const blob = new Blob([xmlContent], { type: 'application/xml' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = fileName;
+    document.body.appendChild(link); // Necessario per Firefox
+    link.click();
+    document.body.removeChild(link);
+    
+  } catch(e) {
+    alert('Errore generazione file XML: ' + e.message);
+    console.error(e);
+  }
+};
+
 })();
 
 // ===== Pre-check FatturaPA (campi minimi) - VERSIONE PERMISSIVA =====
