@@ -4283,9 +4283,11 @@ window.ensureXLSX = window.ensureXLSX || (function () {
   }
 
   function sbReady(cfg){
-    return !!(cfg.supabaseUrl && cfg.supabaseKey && (cfg.supabaseTable||'').trim());
+    // Rispetta cloudEnabled (default: ON). Se cloudEnabled === false, sync disabilitato.
+    if (cfg && cfg.cloudEnabled === false) return false;
+    return !!(cfg && cfg.supabaseUrl && cfg.supabaseKey && (cfg.supabaseTable||'').trim());
   }
-  function sbEndpoint(cfg, tail){
+    function sbEndpoint(cfg, tail){
     return cfg.supabaseUrl.replace(/\/+$/,'') + tail;
   }
   async function sbRequest(cfg, method, path, body){
@@ -4746,20 +4748,37 @@ window.syncImportFromCloud = async function(){
       return;
     }
     try {
-      // 1) Se ho modifiche locali, spingo PRIMA (evita “resurrezioni”)
-      if (window.__anima_dirty) {
-        window.__anima_dirty = false;
-        await exportAll();
-        window.__anima_lastPush = Date.now();
-      } else if (!window.__anima_lastPush) {
-        // Prima volta: stabilisci una baseline remota
-        await exportAll();
-        window.__anima_lastPush = Date.now();
+      // NOTE SOLIDITÀ:
+      // - Primo giro: PULL prima di qualunque PUSH (un device non allineato non deve sovrascrivere il cloud).
+      // - Dirty viene azzerato SOLO dopo export riuscito.
+
+      // 0) Primo avvio (nessun pull fatto): tira giù dal cloud e basta
+      if (!window.__anima_lastPull) {
+        await importAll();
+        window.__anima_lastPull = Date.now();
+
+        // Se avevi già modifiche locali (rare, ma possibile), allora pusha dopo aver pullato
+        if (window.__anima_dirty) {
+          await exportAll();
+          window.__anima_lastPush = Date.now();
+          window.__anima_dirty = false;
+        }
+
+        setTimeout(tick, INTERVAL_MS);
+        return;
       }
-      // 2) Poi tiro giù dal cloud
+
+      // 1) Regime normale: se dirty, pusha (ma non azzerare prima)
+      if (window.__anima_dirty) {
+        await exportAll();
+        window.__anima_lastPush = Date.now();
+        window.__anima_dirty = false;
+      }
+
+      // 2) Poi sempre pull
       await importAll();
       window.__anima_lastPull = Date.now();
-    } 
+    }
          catch(e){
       console.warn('[cloud] auto-sync error:', (e && e.message ? e.message : e));
       window.__cloud_lastErr = e && e.message ? e.message : String(e);
