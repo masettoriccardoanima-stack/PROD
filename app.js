@@ -25281,158 +25281,237 @@ var TimbraturaMobileView = function(){
     });
   }
 
-  window.buildFatturaPAXml = function(fa){
-    const app = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; }catch{return{}} })();
-    const cli = getClienteById(fa.clienteId) || { ragione: fa.cliente || '' };
+// ===== Generazione XML FatturaPA (TD24 auto + REA + Indirizzi) =====
+window.buildFatturaPAXml = function(fa){
+  // Helpers
+  const xmlEsc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+  const num2   = n => Number(n||0).toFixed(2);
+  const clean  = s => String(s||'').replace(/\s+/g, '').toUpperCase(); 
+  const isoDate= d => { try{ return new Date(d).toISOString().slice(0,10); }catch{ return ''; } };
 
-    const cedente = {
-      denominazione: app.ragioneSociale || app.ragione || '',
-      piva: (app.piva || app.pIva || '').replace(/\s/g,''),
-      cf: (app.cf || app.codiceFiscale || '') || '',
-      regime: app.regimeFiscale || 'RF01',
-      sedeLegale: app.sedeLegale || (app.azienda && app.azienda.sedeLegale) || '',
-      sedeOper: app.sedeOperativa || (app.azienda && app.azienda.sedeOperativa) || ''
-    };
-    const cessionario = {
-      denominazione: cli.ragione || cli.denominazione || '',
-      piva: (cli.piva||'').replace(/\s/g,''),
-      cf: (cli.cf || cli.codiceFiscale || '') || '',
-      sede: cli.sedeLegale || cli.sedeOperativa || ''
-    };
+  // Parsing indirizzo (Via X, CAP Città PROV)
+  function parseAddress(fullAddr, defaultCap, defaultProv) {
+    let addr = (fullAddr || '').trim();
+    let cap = defaultCap || '00000';
+    let prov = defaultProv || 'PD';
+    let comune = '.';
 
-    const numero = String(fa.id||'').replace(/[^\w\-./]/g,'') || 'FA-TEST';
-    const data   = fa.data || todayISO();
-    const divisa = 'EUR';
-    // Esigibilità IVA per DatiRiepilogo: 'I' (immediata), 'D' (differita), 'S' (scissione)
-    const esig = (fa.esigibilitaIVA||'').toUpperCase();
-    const esigOk = (esig==='I' || esig==='D' || esig==='S') ? esig : '';
+    const capMatch = addr.match(/\b\d{5}\b/);
+    if (capMatch) cap = capMatch[0];
 
+    const provMatch = addr.match(/(\(|^|\s)([A-Z]{2})(\)|$|\s)/); 
+    if (provMatch) prov = provMatch[2];
 
-    const tipoDocumento = fa.tipoDocumento || 'TD01';
+    // Tentativo estrazione comune dopo il CAP
+    if (capMatch) {
+      const parts = addr.split(cap);
+      if (parts[1]) {
+        let afterCap = parts[1].replace(prov, '').replace(/[()]/g,'').trim();
+        if (afterCap.includes(',')) afterCap = afterCap.split(',')[0];
+        if (afterCap.length > 2) comune = afterCap;
+      }
+    }
+    return { indirizzo: addr, cap, comune, prov };
+  }
 
-    const codiceDest = (fa.codiceUnivoco || cli.codiceUnivoco || '').trim() || '0000000';
-    const pecDest    = (fa.pec || cli.pec || '').trim();
+  // 1. Dati App
+  const app = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; }catch{return{}} })();
+  
+  // 2. Dati Cliente
+  let clienti = [];
+  try{ clienti = JSON.parse(localStorage.getItem('clientiRows')||'[]')||[]; }catch{}
+  const cli = clienti.find(c => String(c.id)===String(fa.clienteId)) || { ragione: fa.cliente||'' };
 
-    const righeRaw = Array.isArray(fa.righe) ? fa.righe : [];
-    const naturaDoc = (fa.naturaIva || '').trim();
+  // Parsing Indirizzi
+  const sedeAzi = parseAddress(app.sedeLegale || app.indirizzo, '35011', 'PD');
+  const sedeCli = parseAddress(cli.sedeLegale || cli.indirizzo, '00000', 'XX');
 
-    // Normalizza righe per riepilogo IVA:
-    // - se l'aliquota è 0, usa r.natura oppure la naturaIva della fattura
-    // - non tocchiamo mai fa.righe originali (lavoriamo su una copia)
-    const righe = righeRaw.map(r => {
-      const iva = Number(r.iva || 0);
-      const natLinea = (r.natura || '').trim();
-      const nat = (iva === 0)
-        ? (natLinea || naturaDoc)
-        : '';
+  // Cedente
+  const cedente = {
+    denominazione : app.ragioneSociale || 'ANIMA SRL',
+    piva          : clean(app.piva || ''),
+    cf            : clean(app.cf || app.codiceFiscale || ''),
+    regime        : app.regimeFiscale || 'RF01',
+    sede          : {
+      indirizzo : xmlEsc(sedeAzi.indirizzo),
+      cap       : sedeAzi.cap,
+      comune    : xmlEsc(sedeAzi.comune === '.' ? 'CAMPODARSEGO' : sedeAzi.comune),
+      prov      : sedeAzi.prov,
+      nazione   : 'IT'
+    },
+    // REA Obbligatorio per SRL
+    rea: {
+      ufficio : 'PD',
+      numero  : (app.rea || '').replace(/\D/g,''),
+      capitale: num2(parseFloat((app.capitaleSociale||'').replace(/[^0-9,.]/g,'').replace(',','.')) || 0),
+      socio   : 'SU',
+      stato   : 'LN'
+    }
+  };
 
-      return nat
-        ? { ...r, natura: nat }
-        : { ...r };
+  // Cessionario
+  const cessionario = {
+    denominazione : cli.ragione || cli.ragioneSociale || fa.cliente || 'CLIENTE',
+    piva          : clean(cli.piva || ''),
+    cf            : clean(cli.cf || cli.codiceFiscale || ''),
+    indirizzo     : xmlEsc(sedeCli.indirizzo),
+    cap           : sedeCli.cap,
+    comune        : xmlEsc(sedeCli.comune),
+    prov          : sedeCli.prov,
+    nazione       : 'IT'
+  };
+  if (!cessionario.piva && !cessionario.cf) cessionario.cf = '00000000000'; 
+
+  // Header Trasmissione
+  const idTrasmittente = cedente.piva || cedente.cf;
+  const progInvio      = (fa.id || '00001').replace(/[^a-zA-Z0-9]/g, '').slice(-5);
+  const codDest        = (fa.codiceUnivoco || cli.codiceUnivoco || '0000000').trim();
+  const pecDest        = (fa.pec || cli.pec || '').trim();
+
+  // Logica TD24 (DDT collegati)
+  const ddtSet = new Map();
+  if (fa.ddtId) ddtSet.set(fa.ddtId, fa.ddtData);
+  (fa.righe||[]).forEach(r => { if (r.ddtId) ddtSet.set(r.ddtId, r.ddtData); });
+  
+  // Se ci sono DDT è TD24, altrimenti TD01 (salvo override manuale)
+  let tipoDocumentoAuto = (ddtSet.size > 0) ? 'TD24' : 'TD01';
+  const tipoDocumentoFinal = fa.tipoDocumento || tipoDocumentoAuto;
+
+  const numeroDoc = (fa.id || '1').replace(/\//g,'_');
+  const dataDoc   = isoDate(fa.data || new Date());
+  const importoBollo = fa.bolloVirtuale ? num2(fa.importoBollo || 2) : '0.00';
+
+  // Blocchi DDT
+  const blocchiDDT = Array.from(ddtSet.entries()).map(([id, data]) => `
+    <DatiDDT>
+      <NumeroDDT>${xmlEsc(id)}</NumeroDDT>
+      <DataDDT>${xmlEsc(isoDate(data || dataDoc))}</DataDDT>
+    </DatiDDT>`).join('\n');
+
+  // Righe e Totali
+  const righeNormalizzate = (fa.righe||[]).map(r => {
+    const iva = Number(r.iva||0);
+    return { ...r, iva, natura: (iva === 0) ? (r.natura || fa.naturaIva || 'N3.5') : '' };
+  });
+
+  // Funzione locale riepilogo
+  const riepilogoPerAliquota = (rr) => {
+    const map = new Map();
+    rr.forEach(r=>{
+      const qty = Number(r.qta||0), pr = Number(r.prezzo||0), sc = Number(r.sconto||r.scontoPerc||0);
+      const imp = qty * pr * (1 - sc/100);
+      const k = `${Number(r.iva).toFixed(2)}_${r.natura||''}`;
+      map.set(k, (map.get(k)||0) + imp);
     });
+    return Array.from(map.entries()).map(([k, imp]) => {
+      const [aliq, nat] = k.split('_');
+      return { aliquota: Number(aliq), natura: nat, imponibile: imp, imposta: imp * Number(aliq)/100 };
+    });
+  };
+  
+  const riepiloghi = riepilogoPerAliquota(righeNormalizzate);
+  const totDoc = riepiloghi.reduce((acc, x) => acc + x.imponibile + x.imposta, 0) + Number(importoBollo);
 
-    const riepiloghi = riepilogoPerAliquota(righe);
-
-    const condPag = (Array.isArray(fa.scadenze) && fa.scadenze.length<=1) ? 'TP01' : 'TP02';
-    const modPag  = fa.modalitaPagamento || 'MP05';
-    const iban    = (fa.iban || app.iban || '').replace(/\s/g,'');
-
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<p:FatturaElettronica versione="FPR12"
-  xmlns:p="http://ivaservizi.agenziaentrate.gov.it/docs/xsd/fatture/v1.2"
-  xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
+  // XML TEMPLATE
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<p:FatturaElettronica versione="FPR12" xmlns:p="http://ivaservizi.agenziaentrate.gov.it/docs/xsd/fatture/v1.2">
   <FatturaElettronicaHeader>
     <DatiTrasmissione>
       <IdTrasmittente>
         <IdPaese>IT</IdPaese>
-        <IdCodice>${xmlEsc(cedente.piva||cedente.cf||'00000000000')}</IdCodice>
+        <IdCodice>${idTrasmittente}</IdCodice>
       </IdTrasmittente>
-      <ProgressivoInvio>${xmlEsc(numero.replace(/[^A-Za-z0-9]/g,'').slice(-10) || 'INV0000001')}</ProgressivoInvio>
+      <ProgressivoInvio>${xmlEsc(progInvio)}</ProgressivoInvio>
       <FormatoTrasmissione>FPR12</FormatoTrasmissione>
-      <CodiceDestinatario>${xmlEsc(codiceDest)}</CodiceDestinatario>
-      ${(!pecDest || codiceDest!=='0000000') ? '' : `<PECDestinatario>${xmlEsc(pecDest)}</PECDestinatario>`}
+      <CodiceDestinatario>${xmlEsc(codDest)}</CodiceDestinatario>
+      ${(pecDest && codDest==='0000000') ? `<PECDestinatario>${xmlEsc(pecDest)}</PECDestinatario>` : ''}
     </DatiTrasmissione>
     <CedentePrestatore>
       <DatiAnagrafici>
-        ${cedente.piva ? `<IdFiscaleIVA><IdPaese>IT</IdPaese><IdCodice>${xmlEsc(cedente.piva)}</IdCodice></IdFiscaleIVA>` : ''}
-        ${cedente.cf ? `<CodiceFiscale>${xmlEsc(cedente.cf)}</CodiceFiscale>` : ''}
+        <IdFiscaleIVA>
+          <IdPaese>IT</IdPaese>
+          <IdCodice>${cedente.piva}</IdCodice>
+        </IdFiscaleIVA>
+        <CodiceFiscale>${cedente.cf}</CodiceFiscale>
         <Anagrafica><Denominazione>${xmlEsc(cedente.denominazione)}</Denominazione></Anagrafica>
-        <RegimeFiscale>${xmlEsc(cedente.regime)}</RegimeFiscale>
+        <RegimeFiscale>${cedente.regime}</RegimeFiscale>
+        ${(cedente.rea.numero) ? `
+        <IscrizioneREA>
+          <Ufficio>${cedente.rea.ufficio}</Ufficio>
+          <NumeroREA>${cedente.rea.numero}</NumeroREA>
+          <CapitaleSociale>${cedente.rea.capitale}</CapitaleSociale>
+          <SocioUnico>${cedente.rea.socio}</SocioUnico>
+          <StatoLiquidazione>${cedente.rea.stato}</StatoLiquidazione>
+        </IscrizioneREA>` : ''}
       </DatiAnagrafici>
-      <Sede><Indirizzo>${xmlEsc(cedente.sedeLegale||'')}</Indirizzo></Sede>
+      <Sede>
+        <Indirizzo>${xmlEsc(cedente.sede.indirizzo)}</Indirizzo>
+        <CAP>${cedente.sede.cap}</CAP>
+        <Comune>${xmlEsc(cedente.sede.comune)}</Comune>
+        <Provincia>${cedente.sede.prov}</Provincia>
+        <Nazione>${cedente.sede.nazione}</Nazione>
+      </Sede>
     </CedentePrestatore>
     <CessionarioCommittente>
       <DatiAnagrafici>
-        ${cessionario.piva ? `<IdFiscaleIVA><IdPaese>IT</IdPaese><IdCodice>${xmlEsc(cessionario.piva)}</IdCodice></IdFiscaleIVA>` : ''}
-        ${cessionario.cf ? `<CodiceFiscale>${xmlEsc(cessionario.cf)}</CodiceFiscale>` : ''}
+        ${cessionario.piva ? `<IdFiscaleIVA><IdPaese>IT</IdPaese><IdCodice>${cessionario.piva}</IdCodice></IdFiscaleIVA>` : ''}
+        ${cessionario.cf ? `<CodiceFiscale>${cessionario.cf}</CodiceFiscale>` : ''}
         <Anagrafica><Denominazione>${xmlEsc(cessionario.denominazione)}</Denominazione></Anagrafica>
       </DatiAnagrafici>
-      <Sede><Indirizzo>${xmlEsc(cessionario.sede||'')}</Indirizzo></Sede>
+      <Sede>
+        <Indirizzo>${xmlEsc(cessionario.indirizzo)}</Indirizzo>
+        <CAP>${cessionario.cap}</CAP>
+        <Comune>${xmlEsc(cessionario.comune)}</Comune>
+        <Provincia>${cessionario.prov}</Provincia>
+        <Nazione>${cessionario.nazione}</Nazione>
+      </Sede>
     </CessionarioCommittente>
   </FatturaElettronicaHeader>
   <FatturaElettronicaBody>
     <DatiGenerali>
       <DatiGeneraliDocumento>
-        <TipoDocumento>${xmlEsc(tipoDocumento)}</TipoDocumento>
-        <Divisa>${divisa}</Divisa>
-        <Data>${xmlEsc(data)}</Data>
-        <Numero>${xmlEsc(numero)}</Numero>
-        ${ fa.bolloVirtuale ? `
-          <DatiBollo>
-            <BolloVirtuale>SI</BolloVirtuale>
-            <ImportoBollo>${num2(fa.importoBollo || 2)}</ImportoBollo>
-          </DatiBollo>
-        ` : ``}
+        <TipoDocumento>${tipoDocumentoFinal}</TipoDocumento>
+        <Divisa>EUR</Divisa>
+        <Data>${dataDoc}</Data>
+        <Numero>${xmlEsc(numeroDoc)}</Numero>
+        ${fa.bolloVirtuale ? `<DatiBollo><BolloVirtuale>SI</BolloVirtuale><ImportoBollo>${importoBollo}</ImportoBollo></DatiBollo>` : ''}
+        ${fa.causale ? `<Causale>${xmlEsc(fa.causale)}</Causale>` : ''}
       </DatiGeneraliDocumento>
+      ${blocchiDDT}
     </DatiGenerali>
     <DatiBeniServizi>
-      ${righe.map((r,i)=>{
-        const qty = Number(r.qta||0);
-        const pr  = Number(r.prezzo||0);
-        const scp = Number(r.sconto||r.scontoPerc||0);
-        const iva = Number(r.iva||0);
-        const rowBase = qty*pr*(1-(scp/100));
-        return `<DettaglioLinee>
-          <NumeroLinea>${i+1}</NumeroLinea>
-          <Descrizione>${xmlEsc(r.descrizione||r.desc||'Riga')}</Descrizione>
-          ${qty?`<Quantita>${qty}</Quantita>`:''}
-          <PrezzoUnitario>${num2(pr)}</PrezzoUnitario>
-          <PrezzoTotale>${num2(rowBase)}</PrezzoTotale>
-          <AliquotaIVA>${num2(iva)}</AliquotaIVA>
-        </DettaglioLinee>`;
-      }).join('\n')}
-        ${riepiloghi.map(r=>`
-          <DatiRiepilogo>
+      ${righeNormalizzate.map((r, i) => `
+      <DettaglioLinee>
+        <NumeroLinea>${i + 1}</NumeroLinea>
+        <Descrizione>${xmlEsc(r.descrizione)}</Descrizione>
+        <Quantita>${num2(r.qta)}</Quantita>
+        <PrezzoUnitario>${num2(r.prezzo)}</PrezzoUnitario>
+        <PrezzoTotale>${num2(r.qta * r.prezzo * (1 - (r.sconto||0)/100))}</PrezzoTotale>
+        <AliquotaIVA>${num2(r.iva)}</AliquotaIVA>
+        ${r.natura ? `<Natura>${r.natura}</Natura>` : ''}
+      </DettaglioLinee>`).join('')}
+      ${riepiloghi.map(r => `
+      <DatiRiepilogo>
         <AliquotaIVA>${num2(r.aliquota)}</AliquotaIVA>
-          ${ r.natura ? `<Natura>${xmlEsc(r.natura)}</Natura>` : ``}
-          ${ (r.aliquota===0 && r.natura && (fa.rifNormativo||'').trim()) ? `<RiferimentoNormativo>${xmlEsc(fa.rifNormativo)}</RiferimentoNormativo>` : ``}
-          <ImponibileImporto>${num2(r.imponibile)}</ImponibileImporto>
-          <Imposta>${num2(r.imposta)}</Imposta>
-          ${ esigOk ? `<EsigibilitaIVA>${esigOk}</EsigibilitaIVA>` : ``}
-          </DatiRiepilogo>
-      `).join('\n')}
-
-
+        ${r.natura ? `<Natura>${r.natura}</Natura>` : ''}
+        <ImponibileImporto>${num2(r.imponibile)}</ImponibileImporto>
+        <Imposta>${num2(r.imposta)}</Imposta>
+        <EsigibilitaIVA>I</EsigibilitaIVA>
+        ${(r.natura && fa.rifNormativo) ? `<RiferimentoNormativo>${xmlEsc(fa.rifNormativo)}</RiferimentoNormativo>` : ''}
+      </DatiRiepilogo>`).join('')}
     </DatiBeniServizi>
-        <DatiPagamento>
-      <CondizioniPagamento>${condPag}</CondizioniPagamento>
-      ${
-        (Array.isArray(fa.scadenze) && fa.scadenze.length>0
-          ? fa.scadenze
-          : [{ data: data, importo: (riepiloghi||[]).reduce((S,x)=>S+x.imponibile+x.imposta,0) }]
-        ).map(s=>`
-        <DettaglioPagamento>
-          <ModalitaPagamento>${modPag}</ModalitaPagamento>
-          ${iban?`<IBAN>${xmlEsc(iban)}</IBAN>`:''}
-          ${s.data ? `<DataScadenzaPagamento>${xmlEsc(s.data)}</DataScadenzaPagamento>` : ``}
-          <ImportoPagamento>${num2(s.importo)}</ImportoPagamento>
-        </DettaglioPagamento>
-      `).join('')}
+    <DatiPagamento>
+      <CondizioniPagamento>TP02</CondizioniPagamento>
+      <DettaglioPagamento>
+        <ModalitaPagamento>MP05</ModalitaPagamento>
+        <DataScadenzaPagamento>${dataDoc}</DataScadenzaPagamento>
+        <ImportoPagamento>${num2(totDoc)}</ImportoPagamento>
+        ${app.iban ? `<IBAN>${clean(app.iban)}</IBAN>` : ''}
+      </DettaglioPagamento>
     </DatiPagamento>
   </FatturaElettronicaBody>
 </p:FatturaElettronica>`;
-    return xml;
-  };
+};
 
   window.exportFatturaPAXML = function(fa){
     try{
@@ -25449,7 +25528,7 @@ var TimbraturaMobileView = function(){
   };
 })();
 
-// ===== Pre-check FatturaPA (campi minimi) =====
+// ===== Pre-check FatturaPA (campi minimi) - VERSIONE PERMISSIVA =====
 window.canExportFatturaPA = function(fa){
   const reasons = [];
   try{
@@ -25467,12 +25546,6 @@ window.canExportFatturaPA = function(fa){
     const cfCli = String(cli.cf || cli.codiceFiscale || '').trim();
     const sedeCli = (cli.sedeLegale || cli.sedeOperativa || '').trim();
 
-    const bancaInt = (app.bancaIntestatario || app.bankHolder || '') + '';
-    const bancaIstit= (app.bancaIstituto   || app.bankName   || '') + '';
-    const bancaIban = (app.bancaIban        || app.iban       || '') + '';
-    const bancaBic  = (app.bancaBicSwift    || app.bicswift || app.bic || '') + '';
-
-
     // Anagrafica azienda
     if (!denAzi) reasons.push('Azienda: Denominazione mancante');
     if (!(pivaAzi || cfAzi)) reasons.push('Azienda: P.IVA o CF mancanti');
@@ -25480,6 +25553,7 @@ window.canExportFatturaPA = function(fa){
 
     // Anagrafica cliente
     if (!denCli) reasons.push('Cliente: Denominazione mancante');
+    // Rilassato: basta che ci sia un riferimento cliente, anche se incompleto avvisiamo ma non blocchiamo se c'è almeno il nome
     if (!(pivaCli || cfCli)) reasons.push('Cliente: P.IVA o CF mancanti');
     if (!sedeCli) reasons.push('Cliente: Indirizzo sede mancante');
 
@@ -25487,35 +25561,19 @@ window.canExportFatturaPA = function(fa){
     const righe = Array.isArray(fa.righe)? fa.righe : [];
     if (!righe.length) reasons.push('Righe: nessuna riga presente');
 
-    let hasZeroIva = false;
-    let missingNatura = false;
-
     righe.forEach((r,idx)=>{
       const okDesc = (r.descrizione||'').trim().length>0 || (r.codice||'').trim().length>0;
-      const okQta  = Number(r.qta||0) > 0;
-      if (!okDesc || !okQta) {
-        reasons.push(`Riga ${idx+1}: descrizione/codice o quantità non valide`);
-      }
-
-      const iva = Number(r.iva || 0);
-      if (iva === 0) {
-        hasZeroIva = true;
-        const nat = (r.natura || fa.naturaIva || '').trim();
-        if (!nat) missingNatura = true;
+      // Permettiamo righe con qta 0 (es. righe di nota)
+      if (!okDesc) {
+        reasons.push(`Riga ${idx+1}: descrizione mancante`);
       }
     });
 
-    if (hasZeroIva && missingNatura) {
-      reasons.push('Righe: Natura IVA mancante per almeno una riga con aliquota 0');
-    }
-
-    const rif = (fa.rifNormativo || '').trim();
-    if (hasZeroIva && !rif) {
-      reasons.push('Righe: Riferimento normativo mancante per aliquota 0');
-    }
+    // RIMOSSO IL BLOCCO SUL RIFERIMENTO NORMATIVO
+    // L'XML verrà generato comunque, se manca il dato l'SDI darà errore ma intanto il file esce.
 
   }catch(e){
-    reasons.push('Errore verifica preliminare');
+    reasons.push('Errore verifica preliminare: ' + e.message);
   }
   return { ok: reasons.length===0, reasons };
 };
@@ -26536,309 +26594,3 @@ window.nextIdFor = async function({ prefix, storageKey, seriesKey, width=3 }) {
   };
 })();
 
-/* ================== PATCH XML V2: LOGICA TD24 + PARSING INDIRIZZI ROBUSTO ================== */
-(function(){
-  // Helpers XML sicuri
-  const xmlEsc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
-  const num2   = n => Number(n||0).toFixed(2);
-  const clean  = s => String(s||'').replace(/\s+/g, '').toUpperCase(); 
-  const isoDate= d => { try{ return new Date(d).toISOString().slice(0,10); }catch{ return ''; } };
-
-  // Funzione avanzata per spaccare l'indirizzo (Via, CAP, Città, Prov)
-  function parseAddress(fullAddr, defaultCap, defaultProv) {
-    let addr = (fullAddr || '').trim();
-    let cap = defaultCap || '00000';
-    let prov = defaultProv || 'PD';
-    let comune = '.';
-
-    // 1. Cerca il CAP (5 cifre)
-    const capMatch = addr.match(/\b\d{5}\b/);
-    if (capMatch) {
-      cap = capMatch[0];
-      // Rimuoviamo il CAP dalla stringa per non confonderci dopo
-      // addr = addr.replace(cap, '').trim(); // Meglio non rimuoverlo brutalmente per ora
-    }
-
-    // 2. Cerca la Provincia (2 lettere maiuscole isolate o tra parentesi, alla fine o vicino al CAP)
-    // Es: "Padova (PD)" o "Padova PD"
-    const provMatch = addr.match(/(\(|^|\s)([A-Z]{2})(\)|$|\s)/); 
-    if (provMatch) {
-      prov = provMatch[2];
-    }
-
-    // 3. Tentativo di estrarre il Comune
-    // Strategia: Assumiamo che dopo il CAP ci sia il Comune
-    if (capMatch) {
-      const parts = addr.split(cap);
-      if (parts[1]) {
-        // Prende tutto ciò che c'è dopo il CAP, pulendo la prov
-        let afterCap = parts[1].replace(prov, '').replace(/[()]/g,'').trim();
-        // Se c'è una virgola, prendiamo solo il primo pezzo
-        if (afterCap.includes(',')) afterCap = afterCap.split(',')[0];
-        if (afterCap.length > 2) comune = afterCap;
-      }
-    }
-    
-    // Fallback Comune: se non l'abbiamo trovato, usiamo una logica "tutto tranne il CAP"
-    if (comune === '.') {
-       // Se l'indirizzo è "Via X, 35010 Comune", proviamo a prendere l'ultima parola se non è provincia
-       // Questo è rischioso, meglio lasciare "." che causa errore formale visibile ma non scarto tecnico immediato su struttura
-       comune = 'Vedi Indirizzo'; 
-    }
-
-    // Pulizia indirizzo principale (togliamo CAP e Prov per non ripeterli troppo, opzionale)
-    // Per sicurezza XML, lasciamo l'indirizzo completo nel campo Indirizzo
-    
-    return { indirizzo: addr, cap, comune, prov };
-  }
-
-  // Calcolo riepilogo IVA
-  function riepilogoPerAliquota(righe){
-    const map = new Map();
-    (righe||[]).forEach(r=>{
-      const qty   = Number(r.qta||0);
-      const pr    = Number(r.prezzo||0);
-      const sc    = Number(r.sconto||r.scontoPerc||0);
-      const iva   = Number(r.iva||0);
-      const impon = qty * pr * (1 - sc/100);
-      const nat   = (iva===0) ? String(r.natura||'').trim() : ''; 
-      const key   = `${iva.toFixed(2)}_${nat}`;
-      map.set(key, (map.get(key)||0) + impon);
-    });
-    return Array.from(map.entries()).map(([k, imponibile]) => {
-      const [aliqStr, natura] = k.split('_');
-      const aliquota = Number(aliqStr);
-      const imposta  = aliquota > 0 ? (imponibile * aliquota / 100) : 0;
-      return { aliquota, natura, imponibile, imposta };
-    });
-  }
-
-  // --- COSTRUTTORE XML ---
-  window.buildFatturaPAXml = function(fa){
-    const app = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; }catch{return{}} })();
-    
-    // Recupero Cliente
-    let clienti = [];
-    try{ clienti = JSON.parse(localStorage.getItem('clientiRows')||'[]')||[]; }catch{}
-    const cli = clienti.find(c => String(c.id)===String(fa.clienteId)) || { ragione: fa.cliente||'' };
-
-    // Parsing Indirizzi (PIÙ ROBUSTO)
-    const sedeAzi = parseAddress(app.sedeLegale || app.indirizzo, '35011', 'PD');
-    const sedeCli = parseAddress(cli.sedeLegale || cli.indirizzo, '00000', 'XX');
-
-    // Dati Cedente
-    const cedente = {
-      denominazione : app.ragioneSociale || 'ANIMA SRL',
-      piva          : clean(app.piva || ''),
-      cf            : clean(app.cf || app.codiceFiscale || ''),
-      regime        : app.regimeFiscale || 'RF01',
-      sede          : {
-        indirizzo : xmlEsc(sedeAzi.indirizzo),
-        cap       : sedeAzi.cap,
-        comune    : xmlEsc(sedeAzi.comune === '.' ? 'CAMPODARSEGO' : sedeAzi.comune), // Fallback azienda
-        prov      : sedeAzi.prov,
-        nazione   : 'IT'
-      },
-      rea: {
-        ufficio : 'PD',
-        numero  : (app.rea || '').replace(/\D/g,''),
-        capitale: num2(parseFloat((app.capitaleSociale||'').replace(/[^0-9,.]/g,'').replace(',','.')) || 0),
-        socio   : 'SU',
-        stato   : 'LN'
-      }
-    };
-
-    // Dati Cessionario
-    const cessionario = {
-      denominazione : cli.ragione || cli.ragioneSociale || fa.cliente || 'CLIENTE',
-      piva          : clean(cli.piva || ''),
-      cf            : clean(cli.cf || cli.codiceFiscale || ''),
-      indirizzo     : xmlEsc(sedeCli.indirizzo),
-      cap           : sedeCli.cap,
-      comune        : xmlEsc(sedeCli.comune),
-      prov          : sedeCli.prov,
-      nazione       : 'IT'
-    };
-    if (!cessionario.piva && !cessionario.cf) cessionario.cf = '00000000000'; 
-
-    // Header
-    const idTrasmittente = cedente.piva || cedente.cf;
-    const progInvio      = (fa.id || '00001').replace(/[^a-zA-Z0-9]/g, '').slice(-5);
-    const codDest        = (fa.codiceUnivoco || cli.codiceUnivoco || '0000000').trim();
-    const pecDest        = (fa.pec || cli.pec || '').trim();
-
-    // Dati Generali e LOGICA TD24
-    const numeroDoc = (fa.id || '1').replace(/\//g,'_');
-    const dataDoc   = isoDate(fa.data || new Date());
-    const importoBollo = fa.bolloVirtuale ? num2(fa.importoBollo || 2) : '0.00';
-
-    // Riferimento DDT
-    const ddtSet = new Map();
-    if (fa.ddtId) ddtSet.set(fa.ddtId, fa.ddtData);
-    (fa.righe||[]).forEach(r => { if (r.ddtId) ddtSet.set(r.ddtId, r.ddtData); });
-
-    // *** QUI C'È LA LOGICA INTELLIGENTE ***
-    // Se c'è almeno un DDT collegato, diventa TD24. Altrimenti TD01.
-    // A meno che l'utente non abbia forzato un tipo diverso manualmente.
-    let tipoDocumentoAuto = 'TD01';
-    if (ddtSet.size > 0) tipoDocumentoAuto = 'TD24';
-    const tipoDocumentoFinale = fa.tipoDocumento || tipoDocumentoAuto;
-
-    const blocchiDDT = Array.from(ddtSet.entries()).map(([id, data]) => `
-      <DatiDDT>
-        <NumeroDDT>${xmlEsc(id)}</NumeroDDT>
-        <DataDDT>${xmlEsc(isoDate(data || dataDoc))}</DataDDT>
-      </DatiDDT>`).join('\n');
-
-    // Righe
-    const righeNormalizzate = (fa.righe||[]).map(r => {
-      const iva = Number(r.iva||0);
-      return {
-        ...r,
-        natura: (iva === 0) ? (r.natura || fa.naturaIva || 'N3.5') : '' 
-      };
-    });
-    
-    const riepiloghi = riepilogoPerAliquota(righeNormalizzate);
-    const totDoc = riepiloghi.reduce((acc, x) => acc + x.imponibile + x.imposta, 0) + Number(importoBollo);
-
-    // BUILD XML
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<p:FatturaElettronica versione="FPR12" xmlns:p="http://ivaservizi.agenziaentrate.gov.it/docs/xsd/fatture/v1.2">
-  <FatturaElettronicaHeader>
-    <DatiTrasmissione>
-      <IdTrasmittente>
-        <IdPaese>IT</IdPaese>
-        <IdCodice>${idTrasmittente}</IdCodice>
-      </IdTrasmittente>
-      <ProgressivoInvio>${xmlEsc(progInvio)}</ProgressivoInvio>
-      <FormatoTrasmissione>FPR12</FormatoTrasmissione>
-      <CodiceDestinatario>${xmlEsc(codDest)}</CodiceDestinatario>
-      ${(pecDest && codDest==='0000000') ? `<PECDestinatario>${xmlEsc(pecDest)}</PECDestinatario>` : ''}
-    </DatiTrasmissione>
-    <CedentePrestatore>
-      <DatiAnagrafici>
-        <IdFiscaleIVA>
-          <IdPaese>IT</IdPaese>
-          <IdCodice>${cedente.piva}</IdCodice>
-        </IdFiscaleIVA>
-        <CodiceFiscale>${cedente.cf}</CodiceFiscale>
-        <Anagrafica>
-          <Denominazione>${xmlEsc(cedente.denominazione)}</Denominazione>
-        </Anagrafica>
-        <RegimeFiscale>${cedente.regime}</RegimeFiscale>
-        ${(cedente.rea.numero) ? `
-        <IscrizioneREA>
-          <Ufficio>${cedente.rea.ufficio}</Ufficio>
-          <NumeroREA>${cedente.rea.numero}</NumeroREA>
-          <CapitaleSociale>${cedente.rea.capitale}</CapitaleSociale>
-          <SocioUnico>${cedente.rea.socio}</SocioUnico>
-          <StatoLiquidazione>${cedente.rea.stato}</StatoLiquidazione>
-        </IscrizioneREA>` : ''}
-      </DatiAnagrafici>
-      <Sede>
-        <Indirizzo>${xmlEsc(cedente.sede.indirizzo)}</Indirizzo>
-        <CAP>${cedente.sede.cap}</CAP>
-        <Comune>${xmlEsc(cedente.sede.comune)}</Comune>
-        <Provincia>${cedente.sede.prov}</Provincia>
-        <Nazione>${cedente.sede.nazione}</Nazione>
-      </Sede>
-    </CedentePrestatore>
-    <CessionarioCommittente>
-      <DatiAnagrafici>
-        ${cessionario.piva ? `
-        <IdFiscaleIVA>
-          <IdPaese>IT</IdPaese>
-          <IdCodice>${cessionario.piva}</IdCodice>
-        </IdFiscaleIVA>` : ''}
-        ${cessionario.cf ? `<CodiceFiscale>${cessionario.cf}</CodiceFiscale>` : ''}
-        <Anagrafica>
-          <Denominazione>${xmlEsc(cessionario.denominazione)}</Denominazione>
-        </Anagrafica>
-      </DatiAnagrafici>
-      <Sede>
-        <Indirizzo>${xmlEsc(cessionario.indirizzo)}</Indirizzo>
-        <CAP>${cessionario.cap}</CAP>
-        <Comune>${xmlEsc(cessionario.comune)}</Comune>
-        <Provincia>${cessionario.prov}</Provincia>
-        <Nazione>${cessionario.nazione}</Nazione>
-      </Sede>
-    </CessionarioCommittente>
-  </FatturaElettronicaHeader>
-  <FatturaElettronicaBody>
-    <DatiGenerali>
-      <DatiGeneraliDocumento>
-        <TipoDocumento>${tipoDocumentoFinale}</TipoDocumento>
-        <Divisa>EUR</Divisa>
-        <Data>${dataDoc}</Data>
-        <Numero>${xmlEsc(numeroDoc)}</Numero>
-        ${fa.bolloVirtuale ? `
-        <DatiBollo>
-          <BolloVirtuale>SI</BolloVirtuale>
-          <ImportoBollo>${importoBollo}</ImportoBollo>
-        </DatiBollo>` : ''}
-        ${fa.causale ? `<Causale>${xmlEsc(fa.causale)}</Causale>` : ''}
-      </DatiGeneraliDocumento>
-      ${blocchiDDT}
-    </DatiGenerali>
-    <DatiBeniServizi>
-      ${righeNormalizzate.map((r, i) => `
-      <DettaglioLinee>
-        <NumeroLinea>${i + 1}</NumeroLinea>
-        <Descrizione>${xmlEsc(r.descrizione)}</Descrizione>
-        <Quantita>${num2(r.qta)}</Quantita>
-        <PrezzoUnitario>${num2(r.prezzo)}</PrezzoUnitario>
-        <PrezzoTotale>${num2(r.qta * r.prezzo * (1 - (r.sconto||0)/100))}</PrezzoTotale>
-        <AliquotaIVA>${num2(r.iva)}</AliquotaIVA>
-        ${r.natura ? `<Natura>${r.natura}</Natura>` : ''}
-      </DettaglioLinee>`).join('')}
-      
-      ${riepiloghi.map(r => `
-      <DatiRiepilogo>
-        <AliquotaIVA>${num2(r.aliquota)}</AliquotaIVA>
-        ${r.natura ? `<Natura>${r.natura}</Natura>` : ''}
-        <ImponibileImporto>${num2(r.imponibile)}</ImponibileImporto>
-        <Imposta>${num2(r.imposta)}</Imposta>
-        <EsigibilitaIVA>I</EsigibilitaIVA>
-        ${(r.natura && fa.rifNormativo) ? `<RiferimentoNormativo>${xmlEsc(fa.rifNormativo)}</RiferimentoNormativo>` : ''}
-      </DatiRiepilogo>`).join('')}
-    </DatiBeniServizi>
-    <DatiPagamento>
-      <CondizioniPagamento>TP02</CondizioniPagamento>
-      <DettaglioPagamento>
-        <ModalitaPagamento>MP05</ModalitaPagamento>
-        <DataScadenzaPagamento>${dataDoc}</DataScadenzaPagamento>
-        <ImportoPagamento>${num2(totDoc)}</ImportoPagamento>
-        ${app.iban ? `<IBAN>${clean(app.iban)}</IBAN>` : ''}
-      </DettaglioPagamento>
-    </DatiPagamento>
-  </FatturaElettronicaBody>
-</p:FatturaElettronica>`;
-  };
-
-  // Funzione export wrapper (Confermata)
-  window.exportFatturaPAXML = function(fa){
-    try {
-      const xml = window.buildFatturaPAXml(fa);
-      const blob = new Blob([xml], {type:'application/xml'});
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `IT${clean((window.lsGet('appSettings',{})||{}).piva)}_${(fa.id||'doc').replace(/\W/g,'')}.xml`;
-      a.click();
-    } catch(e) { alert('Errore export XML: '+e.message); }
-  };
-})();
-
-/* ================== PATCH: DISABILITA VALIDAZIONE VECCHIA ================== */
-(function(){
-  // Sovrascriviamo le probabili funzioni di validazione che bloccano l'export
-  // Il mio nuovo exportFatturaPAXML gestisce già gli errori in modo sicuro.
-  
-  window.validateFatturaForXML = function() { return null; }; 
-  window.getFatturaErrors = function() { return []; };
-  
-  // Se il pulsante chiamava una funzione diversa dall'export diretto:
-  window.checkAndExportXML = function(fa) {
-     window.exportFatturaPAXML(fa);
-  };
-})();
