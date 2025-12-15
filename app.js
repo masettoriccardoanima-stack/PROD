@@ -13402,10 +13402,20 @@ React.useEffect(() => {
   React.useEffect(() => {
     try {
       const arr = Array.isArray(allegatiRows) ? allegatiRows : [];
+
+      // Merge con lo stato attuale in storage per evitare wipe di allegati creati altrove (es. OF/COMM/DDT)
+      const cur = (typeof lsGet === 'function')
+        ? (lsGet('allegatiRows', []) || [])
+        : (function(){ try { return JSON.parse(localStorage.getItem('allegatiRows')||'[]')||[]; } catch { return []; } })();
+
+      const merged = (typeof window.mergeById === 'function')
+        ? window.mergeById(cur, arr)
+        : arr;
+
       if (typeof lsSet === 'function') {
-        lsSet('allegatiRows', arr);
+        lsSet('allegatiRows', merged);
       } else {
-        localStorage.setItem('allegatiRows', JSON.stringify(arr));
+        localStorage.setItem('allegatiRows', JSON.stringify(merged));
         window.__anima_dirty = true;
       }
     } catch {}
@@ -15600,10 +15610,17 @@ if (!window.printSchedeCollaudoG3ForDDT) {
                deletedAt: null
              };
              
-             localStorage.setItem('allegatiRows', JSON.stringify([...allAl, newRow]));
-             
-             // Aggiorna interfaccia se aperta
-             window.__anima_dirty = true;
+             const nextAll = [...allAl, newRow];
+
+             if (typeof lsSet === 'function') {
+               lsSet('allegatiRows', nextAll);
+             } else {
+               localStorage.setItem('allegatiRows', JSON.stringify(nextAll));
+               window.__anima_dirty = true;
+             }
+
+             // Aggiorna anche lo stato locale del DDT (evita stale)
+             try { if (typeof setAllegatiRows === 'function') setAllegatiRows(nextAll); } catch {}
              alert('Allegato registrato! ✅');
              // Se sei nella vista DDT, ricarica gli allegati
              if(typeof window.requestAppRerender === 'function') window.requestAppRerender();
