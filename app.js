@@ -3462,13 +3462,19 @@ window.addEventListener('auth-change', () => {
               String(u.username || u.email || '').trim().toLowerCase() === myEmail
             );
 
-                        // LOGIN DURO: se authRequired è attivo e c'è una allowlist (users non vuota),
-            // un utente NON presente in lista NON deve entrare.
+            // LOGIN DURO (allowlist):
+            // - Se authRequired è attivo (default true)
+            // - e users è non vuota
+            // - e strictAllowlist non è disabilitato
+            // allora un utente non presente NON entra (signOut + ritorna null).
             const users = Array.isArray(s.users) ? s.users : [];
             const authRequired = (s.authRequired !== false);
-            const strictAllowlist = (s.strictAllowlist !== false); // default: true
+            const strictAllowlist = (s.strictAllowlist !== false); // default true
 
-            if (authRequired && strictAllowlist && users.length > 0 && !m) {
+            // In dev/file:// lasciamo sempre possibile entrare per non bloccare sviluppo locale
+            const isDevFile = (String(location.protocol || '').toLowerCase() === 'file:');
+
+            if (!isDevFile && authRequired && strictAllowlist && users.length > 0 && !m) {
               try { sessionStorage.setItem('__auth_denied', myEmail); } catch {}
               try {
                 const sb2 = window.getSupabase && window.getSupabase();
@@ -3476,7 +3482,6 @@ window.addEventListener('auth-change', () => {
               } catch {}
               try { global.currentUser = null; } catch {}
               window.__USER = null;
-              window.__ONLINE__ = true;
               window.dispatchEvent(new CustomEvent('auth-change', { detail: null }));
               return null;
             }
@@ -3555,7 +3560,7 @@ global.apiMe = global.apiMe || (async () => {
     if (sb){
       const { data: { user } } = await sb.auth.getUser();
       if (user){
-        let role = 'admin';
+        let role = 'worker';
         try{
         const s = (typeof window.lsGet === 'function'
           ? window.lsGet('appSettings', {})
@@ -3566,6 +3571,31 @@ global.apiMe = global.apiMe || (async () => {
             String(u.username || u.email || '').trim().toLowerCase() ===
             String(user.email || '').trim().toLowerCase()
           );
+
+          // LOGIN DURO (allowlist):
+          // - Se authRequired è attivo (default true)
+          // - e users è non vuota
+          // - e strictAllowlist non è disabilitato
+          // allora un utente non presente NON entra (signOut + ritorna null).
+          const users = Array.isArray(s.users) ? s.users : [];
+          const authRequired = (s.authRequired !== false);
+          const strictAllowlist = (s.strictAllowlist !== false); // default true
+
+          // In dev/file:// lasciamo sempre possibile entrare per non bloccare sviluppo locale
+          const isDevFile = (String(location.protocol || '').toLowerCase() === 'file:');
+
+          if (!isDevFile && authRequired && strictAllowlist && users.length > 0 && !m) {
+            try { sessionStorage.setItem('__auth_denied', myEmail); } catch {}
+            try {
+              const sb2 = window.getSupabase && window.getSupabase();
+              if (sb2) await sb2.auth.signOut();
+            } catch {}
+            try { global.currentUser = null; } catch {}
+            window.__USER = null;
+            window.dispatchEvent(new CustomEvent('auth-change', { detail: null }));
+            return null;
+          }
+
           if (m && m.role) role = m.role;
         }catch{}
         const u = { id: user.id, username: user.email, role };
