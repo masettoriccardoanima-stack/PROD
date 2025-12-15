@@ -26209,3 +26209,329 @@ window.nextIdFor = async function({ prefix, storageKey, seriesKey, width=3 }) {
   return { id: `${prefix}-${y}-${pad(candidateNum)}`, year: y, num: candidateNum };
 };
 
+/* ====================================================================================
+   PATCH DEFINITIVA STAMPA FATTURA (Layout A4 Blindato + Footer Fisso)
+   Inserita in fondo per sovrascrivere le versioni precedenti.
+   ==================================================================================== */
+(function(){
+  // Helper locali per escape e formattazione
+  const esc = v => String(v ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+  const fmt2 = n => Number(n||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});
+  
+  // Helper data robusto (accetta ISO o DD/MM/YYYY)
+  const fmtDate = d => {
+    if (!d) return '';
+    if (String(d).includes('/')) return d; // Già formattata
+    const date = new Date(d);
+    return isNaN(date.getTime()) ? d : date.toLocaleDateString('it-IT');
+  };
+
+  // --- 1. Generatore HTML Fattura ---
+  window.renderFatturaHTML = function(fa){
+    // Recupero Configurazione
+    let app = {};
+    try { app = JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; } catch {}
+    
+    // Dati Azienda (Cedente)
+    const logoUrl  = app.logoDataUrl || '';
+    const ragAzi   = esc(app.ragioneSociale || 'ANIMA SRL');
+    const pivaAzi  = esc(app.piva || '');
+    const cfAzi    = esc(app.cf || app.codiceFiscale || '');
+    const sedeLeg  = esc(app.sedeLegale || '');
+    const sedeOp   = esc(app.sedeOperativa || '');
+    const emailAzi = esc(app.email || '');
+    const pecAzi   = esc(app.pec || '');
+    const telAzi   = esc(app.telefono || '');
+    
+    // Dati REA e Capitale (Obbligatori per SRL)
+    const reaInfo  = [
+      app.rea ? `REA: ${app.rea}` : '',
+      app.capitaleSociale ? `Cap. Soc.: ${app.capitaleSociale}` : ''
+    ].filter(Boolean).join(' · ');
+
+    // Dati Cliente (Cessionario)
+    let clienti = [];
+    try { clienti = JSON.parse(localStorage.getItem('clientiRows')||'[]')||[]; } catch {}
+    const cli = clienti.find(c => String(c.id) === String(fa.clienteId)) || {};
+    
+    const cliRag   = esc(fa.cliente || cli.ragione || cli.ragioneSociale || '');
+    const cliInd   = esc(cli.sedeLegale || cli.indirizzo || '');
+    const cliPiva  = esc(cli.piva || '');
+    const cliCf    = esc(cli.cf || cli.codiceFiscale || '');
+    const cliSdi   = esc(cli.codiceUnivoco || '');
+    const cliPec   = esc(cli.pec || '');
+
+    // Dati Documento
+    const docNum   = esc(fa.id || 'BOZZA');
+    const docData  = fmtDate(fa.data || new Date().toISOString());
+    const pagamento= esc(fa.pagamento || app.defaultPagamento || '');
+    
+    // Dati Bancari
+    const banca    = esc(app.bankName || app.banca || '');
+    const iban     = esc(fa.iban || app.iban || '');
+    
+    // Riferimenti DDT Globali
+    const rifDdtGlobale = (fa.ddtId || fa.ddtData) 
+      ? `Rif. DDT n. ${esc(fa.ddtId)} del ${fmtDate(fa.ddtData)}` 
+      : '';
+
+    // Preparazione Righe
+    const righe = Array.isArray(fa.righe) ? fa.righe : [];
+    
+    let imponibile = 0;
+    let imposta = 0;
+    const ivaMap = {}; // { 22: {imp:100, iva:22}, ... }
+
+    const rowsData = righe.map((r, i) => {
+      const q = Number(r.qta || 0);
+      const p = Number(r.prezzo || 0);
+      const sc = Number(r.sconto || r.scontoPerc || 0);
+      const iva = Number(r.iva || 0);
+      
+      const totRiga = q * p * (1 - sc/100);
+      const ivaRiga = totRiga * (iva/100);
+      
+      imponibile += totRiga;
+      imposta += ivaRiga;
+      
+      // Aggregazione IVA
+      if (!ivaMap[iva]) ivaMap[iva] = { imp: 0, iva: 0 };
+      ivaMap[iva].imp += totRiga;
+      ivaMap[iva].iva += ivaRiga;
+
+      // Gestione rif DDT per riga
+      let descHTML = esc(r.descrizione || '');
+      if (r.ddtId) {
+        descHTML += `<div class="riga-ddt">Rif. DDT ${esc(r.ddtId)} ${r.ddtData ? 'del '+fmtDate(r.ddtData) : ''}</div>`;
+      }
+
+      return {
+        idx: i + 1,
+        codice: esc(r.codice || ''),
+        descrizione: descHTML,
+        um: esc(r.UM || 'PZ'),
+        qta: fmt2(q).replace(',00', ''),
+        prezzo: fmt2(p),
+        sconto: sc > 0 ? fmt2(sc) : '',
+        totale: fmt2(totRiga),
+        iva: iva
+      };
+    });
+
+    let totaleDoc = imponibile + imposta;
+    
+    // Bollo Virtuale
+    const bollo = (fa.bolloVirtuale) ? Number(fa.importoBollo || 2) : 0;
+    if (bollo > 0) totaleDoc += bollo;
+
+    // Paginazione (Max 12 righe per pagina per sicurezza footer)
+    const ROWS_PER_PAGE = 12; 
+    const pages = [];
+    
+    if (rowsData.length === 0) {
+      pages.push([{ idx:'', codice:'', descrizione:'Nessuna riga inserita', um:'', qta:'', prezzo:'', totale:'', iva:'' }]);
+    } else {
+      for (let i = 0; i < rowsData.length; i += ROWS_PER_PAGE) {
+        pages.push(rowsData.slice(i, i + ROWS_PER_PAGE));
+      }
+    }
+
+    // Costruzione HTML Pagine
+    const htmlPages = pages.map((pRows, pageIdx) => {
+      const pageNum = `${pageIdx + 1} / ${pages.length}`;
+
+      const tbody = pRows.map(r => `
+        <tr>
+          <td class="ctr">${r.idx}</td>
+          <td class="code">${r.codice}</td>
+          <td>${r.descrizione}</td>
+          <td class="ctr">${r.um}</td>
+          <td class="ctr">${r.qta}</td>
+          <td class="num">${r.prezzo}</td>
+          <td class="ctr">${r.sconto}</td>
+          <td class="ctr">${r.iva}%</td>
+          <td class="num">${r.totale}</td>
+        </tr>
+      `).join('');
+
+      // Tabella IVA per footer
+      const ivaRows = Object.keys(ivaMap).sort((a,b)=>Number(a)-Number(b)).map(aliq => {
+        const d = ivaMap[aliq];
+        return `
+          <div class="iva-row">
+            <span>Aliq. ${aliq}%</span>
+            <span>Imp. ${fmt2(d.imp)}</span>
+            <span>IVA ${fmt2(d.iva)}</span>
+          </div>`;
+      }).join('');
+
+      return `
+      <div class="page">
+        <div class="header">
+          <div class="brand">
+            ${logoUrl ? `<img src="${logoUrl}" class="logo">` : ''}
+            <div class="azi-info">
+              <div class="rs">${ragAzi}</div>
+              <div>${sedeLeg} ${sedeOp && sedeOp!==sedeLeg ? ' - '+sedeOp : ''}</div>
+              <div>P.IVA ${pivaAzi} ${cfAzi ? ' - CF '+cfAzi : ''}</div>
+              ${reaInfo ? `<div class="small muted">${reaInfo}</div>` : ''}
+              <div class="small muted">${emailAzi} ${pecAzi ? ' - '+pecAzi : ''}</div>
+            </div>
+          </div>
+          <div class="doc-box">
+            <div class="doc-title">FATTURA</div>
+            <div class="doc-num">N. ${docNum}</div>
+            <div class="doc-date">del ${docData}</div>
+          </div>
+        </div>
+
+        <div class="info-grid">
+          <div class="box cliente">
+            <div class="lbl">Destinatario</div>
+            <div class="val">${cliRag}</div>
+            <div>${cliInd}</div>
+            <div>P.IVA: ${cliPiva} ${cliCf ? 'CF: '+cliCf : ''}</div>
+            ${cliSdi ? `<div class="small">SDI: ${cliSdi}</div>` : ''}
+            ${cliPec ? `<div class="small">PEC: ${cliPec}</div>` : ''}
+          </div>
+          <div class="box pagam">
+            <div class="lbl">Dati Pagamento</div>
+            <div>${pagamento}</div>
+            ${banca ? `<div>${banca}</div>` : ''}
+            ${iban ? `<div class="iban">${iban}</div>` : ''}
+            ${rifDdtGlobale ? `<div class="rif-ddt">${rifDdtGlobale}</div>` : ''}
+          </div>
+        </div>
+
+        <table class="main-table">
+          <thead>
+            <tr>
+              <th width="30">#</th>
+              <th width="90">Codice</th>
+              <th>Descrizione</th>
+              <th width="40">UM</th>
+              <th width="60">Q.tà</th>
+              <th width="80">Prezzo</th>
+              <th width="50">Sc.%</th>
+              <th width="50">IVA</th>
+              <th width="90">Totale</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tbody}
+          </tbody>
+        </table>
+
+        <div class="footer">
+          <div class="footer-cols">
+            <div class="footer-note">
+              ${bollo > 0 ? `<div class="bollo-box">Bollo virtuale assolto: € ${fmt2(bollo)}</div>` : ''}
+              ${fa.causale ? `<div><b>Causale:</b> ${esc(fa.causale)}</div>` : ''}
+              ${fa.note ? `<div><b>Note:</b> ${esc(fa.note)}</div>` : ''}
+            </div>
+            <div class="footer-iva">
+              <div class="lbl">Riepilogo IVA</div>
+              ${ivaRows}
+            </div>
+            <div class="footer-tot">
+              <div class="tot-row"><span>Imponibile:</span> <span>€ ${fmt2(imponibile)}</span></div>
+              <div class="tot-row"><span>Imposta:</span> <span>€ ${fmt2(imposta)}</span></div>
+              ${bollo > 0 ? `<div class="tot-row muted"><span>Bollo:</span> <span>€ ${fmt2(bollo)}</span></div>` : ''}
+              <div class="tot-grand">
+                <span>TOTALE</span>
+                <span>€ ${fmt2(totaleDoc)}</span>
+              </div>
+            </div>
+          </div>
+          <div class="page-num">Pag. ${pageNum}</div>
+        </div>
+      </div>
+      `;
+    }).join('');
+
+    const css = `
+      <style>
+        @page { size: A4; margin: 0; }
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b; font-size: 10pt; -webkit-print-color-adjust: exact; }
+        .page { width: 210mm; height: 296mm; position: relative; overflow: hidden; page-break-after: always; padding: 10mm 12mm 50mm 12mm; }
+        .page:last-child { page-break-after: auto; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5mm; border-bottom: 2px solid #0f172a; padding-bottom: 2mm; }
+        .brand { display: flex; gap: 15px; align-items: center; }
+        .logo { height: 60px; max-width: 180px; object-fit: contain; }
+        .azi-info { font-size: 9pt; line-height: 1.3; }
+        .rs { font-size: 14pt; font-weight: 800; text-transform: uppercase; margin-bottom: 2px; }
+        .muted { color: #64748b; }
+        .doc-box { text-align: right; }
+        .doc-title { font-size: 20pt; font-weight: 800; color: #0f172a; letter-spacing: 1px; }
+        .doc-num { font-size: 14pt; font-weight: 700; margin-top: 2px; }
+        .doc-date { font-size: 11pt; color: #475569; }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10mm; margin-bottom: 5mm; }
+        .box { border: 1px solid #e2e8f0; border-radius: 6px; padding: 3mm; font-size: 9.5pt; line-height: 1.3; }
+        .lbl { text-transform: uppercase; font-size: 8pt; font-weight: 700; color: #94a3b8; margin-bottom: 2px; }
+        .val { font-size: 11pt; font-weight: 700; margin-bottom: 2px; }
+        .small { font-size: 8.5pt; }
+        .iban { font-family: monospace; font-weight: 600; background: #f1f5f9; padding: 2px 4px; border-radius: 4px; margin-top: 2px; display: inline-block; }
+        .rif-ddt { margin-top: 4px; font-weight: 600; color: #0369a1; }
+        table.main-table { width: 100%; border-collapse: collapse; margin-top: 2mm; font-size: 9.5pt; }
+        table.main-table th { background: #f1f5f9; text-align: left; padding: 6px; font-weight: 700; border-bottom: 2px solid #cbd5e1; font-size: 9pt; }
+        table.main-table td { padding: 6px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+        .ctr { text-align: center; }
+        .num { text-align: right; }
+        .code { font-family: monospace; font-weight: 600; font-size: 9pt; }
+        .riga-ddt { font-size: 8pt; color: #64748b; font-style: italic; margin-top: 1px; }
+        .footer { position: absolute; bottom: 10mm; left: 12mm; right: 12mm; height: 45mm; border-top: 2px solid #0f172a; padding-top: 3mm; display: flex; flex-direction: column; justify-content: space-between; }
+        .footer-cols { display: flex; gap: 10mm; height: 100%; }
+        .footer-note { flex: 2; font-size: 9pt; line-height: 1.3; color: #334155; }
+        .bollo-box { font-weight: 600; color: #b45309; margin-bottom: 4px; }
+        .footer-iva { flex: 1; font-size: 8.5pt; border-left: 1px solid #e2e8f0; padding-left: 4mm; }
+        .iva-row { display: flex; justify-content: space-between; margin-bottom: 2px; }
+        .footer-tot { flex: 1.5; text-align: right; padding-left: 4mm; border-left: 1px solid #e2e8f0; display: flex; flex-direction: column; justify-content: flex-start; }
+        .tot-row { display: flex; justify-content: space-between; font-size: 10pt; margin-bottom: 3px; }
+        .tot-grand { margin-top: auto; background: #0f172a; color: #fff; padding: 6px; border-radius: 4px; font-weight: 700; font-size: 12pt; display: flex; justify-content: space-between; }
+        .page-num { position: absolute; bottom: -5mm; right: 0; font-size: 8pt; color: #94a3b8; }
+      </style>
+    `;
+
+    return `<!DOCTYPE html><html><head><meta charset="utf-8">${css}</head><body>${htmlPages}</body></html>`;
+  };
+
+  // --- 2. Funzione Stampa (Safe Print) ---
+  window.printFattura = function(fa){
+    try {
+      const html = window.renderFatturaHTML(fa);
+      if (window.safePrintHTMLStringWithPageNum) {
+        window.safePrintHTMLStringWithPageNum(html);
+      } else if (window.safePrintHTMLString) {
+        window.safePrintHTMLString(html);
+      } else {
+        const w = window.open('', '_blank');
+        w.document.write(html);
+        w.document.close();
+        setTimeout(() => { w.focus(); w.print(); }, 500);
+      }
+    } catch(e) {
+      alert('Errore stampa fattura: ' + e.message);
+    }
+  };
+})();
+
+/* ================== PATCH: FIX NUMERAZIONE ORDINI FORNITORI (OF) ================== */
+(function(){
+  // Definisce la funzione specifica per gli Ordini Fornitori
+  // collegandola al generatore centrale nextIdFor (che legge le Impostazioni)
+  window.nextIdOF = async function(){
+    // 1. Usa il generatore robusto se disponibile
+    if (typeof window.nextIdFor === 'function') {
+      return await window.nextIdFor({
+        prefix:     'OF',
+        storageKey: 'ordiniFornitoriRows', // Dove cercare i duplicati
+        seriesKey:  'OF',                  // La chiave usata in Impostazioni (numOF)
+        width:      3
+      });
+    }
+
+    // 2. Fallback di emergenza solo se il sistema è rotto
+    const y = new Date().getFullYear();
+    return { id: `OF-${y}-001`, year: y, num: 1 };
+  };
+})();
