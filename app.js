@@ -17830,7 +17830,8 @@ function OrdiniFornitoriView({ query = '' }) {
           // BLOCCO ALLEGATI SMART (Z:)
           (function(){
             const entityId = draft && draft.id ? String(draft.id) : '';
-            const isSaved = entityId && Array.isArray(rows) && rows.some(r => String(r.id) === entityId);
+            const allOF = lsGet('ordiniFornitoriRows', []) || [];
+            const isSaved = !!entityId && Array.isArray(allOF) && allOF.some(r => r && String(r.id) === entityId);
             const allAllegati = lsGet('allegatiRows', []) || [];
             const ofAllegati = isSaved ? allAllegati.filter(a => a && !a.deletedAt && String(a.entityType).toUpperCase()==='OF' && String(a.entityId)===entityId) : [];
 
