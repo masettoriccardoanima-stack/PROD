@@ -26535,3 +26535,275 @@ window.nextIdFor = async function({ prefix, storageKey, seriesKey, width=3 }) {
     return { id: `OF-${y}-001`, year: y, num: 1 };
   };
 })();
+
+/* ================== PATCH XML FATTURA ELETTRONICA (Anti-Scarto + REA + DDT) ================== */
+(function(){
+  // Helpers XML sicuri
+  const xmlEsc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+  const num2   = n => Number(n||0).toFixed(2);
+  const clean  = s => String(s||'').replace(/\s+/g, '').toUpperCase(); // Rimuove spazi da PIVA/CF
+  const isoDate= d => { try{ return new Date(d).toISOString().slice(0,10); }catch{ return ''; } };
+
+  // Calcolo riepilogo IVA per il footer XML
+  function riepilogoPerAliquota(righe){
+    const map = new Map();
+    (righe||[]).forEach(r=>{
+      const qty   = Number(r.qta||0);
+      const pr    = Number(r.prezzo||0);
+      const sc    = Number(r.sconto||r.scontoPerc||0);
+      const iva   = Number(r.iva||0);
+      const impon = qty * pr * (1 - sc/100);
+      
+      // Se iva=0, serve la Natura (es. N3.1). Se manca nella riga, è un errore, ma qui raggruppiamo.
+      const nat   = (iva===0) ? String(r.natura||'').trim() : ''; 
+      const key   = `${iva.toFixed(2)}_${nat}`;
+      
+      map.set(key, (map.get(key)||0) + impon);
+    });
+
+    return Array.from(map.entries()).map(([k, imponibile]) => {
+      const [aliqStr, natura] = k.split('_');
+      const aliquota = Number(aliqStr);
+      const imposta  = aliquota > 0 ? (imponibile * aliquota / 100) : 0;
+      return { aliquota, natura, imponibile, imposta };
+    });
+  }
+
+  // Costruttore XML principale
+  window.buildFatturaPAXml = function(fa){
+    // 1. Recupero Dati
+    const app = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; }catch{return{}} })();
+    
+    // Recupero Cliente
+    let clienti = [];
+    try{ clienti = JSON.parse(localStorage.getItem('clientiRows')||'[]')||[]; }catch{}
+    const cli = clienti.find(c => String(c.id)===String(fa.clienteId)) || { ragione: fa.cliente||'' };
+
+    // Dati Cedente (Noi)
+    const cedente = {
+      denominazione : app.ragioneSociale || 'ANIMA SRL',
+      piva          : clean(app.piva || ''),
+      cf            : clean(app.cf || app.codiceFiscale || ''),
+      regime        : app.regimeFiscale || 'RF01',
+      sede          : {
+        indirizzo : app.sedeLegale || '', // Semplificato: tutto in indirizzo se non strutturato
+        cap       : '35011',              // Fallback se non parsato (da migliorare se hai i campi divisi)
+        comune    : 'CAMPODARSEGO',
+        prov      : 'PD',
+        nazione   : 'IT'
+      },
+      // Dati Iscrizione REA (Fondamentali per SRL)
+      rea: {
+        ufficio : 'PD', // Default Padova (o da impostazioni se c'è)
+        numero  : (app.rea || '').replace(/\D/g,''),
+        capitale: num2(parseFloat((app.capitaleSociale||'').replace(/[^0-9,.]/g,'').replace(',','.')) || 0),
+        socio   : 'SU', // Socio Unico (Default sicuro)
+        stato   : 'LN'  // Non in liquidazione (Default sicuro)
+      }
+    };
+
+    // Parsing indirizzo sede legale (se è una stringa unica "Via X, CAP Città PROV")
+    // Questo è un tentativo "best effort" per spaccare la stringa sedeLegale
+    if (cedente.sede.indirizzo) {
+      // Regex base: Via..., 12345 Città XX
+      const m = cedente.sede.indirizzo.match(/(\d{5})\s+([^\d]+)\s+([A-Z]{2})/);
+      if (m) {
+        cedente.sede.cap    = m[1];
+        cedente.sede.comune = m[2].trim().replace(/,/g,'');
+        cedente.sede.prov   = m[3];
+        // Rimuoviamo la parte CAP Città Prov dall'indirizzo
+        cedente.sede.indirizzo = cedente.sede.indirizzo.replace(m[0], '').replace(/,$/, '').trim();
+      }
+    }
+
+    // Dati Cessionario (Cliente)
+    const cessionario = {
+      denominazione : cli.ragione || cli.ragioneSociale || fa.cliente || 'CLIENTE',
+      piva          : clean(cli.piva || ''),
+      cf            : clean(cli.cf || cli.codiceFiscale || ''),
+      indirizzo     : cli.sedeLegale || cli.indirizzo || 'Sede legale',
+      cap           : '00000', // Placeholder se manca
+      comune        : '.',
+      prov          : 'XX',
+      nazione       : 'IT'
+    };
+    
+    // Parsing indirizzo cliente (stesso metodo)
+    if (cessionario.indirizzo) {
+      const m = cessionario.indirizzo.match(/(\d{5})\s+([^\d]+)\s+([A-Z]{2})/);
+      if (m) {
+        cessionario.cap    = m[1];
+        cessionario.comune = m[2].trim().replace(/,/g,'');
+        cessionario.prov   = m[3];
+        cessionario.indirizzo = cessionario.indirizzo.replace(m[0], '').replace(/,$/, '').trim();
+      }
+    }
+    // Se è estero, PIVA generica? No, lasciamo vuoto se non c'è, ma PIVA o CF serve.
+    if (!cessionario.piva && !cessionario.cf) cessionario.cf = '00000000000'; // Anti-crash estremo
+
+    // Dati Trasmissione
+    const idTrasmittente = cedente.piva || cedente.cf;
+    const progInvio      = (fa.id || '00001').replace(/[^a-zA-Z0-9]/g, '').slice(-5); // Ultimi 5 char
+    const codDest        = (fa.codiceUnivoco || cli.codiceUnivoco || '0000000').trim();
+    const pecDest        = (fa.pec || cli.pec || '').trim();
+
+    // Dati Generali
+    const numeroDoc = (fa.id || '1').replace(/\//g,'_'); // XML non ama le slash nei numeri talvolta
+    const dataDoc   = isoDate(fa.data || new Date());
+    const importoBollo = fa.bolloVirtuale ? num2(fa.importoBollo || 2) : '0.00';
+
+    // Riferimento DDT (Fondamentale)
+    // Raccoglie tutti i DDT citati nelle righe o nel campo globale
+    const ddtSet = new Map(); // Id -> Data
+    if (fa.ddtId) ddtSet.set(fa.ddtId, fa.ddtData);
+    (fa.righe||[]).forEach(r => {
+      if (r.ddtId) ddtSet.set(r.ddtId, r.ddtData);
+    });
+
+    const blocchiDDT = Array.from(ddtSet.entries()).map(([id, data]) => `
+      <DatiDDT>
+        <NumeroDDT>${xmlEsc(id)}</NumeroDDT>
+        <DataDDT>${xmlEsc(isoDate(data || dataDoc))}</DataDDT>
+      </DatiDDT>`).join('\n');
+
+
+    // Righe e Riepiloghi
+    const righeNormalizzate = (fa.righe||[]).map(r => {
+      const iva = Number(r.iva||0);
+      return {
+        ...r,
+        natura: (iva === 0) ? (r.natura || fa.naturaIva || 'N3.5') : '' // Default N3.5 se manca
+      };
+    });
+    
+    const riepiloghi = riepilogoPerAliquota(righeNormalizzate);
+    
+    // Totale Documento (per pagamento)
+    const totDoc = riepiloghi.reduce((acc, x) => acc + x.imponibile + x.imposta, 0) + Number(importoBollo);
+
+    // 2. Generazione XML
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<p:FatturaElettronica versione="FPR12" xmlns:p="http://ivaservizi.agenziaentrate.gov.it/docs/xsd/fatture/v1.2">
+  <FatturaElettronicaHeader>
+    <DatiTrasmissione>
+      <IdTrasmittente>
+        <IdPaese>IT</IdPaese>
+        <IdCodice>${idTrasmittente}</IdCodice>
+      </IdTrasmittente>
+      <ProgressivoInvio>${xmlEsc(progInvio)}</ProgressivoInvio>
+      <FormatoTrasmissione>FPR12</FormatoTrasmissione>
+      <CodiceDestinatario>${xmlEsc(codDest)}</CodiceDestinatario>
+      ${(pecDest && codDest==='0000000') ? `<PECDestinatario>${xmlEsc(pecDest)}</PECDestinatario>` : ''}
+    </DatiTrasmissione>
+    <CedentePrestatore>
+      <DatiAnagrafici>
+        <IdFiscaleIVA>
+          <IdPaese>IT</IdPaese>
+          <IdCodice>${cedente.piva}</IdCodice>
+        </IdFiscaleIVA>
+        <CodiceFiscale>${cedente.cf}</CodiceFiscale>
+        <Anagrafica>
+          <Denominazione>${xmlEsc(cedente.denominazione)}</Denominazione>
+        </Anagrafica>
+        <RegimeFiscale>${cedente.regime}</RegimeFiscale>
+        ${(cedente.rea.numero) ? `
+        <IscrizioneREA>
+          <Ufficio>${cedente.rea.ufficio}</Ufficio>
+          <NumeroREA>${cedente.rea.numero}</NumeroREA>
+          <CapitaleSociale>${cedente.rea.capitale}</CapitaleSociale>
+          <SocioUnico>${cedente.rea.socio}</SocioUnico>
+          <StatoLiquidazione>${cedente.rea.stato}</StatoLiquidazione>
+        </IscrizioneREA>` : ''}
+      </DatiAnagrafici>
+      <Sede>
+        <Indirizzo>${xmlEsc(cedente.sede.indirizzo)}</Indirizzo>
+        <CAP>${cedente.sede.cap}</CAP>
+        <Comune>${xmlEsc(cedente.sede.comune)}</Comune>
+        <Provincia>${cedente.sede.prov}</Provincia>
+        <Nazione>${cedente.sede.nazione}</Nazione>
+      </Sede>
+    </CedentePrestatore>
+    <CessionarioCommittente>
+      <DatiAnagrafici>
+        ${cessionario.piva ? `
+        <IdFiscaleIVA>
+          <IdPaese>IT</IdPaese>
+          <IdCodice>${cessionario.piva}</IdCodice>
+        </IdFiscaleIVA>` : ''}
+        ${cessionario.cf ? `<CodiceFiscale>${cessionario.cf}</CodiceFiscale>` : ''}
+        <Anagrafica>
+          <Denominazione>${xmlEsc(cessionario.denominazione)}</Denominazione>
+        </Anagrafica>
+      </DatiAnagrafici>
+      <Sede>
+        <Indirizzo>${xmlEsc(cessionario.indirizzo)}</Indirizzo>
+        <CAP>${cessionario.cap}</CAP>
+        <Comune>${xmlEsc(cessionario.comune)}</Comune>
+        <Provincia>${cessionario.prov}</Provincia>
+        <Nazione>${cessionario.nazione}</Nazione>
+      </Sede>
+    </CessionarioCommittente>
+  </FatturaElettronicaHeader>
+  <FatturaElettronicaBody>
+    <DatiGenerali>
+      <DatiGeneraliDocumento>
+        <TipoDocumento>${fa.tipoDocumento || 'TD01'}</TipoDocumento>
+        <Divisa>EUR</Divisa>
+        <Data>${dataDoc}</Data>
+        <Numero>${xmlEsc(numeroDoc)}</Numero>
+        ${fa.bolloVirtuale ? `
+        <DatiBollo>
+          <BolloVirtuale>SI</BolloVirtuale>
+          <ImportoBollo>${importoBollo}</ImportoBollo>
+        </DatiBollo>` : ''}
+        ${fa.causale ? `<Causale>${xmlEsc(fa.causale)}</Causale>` : ''}
+      </DatiGeneraliDocumento>
+      ${blocchiDDT}
+    </DatiGenerali>
+    <DatiBeniServizi>
+      ${righeNormalizzate.map((r, i) => `
+      <DettaglioLinee>
+        <NumeroLinea>${i + 1}</NumeroLinea>
+        <Descrizione>${xmlEsc(r.descrizione)}</Descrizione>
+        <Quantita>${num2(r.qta)}</Quantita>
+        <PrezzoUnitario>${num2(r.prezzo)}</PrezzoUnitario>
+        <PrezzoTotale>${num2(r.qta * r.prezzo * (1 - (r.sconto||0)/100))}</PrezzoTotale>
+        <AliquotaIVA>${num2(r.iva)}</AliquotaIVA>
+        ${r.natura ? `<Natura>${r.natura}</Natura>` : ''}
+      </DettaglioLinee>`).join('')}
+      
+      ${riepiloghi.map(r => `
+      <DatiRiepilogo>
+        <AliquotaIVA>${num2(r.aliquota)}</AliquotaIVA>
+        ${r.natura ? `<Natura>${r.natura}</Natura>` : ''}
+        <ImponibileImporto>${num2(r.imponibile)}</ImponibileImporto>
+        <Imposta>${num2(r.imposta)}</Imposta>
+        <EsigibilitaIVA>I</EsigibilitaIVA>
+        ${(r.natura && fa.rifNormativo) ? `<RiferimentoNormativo>${xmlEsc(fa.rifNormativo)}</RiferimentoNormativo>` : ''}
+      </DatiRiepilogo>`).join('')}
+    </DatiBeniServizi>
+    <DatiPagamento>
+      <CondizioniPagamento>TP02</CondizioniPagamento>
+      <DettaglioPagamento>
+        <ModalitaPagamento>MP05</ModalitaPagamento>
+        <DataScadenzaPagamento>${dataDoc}</DataScadenzaPagamento>
+        <ImportoPagamento>${num2(totDoc)}</ImportoPagamento>
+        ${app.iban ? `<IBAN>${clean(app.iban)}</IBAN>` : ''}
+      </DettaglioPagamento>
+    </DatiPagamento>
+  </FatturaElettronicaBody>
+</p:FatturaElettronica>`;
+  };
+
+  // Funzione export wrapper
+  window.exportFatturaPAXML = function(fa){
+    try {
+      const xml = window.buildFatturaPAXml(fa);
+      const blob = new Blob([xml], {type:'application/xml'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `IT${clean((window.lsGet('appSettings',{})||{}).piva)}_${(fa.id||'doc').replace(/\W/g,'')}.xml`;
+      a.click();
+    } catch(e) { alert('Errore export XML: '+e.message); }
+  };
+})();
