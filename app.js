@@ -5236,7 +5236,13 @@ function PrintHeader(){
 // ================== Progressivi per anno (peek) ==================
 window.COUNTERS_KEY = window.COUNTERS_KEY || 'counters';
 function getCounters(){ try { return JSON.parse(localStorage.getItem(window.COUNTERS_KEY) || '{}'); } catch { return {}; } }
-function setCounters(obj){ try { localStorage.setItem(window.COUNTERS_KEY, JSON.stringify(obj)); } catch {} }
+function setCounters(obj){
+  try{
+    localStorage.setItem(window.COUNTERS_KEY, JSON.stringify(obj));
+    window.__anima_dirty = true;
+  }catch{}
+}
+
 // NON incrementa: serve solo per mostrare l'anteprima dell'ID senza consumare numeri
 function peekNextProgressivo(series){
   const y = new Date().getFullYear();
@@ -5697,10 +5703,16 @@ async function restoreFromFile(file){
     try {
       localStorage.setItem(k, JSON.stringify(v));
       touched++;
-      // opzionale: log per debug
-      // console.log('[restore] set', k, v);
-    } catch {}
+    } catch (e) {
+      console.error('[restore] errore setItem su', k, e);
+      alert('Ripristino incompleto: memoria del browser piena o dato non scrivibile.\n' +
+            'Riduci la dimensione del backup o abilita/usa il cloud.\n' +
+            'Chiave fallita: ' + k);
+      return;
+    }
   }
+  // Ripristino = modifica massiva dataset: marca dirty per eventuale push/snapshot
+  window.__anima_dirty = true;
 
   if (!touched) {
     alert('Backup non valido (nessuna chiave riconosciuta)');
@@ -5723,8 +5735,9 @@ window.safeSetJSON = function(key, value){
     return false;
   }
 };
-// rende globale il saver robusto per tutti i moduli
-window.lsSet = window.safeSetJSON;
+// Non sovrascrivere lsSet se già esiste (serve per BETA namespace e logiche preesistenti).
+// Espone comunque safeSetJSON come salvataggio "robusto" (con alert su quota piena).
+window.lsSet = window.lsSet || window.safeSetJSON;
 
 /* ================== Widget: Cloud/Supabase status ================== */
 function CloudStatusWidget(){
