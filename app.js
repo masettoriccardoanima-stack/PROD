@@ -1961,6 +1961,8 @@ window.ensureMagazzinoArticoliFromRighe = window.ensureMagazzinoArticoliFromRigh
     });
 
     let changed = false;
+    const nowISO = new Date().toISOString(); // <--- Data di oggi per i nuovi
+
     candidates.forEach(a => {
       const cod = a.codice;
       if (!cod) return;
@@ -1973,7 +1975,8 @@ window.ensureMagazzinoArticoliFromRighe = window.ensureMagazzinoArticoliFromRigh
           prezzo     : a.prezzo || 0, // FIX: Qui salviamo il prezzo! Prima era 0 fisso.
           costo      : 0,
           tipo       : 'CONTO LAVORO',
-          nuovoDaOrdine: true
+          nuovoDaOrdine: true,
+          createdAt  : nowISO // <--- AGGIUNTA DATA INSERIMENTO
         });
         changed = true;
       }
@@ -1996,7 +1999,7 @@ window.ensureMagazzinoArticoliFromRighe = window.ensureMagazzinoArticoliFromRigh
       }
     }catch(e){}
     
-    console.log('[Magazzino] Nuovi articoli creati da ordine con prezzi corretti.');
+    console.log('[Magazzino] Nuovi articoli creati da ordine con prezzi e data.');
   }catch(err){
     console.warn('[Magazzino] ensureMagazzinoArticoliFromRighe error', err);
   }
@@ -2422,9 +2425,9 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
   }catch(e){ console.warn('safePrintHTMLString', e); }
 };
 
-// ================== PREVENTIVI: STAMPA (Multipagina Professionale) ==================
+// ================== PREVENTIVI: STAMPA (Layout Fix Logo + Pagina) ==================
 (function(){
-  // Helper locali per escape e formattazione
+  // Helper locali
   const esc = s => String(s ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
   const fmt2 = n => Number(n||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});
   const fmtDate = d => {
@@ -2433,13 +2436,12 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
     return isNaN(date.getTime()) ? d : date.toLocaleDateString('it-IT');
   };
 
-  // Funzione Principale per Generare l'HTML Paginato
   window.generatePreventivoHTML = function(pv){
     // 1. Recupero Dati
     const app = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; }catch{return{}} })();
     const clienti = (function(){ try{ return JSON.parse(localStorage.getItem('clientiRows')||'[]')||[]; }catch{return[]} })();
     
-    // Dati Azienda (Mittente)
+    // Dati Azienda
     const logoUrl = app.logoDataUrl || '';
     const ragAzi  = esc(app.ragioneSociale || 'ANIMA SRL');
     const pivaAzi = esc(app.piva || '');
@@ -2448,7 +2450,7 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
     const emailAzi= esc(app.email || '');
     const telAzi  = esc(app.telefono || '');
 
-    // Dati Cliente (Destinatario)
+    // Dati Cliente
     const cli = clienti.find(c=> String(c.id)===String(pv?.clienteId||'')) || {};
     const cliRag  = esc(pv?.cliente || pv?.clienteRagione || cli.ragioneSociale || cli.ragione || '');
     const cliInd  = esc(cli.sedeLegale || cli.sedeOperativa || cli.indirizzo || '');
@@ -2464,7 +2466,7 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
     const righe = Array.isArray(pv?.righe) ? pv.righe : (Array.isArray(pv?.righeArticolo) ? pv.righeArticolo : []);
     const DEFAULT_IVA = Number(app.defaultIva) || 22;
 
-    // 2. Calcoli Totali
+    // 2. Calcoli
     let imponibile = 0;
     let totIva = 0;
     const ivaMap = {};
@@ -2497,9 +2499,7 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
 
     const totaleDoc = imponibile + totIva;
 
-    // --- 3. TEMPLATE HTML (Parti Comuni) ---
-
-    // Header
+    // --- 3. TEMPLATE HTML ---
     const headerHTML = `
       <div class="header">
         <div class="brand">
@@ -2518,7 +2518,6 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         </div>
       </div>`;
 
-    // Info Cliente
     const metaHTML = `
       <div class="meta-grid">
         <div class="box">
@@ -2535,12 +2534,10 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         </div>
       </div>`;
 
-    // Note (solo prima pagina, sopra la tabella)
     const noteHTML = (pv.note && pv.note.trim()) 
       ? `<div class="box-note"><strong>Note:</strong> ${esc(pv.note).replace(/\n/g,'<br>')}</div>` 
       : '';
 
-    // Intestazione Tabella
     const theadHTML = `
       <thead>
         <tr>
@@ -2555,7 +2552,6 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         </tr>
       </thead>`;
 
-    // Footer Riepilogo (Totali + IVA) - SU OGNI PAGINA
     const ivaRows = Object.keys(ivaMap).sort((a,b)=>Number(a)-Number(b)).map(k => {
       const b = ivaMap[k];
       const i = b * (Number(k)/100);
@@ -2582,7 +2578,6 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         </div>
       </div>`;
 
-    // Footer Firma (Solo ultima pagina)
     const footerSignHTML = `
       <div class="footer-sign">
         <div class="sign-box">
@@ -2592,8 +2587,7 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         </div>
       </div>`;
 
-    // --- 4. PAGINAZIONE ---
-    // Impostiamo 10 righe per pagina per lasciare spazio ai totali fissi
+    // --- Paginazione ---
     const MAX_ROWS = 10; 
     const pages = [];
     
@@ -2631,9 +2625,7 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         <div class="page">
           <div class="content-wrap">
             ${headerHTML}
-            
             ${metaHTML}
-            
             ${isFirst ? noteHTML : ''}
             
             <table class="main-table">
@@ -2642,29 +2634,26 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
             </table>
             
             <div class="spacer"></div>
-            
             ${footerSummaryHTML}
-            
             ${isLast ? footerSignHTML : ''}
           </div>
-          
-          <div class="page-num">PAGINA ${pageIdx + 1} / ${pages.length}</div>
+          <div class="page-num">Pag. ${pageIdx + 1} / ${pages.length}</div>
         </div>`;
     });
 
-    // --- 5. CSS ---
     const css = `
       <style>
         @page { size: A4; margin: 0; }
         * { box-sizing: border-box; -webkit-print-color-adjust: exact; }
         body { margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; font-size: 10pt; color: #111; background: #fff; }
         
-        /* Layout Pagina Rigido */
+        /* Layout Pagina */
         .page {
           width: 210mm; height: 297mm;
           position: relative;
           page-break-after: always;
-          padding: 10mm 10mm 12mm 10mm; 
+          /* Aumentato padding-bottom a 20mm per evitare sormonti */
+          padding: 10mm 10mm 20mm 10mm; 
           display: flex; flex-direction: column; 
           overflow: hidden;
         }
@@ -2675,7 +2664,10 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
 
         .header { display: flex; justify-content: space-between; border-bottom: 2px solid #111; padding-bottom: 8px; margin-bottom: 12px; }
         .brand { display: flex; gap: 15px; align-items: center; }
-        .logo { height: 55px; max-width: 180px; object-fit: contain; }
+        
+        /* Logo più grande */
+        .logo { height: 80px; max-width: 220px; object-fit: contain; }
+        
         .az-info { font-size: 9pt; line-height: 1.3; }
         .rs { font-size: 14pt; font-weight: 800; text-transform: uppercase; }
         .muted { color: #555; }
@@ -2714,37 +2706,11 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         .sign-box .line { position: absolute; bottom: 10mm; left: 10%; width: 80%; border-bottom: 1px solid #000; }
         .sign-box .center { position: absolute; bottom: 4mm; width: 100%; text-align: center; }
         
-        .page-num { position: absolute; bottom: 10mm; right: 10mm; font-size: 9pt; color: #888; font-weight: bold; }
+        /* Numerazione Pagina più in basso */
+        .page-num { position: absolute; bottom: 5mm; right: 10mm; font-size: 9pt; color: #888; font-weight: bold; }
       </style>`;
 
     return `<!DOCTYPE html><html><head><meta charset="utf-8">${css}</head><body>${htmlPages}</body></html>`;
-  };
-
-  // Funzione di stampa sicura (usa la cache immagini globale se presente, altrimenti fallback)
-  window.printPreventivo = function(pv){
-    try {
-      if (!pv || !pv.id) { alert('Preventivo non valido'); return; }
-      
-      const html = window.generatePreventivoHTML(pv);
-      
-      // Usa il sistema di stampa sicuro (che gestisce le immagini)
-      if (window.safePrintHTMLStringWithPageNum) {
-        window.safePrintHTMLStringWithPageNum(html);
-      } else if (window.safePrintHTMLString) {
-        window.safePrintHTMLString(html);
-      } else {
-        // Fallback estremo
-        const w = window.open('', '_blank');
-        if (w) {
-          w.document.write(html);
-          w.document.close();
-          setTimeout(() => { w.focus(); w.print(); }, 500);
-        }
-      }
-    } catch(e) {
-      console.warn('printPreventivo error', e);
-      alert('Errore nella stampa del preventivo.');
-    }
   };
 })();
 
@@ -14849,8 +14815,6 @@ window.safePrintHTMLStringWithPageNum = function(html){
 
   // HTML della stampa DDT (idempotente)
   if (!window.renderDDTHTML) {
-      // ===== HTML della stampa DDT (layout classico) =====
-  // ===== HTML stampa DDT (header/footer fissi + pagina X/Y + sedi in header) =====
 // ===== HTML stampa DDT (Versione COMPLETA + Layout Basso + FIX ERRORE PAGES) =====
 window.renderDDTHTML = function(ddt){
   const esc = v => String(v ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
@@ -22184,7 +22148,7 @@ function SaturazioneRepartiView({ query = '' }) {
 
 window.SaturazioneRepartiView = window.SaturazioneRepartiView || SaturazioneRepartiView;
 
-/* ================== MAGAZZINO (Articoli + Movimenti) ================== */
+/* ================== MAGAZZINO (Articoli + Movimenti + Ordinamento Date) ================== */
 function MagazzinoView(props){
   const initialTab = (props && props.initialTab) ? props.initialTab : 'articoli';
   const e = React.createElement;
@@ -22201,8 +22165,6 @@ function MagazzinoView(props){
     } : {}));
 
   // Helper LOCALi per Magazzino:
-  // usano SEMPRE localStorage diretto (in BETA viene comunque intercettato
-  // dalla patch che mette il prefisso BETA:...).
   const lsGet = (k, d)=>{
     try {
       const raw = localStorage.getItem(k);
@@ -22214,7 +22176,6 @@ function MagazzinoView(props){
   };
   const lsSet = (k, v)=>{
     try {
-      // se esiste safeSetJSON, la usiamo per restare allineati al resto dell'app
       if (window.safeSetJSON) {
         window.safeSetJSON(k, v);
       } else {
@@ -22228,13 +22189,7 @@ function MagazzinoView(props){
   function persistArticoli(rows){
     try {
       const payload = Array.isArray(rows) ? rows : [];
-
-      // 1) NUOVA CHIAVE "ROBUSTA" SOLO PER MAGAZZINO
-      try {
-        localStorage.setItem('magArticoli_v2', JSON.stringify(payload));
-      } catch {}
-
-      // 2) COMPATIBILITÀ: aggiorna comunque le chiavi storiche
+      try { localStorage.setItem('magArticoli_v2', JSON.stringify(payload)); } catch {}
       if (typeof window.saveKey === 'function') {
         window.saveKey('magArticoli', payload);
       } else if (typeof lsSet === 'function') {
@@ -22244,114 +22199,87 @@ function MagazzinoView(props){
         localStorage.setItem('magArticoli', JSON.stringify(payload));
         localStorage.setItem('magazzinoArticoli', JSON.stringify(payload));
       }
-
-      // DEBUG: vediamo cosa c'è in tutte e 3 le chiavi
-      console.log('[Magazzino] persistArticoli v2', {
-        len: payload.length,
-        sample: payload[0] || null,
-        v2: localStorage.getItem('magArticoli_v2'),
-        rawMag: localStorage.getItem('magArticoli'),
-        rawMag2: localStorage.getItem('magazzinoArticoli')
-      });
     } catch (err) {
       console.error('[Magazzino] persistArticoli ERROR', err);
     }
   }
 
   const persistMovimenti = (rows)=> {
-    try {
-      lsSet('magMovimenti', rows);
-    } catch {}
+    try { lsSet('magMovimenti', rows); } catch {}
   };
 
-  // Normalizza articoli da LS o da backup (sempre array)
   const normalizeArticoli = (val) => {
     if (Array.isArray(val)) return val;
-    if (val && Array.isArray(val.rows)) return val.rows;  // caso {rows:[...]}
-    if (val && typeof val === 'object') return Object.values(val); // caso mappa {id:articolo,...}
+    if (val && Array.isArray(val.rows)) return val.rows;
+    if (val && typeof val === 'object') return Object.values(val);
     return [];
   };
 
-  // Carica articoli da LS, dando PRIORITÀ alla chiave nuova "magArticoli_v2"
   function loadArticoliFromLS(){
-    // 1) fonte principale: chiave robusta usata da Magazzino
     try {
       const rawV2 = localStorage.getItem('magArticoli_v2');
       if (rawV2 && rawV2 !== '[]') {
         const parsed = JSON.parse(rawV2);
         const norm   = normalizeArticoli(parsed);
-
-        // opzionale: log di debug una volta sola
-        console.log('[Magazzino] loadArticoliFromLS usa magArticoli_v2', {
-          len: norm.length,
-          sample: norm[0] || null
-        });
-
         if (norm && norm.length) return norm;
       }
-    } catch (err) {
-      console.warn('[Magazzino] errore lettura magArticoli_v2', err);
-    }
-
-    // 2) fallback: chiavi storiche (che qualcun altro potrebbe svuotare)
+    } catch (err) {}
     try {
       const a = (typeof lsGet === 'function') ? lsGet('magArticoli', null) : null;
       const b = (typeof lsGet === 'function') ? lsGet('magazzinoArticoli', null) : null;
       return normalizeArticoli(a != null ? a : (b != null ? b : []));
-    } catch {
-      return [];
-    }
+    } catch { return []; }
   }
 
   // Stato
-  const [tab, setTab]               = React.useState(initialTab); // 'articoli' | 'movimenti'
+  const [tab, setTab]               = React.useState(initialTab);
   const [articoli, setArticoli]     = React.useState(()=> loadArticoliFromLS());
   const [movimenti, setMovimenti]   = React.useState(()=> lsGet('magMovimenti', []));
   const [q, setQ]                   = React.useState('');
   const [onlyNewFromOrder, setOnlyNewFromOrder] = React.useState(false);
-  const [editArt, setEditArt]       = React.useState(null); // {codice, descrizione, um, prezzo, costo} | null
-  const [schedaArt, setSchedaArt]   = React.useState(null); // articolo o null
+  const [editArt, setEditArt]       = React.useState(null);
+  const [schedaArt, setSchedaArt]   = React.useState(null);
   const [newMov, setNewMov]         = React.useState({ data:new Date().toISOString().slice(0,10), codice:'', qta:0, note:'' });
+  
+  // NUOVO: Stato ordinamento
+  const [sortOrder, setSortOrder] = React.useState('codice'); // 'codice' | 'date'
 
-  // BLOCCO NUOVO — form "nuovo allegato articolo"
+  // Allegato Articolo
   const [allegatoArtForm, setAllegatoArtForm] = React.useState({
-    tipo: 'DISEGNO',
-    descrizione: '',
-    path: '',
-    url: ''
+    tipo: 'DISEGNO', descrizione: '', path: '', url: ''
   });
 
-  // --- selezione multipla articoli ---
+  // Selezione multipla
   const [selected, _setSelected] = React.useState(new Set());
   function isSel(cod){ return selected.has(String(cod||'')); }
   function setSelected(next){ _setSelected(new Set(next)); }
   function toggleOne(cod, on){
-  const k = String(cod||''); const s = new Set(selected);
-  if(on) s.add(k); else s.delete(k);
-  setSelected(s);
+    const k = String(cod||''); const s = new Set(selected);
+    if(on) s.add(k); else s.delete(k);
+    setSelected(s);
   }
   function toggleAll(list, on){
-  if(!Array.isArray(list)) return;
-  const s = new Set(selected);
-  list.forEach(a => {
-    const k = String(a.codice||''); if(!k) return;
-    if(on) s.add(k); else s.delete(k);
-  });
-  setSelected(s);
+    if(!Array.isArray(list)) return;
+    const s = new Set(selected);
+    list.forEach(a => {
+      const k = String(a.codice||''); if(!k) return;
+      if(on) s.add(k); else s.delete(k);
+    });
+    setSelected(s);
   }
   function deleteSelected(){
-  if(selected.size===0) return;
-  if(!confirm(`Eliminare ${selected.size} articoli selezionati?`)) return;
-  const next = (articoli||[]).filter(a => !selected.has(String(a.codice||'')));
-  setArticoli(next); persistArticoli(next); setSelected(new Set());
+    if(selected.size===0) return;
+    if(!confirm(`Eliminare ${selected.size} articoli selezionati?`)) return;
+    const next = (articoli||[]).filter(a => !selected.has(String(a.codice||'')));
+    setArticoli(next); persistArticoli(next); setSelected(new Set());
   }
 
-  React.useEffect(()=>{ /* ricarica all’avvio se cambiato fuori */
+  React.useEffect(()=>{
     setArticoli(loadArticoliFromLS());
     setMovimenti(lsGet('magMovimenti', []));
   },[]);
 
-  // ================== Import articoli (.xlsx/.csv) ==================
+  // ================== Import articoli ==================
   const fileArtRef = React.useRef(null);
   function onImportArtClick(){ fileArtRef.current && fileArtRef.current.click(); }
 
@@ -22367,11 +22295,9 @@ function MagazzinoView(props){
   function mapArticolo(row){
     const o = {};
     Object.keys(row||{}).forEach(k=> o[normArtKey(k)] = row[k]);
-
     const costoStr = o.costo;
     const hasCosto = (costoStr!=null && String(costoStr).trim()!=='');
     const costoNum = hasCosto ? (Number(String(costoStr).replace(',','.')) || 0) : undefined;
-
     return {
       codice: String(o.codice||'').trim(),
       descrizione: String(o.descrizione||'').trim(),
@@ -22381,7 +22307,6 @@ function MagazzinoView(props){
     };
   }
 
-  // CSV parser minimale (supporta ; o , e virgolette "")
   function csvToObjects(text){
     const delim = text.split('\n',1)[0].includes(';') ? ';' : ',';
     const s = text.replace(/\r/g,'');
@@ -22390,9 +22315,7 @@ function MagazzinoView(props){
     for (let i=0;i<s.length;i++){
       const ch = s[i];
       if (inQuotes){
-        if (ch === '"'){
-          if (s[i+1] === '"'){ cell += '"'; i++; } else inQuotes = false;
-        } else cell += ch;
+        if (ch === '"'){ if (s[i+1] === '"'){ cell += '"'; i++; } else inQuotes = false; } else cell += ch;
       } else {
         if (ch === '"') inQuotes = true;
         else if (ch === delim){ row.push(cell); cell=''; }
@@ -22401,7 +22324,6 @@ function MagazzinoView(props){
       }
     }
     if (cell.length || row.length){ row.push(cell); rows.push(row); }
-
     if (!rows.length) return [];
     const header = rows[0].map(h => String(h||'').trim());
     const out = [];
@@ -22413,64 +22335,49 @@ function MagazzinoView(props){
     return out;
   }
 
-  // Import: accetta .xlsx/.xls (se presente XLSX) oppure .csv (sempre)
   async function handleArtImportFile(ev){
     try{
-      const file = ev?.target?.files?.[0];
-      if (!file) return;
+      const file = ev?.target?.files?.[0]; if (!file) return;
       const name = file.name.toLowerCase();
-
       let rowsX = [];
       if (name.endsWith('.csv')){
         const text = await file.text();
         rowsX = csvToObjects(text);
       } else {
-        // prova a usare la libreria solo se disponibile o se il loader globale è definito
         if (window.ensureXLSX) await window.ensureXLSX();
-        if (!window.XLSX) throw new Error('XLSX non caricato: salva il file come CSV e riprova');
+        if (!window.XLSX) throw new Error('XLSX non caricato');
         const buf = await file.arrayBuffer();
         const wb  = window.XLSX.read(buf, { type:'array' });
         const ws  = wb.Sheets[wb.SheetNames[0]];
-        if (!ws) throw new Error('Foglio vuoto o non leggibile');
+        if (!ws) throw new Error('Foglio vuoto');
         rowsX = window.XLSX.utils.sheet_to_json(ws, { defval:'' });
       }
-
       if (!rowsX.length) { alert('Il file non contiene righe'); return; }
-
       const imported = rowsX.map(mapArticolo).filter(a=> a.codice);
-      if (!imported.length){ alert('Nessun articolo valido (manca colonna CODICE)'); return; }
+      if (!imported.length){ alert('Nessun articolo valido'); return; }
 
       const next = [...(articoli||[])];
+      const nowISO = new Date().toISOString(); // Data import
+
       imported.forEach(src=>{
         const ix = next.findIndex(t=> String(t.codice).toLowerCase() === src.codice.toLowerCase());
-        if (ix>=0) next[ix] = { ...next[ix], ...src };
-        else next.push(src);
+        if (ix>=0) next[ix] = { ...next[ix], ...src, updatedAt: nowISO };
+        else next.push({ ...src, createdAt: nowISO, updatedAt: nowISO });
       });
-      next.sort((a,b)=> String(a.codice).localeCompare(String(b.codice)));
-            setArticoli(next);
+      
+      setArticoli(next);
       persistArticoli(next);
 
-      // sync opzionale verso Supabase (cloud) per tutti gli articoli importati
-      try{
-        if (window.sbUpsertMagazzinoArticoli){
-          window.sbUpsertMagazzinoArticoli(imported).catch(err=>{
-            console.warn('[Magazzino] sbUpsertMagazzinoArticoli import', err);
-          });
-        }
-      }catch(e){
-        console.warn('[Magazzino] import cloud sync error', e);
-      }
-
+      try{ if (window.sbUpsertMagazzinoArticoli) window.sbUpsertMagazzinoArticoli(imported).catch(()=>{}); }catch(e){}
       alert(`Import articoli completato: ${imported.length} righe.`);
-        }catch(err){
-      console.error('[Import Articoli]', err);
-      alert('Errore import: ' + (err?.message || err));
+    }catch(err){
+      console.error('[Import Articoli]', err); alert('Errore import: ' + err);
     }finally{
       if (fileArtRef?.current) fileArtRef.current.value = '';
     }
   }
 
-  // ================== Articoli: CRUD minimale ==================
+  // ================== Articoli: CRUD ==================
   function newArt(){ return { codice:'', descrizione:'', um:'PZ', prezzo:0, costo:0 }; }
   function openNewArt(){ setEditArt(newArt()); }
   function openNewArtFromCodice(codice){
@@ -22480,147 +22387,91 @@ function MagazzinoView(props){
   }
   function openEditArt(a){ setEditArt({ ...a }); }
   function cancelEditArt(){ setEditArt(null); }
-    function saveArt(){
+  
+  function saveArt(){
     const a = editArt || {};
     if (!a.codice){ alert('Inserisci CODICE articolo'); return; }
 
     const next = [...(articoli||[])];
     const ix = next.findIndex(x=> String(x.codice).toLowerCase() === String(a.codice).toLowerCase());
-    if (ix>=0) next[ix] = { ...next[ix], ...a };
-    else next.push(a);
+    const nowISO = new Date().toISOString();
 
-    next.sort((x,y)=> String(x.codice).localeCompare(String(y.codice)));
+    if (ix>=0) {
+      // Modifica: aggiorno updatedAt
+      next[ix] = { ...next[ix], ...a, updatedAt: nowISO };
+    } else {
+      // Nuovo: salvo anche createdAt
+      next.push({ ...a, createdAt: nowISO, updatedAt: nowISO });
+    }
 
+    // Nota: non ordino l'array qui, lascio fare alla vista filter/sort
     setArticoli(next);
     persistArticoli(next);
 
-    // sync opzionale verso Supabase (cloud) - non blocca la UI
-    try{
-      if (window.sbUpsertMagazzinoArticoli){
-        window.sbUpsertMagazzinoArticoli([a]).catch(err=>{
-          console.warn('[Magazzino] sbUpsertMagazzinoArticoli saveArt', err);
-        });
-      }
-    }catch(e){
-      console.warn('[Magazzino] saveArt cloud sync error', e);
-    }
-
+    try{ if (window.sbUpsertMagazzinoArticoli) window.sbUpsertMagazzinoArticoli([a]).catch(()=>{}); }catch(e){}
     setEditArt(null);
   }
-function delArt(a){
+
+  function delArt(a){
     if (!confirm(`Eliminare articolo ${a.codice}?`)) return;
-    // FIX: confronto per CODICE univoco (case-insensitive), non per riferimento oggetto in memoria
     const next = (articoli||[]).filter(x => String(x.codice).trim().toLowerCase() !== String(a.codice).trim().toLowerCase());
     setArticoli(next);
     persistArticoli(next);
   }
+
   // ================== Movimenti ==================
   function addMov(){
-    // normalizza input
     const base = { ...newMov, qta: Number(newMov.qta||0) };
     if (!base.codice){ alert('Inserisci CODICE articolo'); return; }
     if (!base.qta){ alert('Quantità non valida'); return; }
-
-    // id/timestamps compatibili con mergeById/snapshot
-    const info = (typeof window.nextIdFor === 'function')
-      ? window.nextIdFor({
-          storageKey: 'magMovimenti',
-          prefix: 'MAG',
-          seriesKey: 'mag'
-        })
-      : { id: null, createdAt: null };
-
-    const now    = new Date();
-    const nowISO = now.toISOString();
+    const info = (typeof window.nextIdFor === 'function') ? window.nextIdFor({ storageKey: 'magMovimenti', prefix: 'MAG', seriesKey: 'mag' }) : { id: null, createdAt: null };
+    const now = new Date(); const nowISO = now.toISOString();
     const fallbackId = `MAG-${now.getFullYear()}-${String(now.getTime() % 1000).padStart(3, '0')}`;
-
-    const m = {
-      ...base,
-      data: base.data || nowISO.slice(0,10),
-      id: base.id || info.id || fallbackId,
-      createdAt: base.createdAt || info.createdAt || nowISO,
-      updatedAt: nowISO
-    };
-
+    const m = { ...base, data: base.data || nowISO.slice(0,10), id: base.id || info.id || fallbackId, createdAt: base.createdAt || info.createdAt || nowISO, updatedAt: nowISO };
     const next = [...(movimenti||[]), m];
-    setMovimenti(next);
-    persistMovimenti(next);
+    setMovimenti(next); persistMovimenti(next);
     setNewMov({ ...newMov, codice:'', qta:0, note:'' });
   }
   function delMov(idOrIndex){
     const list = Array.isArray(movimenti) ? [...movimenti] : [];
     if (!list.length) return;
-
     const nowISO = new Date().toISOString();
-
-    // 1) Se arriva una stringa, la tratto come id
     let idx = -1;
-    if (typeof idOrIndex === 'string') {
-      idx = list.findIndex(m => m && m.id === idOrIndex);
-    } else if (typeof idOrIndex === 'number') {
-      // retrocompatibilità: vecchio comportamento per eventuali chiamate per indice
-      idx = idOrIndex;
-    }
-
+    if (typeof idOrIndex === 'string') idx = list.findIndex(m => m && m.id === idOrIndex);
+    else if (typeof idOrIndex === 'number') idx = idOrIndex;
     if (idx < 0 || idx >= list.length) return;
-
     const cur = list[idx] || {};
-    list[idx] = {
-      ...cur,
-      deletedAt: cur.deletedAt || nowISO,
-      updatedAt: nowISO
-    };
-
-    setMovimenti(list);
-    persistMovimenti(list);
+    list[idx] = { ...cur, deletedAt: cur.deletedAt || nowISO, updatedAt: nowISO };
+    setMovimenti(list); persistMovimenti(list);
   }
 
-  // Giacenze: somma movimenti per codice (solo non eliminati)
   const giacenze = React.useMemo(()=>{
     const map = new Map();
     (movimenti||[]).forEach(m=>{
-      if (!m || m.deletedAt) return; // soft-delete: ignora
+      if (!m || m.deletedAt) return;
       const k = String(m.codice||'').toLowerCase(); if (!k) return;
       map.set(k, (map.get(k)||0) + Number(m.qta||0));
     });
-    return map; // key: codice lower, value: qta
+    return map;
   }, [movimenti]);
 
-    // Codici presenti nei movimenti ma non in anagrafica articoli
   const phantomArticoli = React.useMemo(()=>{
     const artByCode = new Map();
-    (articoli || []).forEach(a => {
-      const k = String(a.codice || '').trim().toLowerCase();
-      if (!k) return;
-      artByCode.set(k, a);
-    });
-
+    (articoli || []).forEach(a => { const k = String(a.codice || '').trim().toLowerCase(); if(k) artByCode.set(k, a); });
     const seen = new Map();
     (movimenti || []).forEach(m => {
-      if (!m || m.deletedAt) return; // ignora soft-deleted
+      if (!m || m.deletedAt) return;
       const rawCod = m.codice || '';
       const k = String(rawCod).trim().toLowerCase();
-      if (!k) return;
-      if (artByCode.has(k)) return;
-
-      const cur = seen.get(k) || {
-        codice: rawCod,
-        totale: 0,
-        movCount: 0,
-        lastData: null
-      };
+      if (!k || artByCode.has(k)) return;
+      const cur = seen.get(k) || { codice: rawCod, totale: 0, movCount: 0, lastData: null };
       cur.totale += Number(m.qta || 0) || 0;
       cur.movCount += 1;
       const d = m.data || '';
-      if (!cur.lastData || String(d) > String(cur.lastData)) {
-        cur.lastData = d;
-      }
+      if (!cur.lastData || String(d) > String(cur.lastData)) cur.lastData = d;
       seen.set(k, cur);
     });
-
-    return Array.from(seen.values()).sort((a,b)=>
-      String(a.codice || '').localeCompare(String(b.codice || ''))
-    );
+    return Array.from(seen.values()).sort((a,b)=> String(a.codice||'').localeCompare(String(b.codice||'')));
   }, [articoli, movimenti]);
 
   // ================== UI ==================
@@ -22629,423 +22480,151 @@ function delArt(a){
     e('button', {className: tab==='movimenti' ? 'active' : '', onClick:()=>setTab('movimenti')}, 'Movimenti')
   );
 
-  // ---- ARTICOLI ----
+  // ---- LOGICA ORDINAMENTO (Filtrata) ----
   const filtered = (articoli||[])
-    // se attivo, mostra solo articoli creati da ordine (flag nuovoDaOrdine)
     .filter(a => !onlyNewFromOrder || a?.nuovoDaOrdine)
     .filter(a=>{
       if (!q) return true;
       const s = (a.codice+' '+a.descrizione).toLowerCase();
       return s.includes(q.toLowerCase());
+    })
+    .sort((a,b) => {
+      if (sortOrder === 'date') {
+        // Data decrescente (più recenti in alto)
+        const da = a.createdAt || a.updatedAt || '';
+        const db = b.createdAt || b.updatedAt || '';
+        if (db > da) return 1;
+        if (db < da) return -1;
+        return 0;
+      }
+      // Default: Alfabetico Codice
+      return String(a.codice).localeCompare(String(b.codice));
     });
 
-  // Mappa conteggio allegati per articolo (entityType='ARTICOLO', !deletedAt)
+  // Mappa conteggio allegati
   let allegatiCountByCodice = {};
   try {
     const all = (typeof lsGet === 'function') ? (lsGet('allegatiRows', []) || []) : [];
     (Array.isArray(all) ? all : []).forEach(r => {
       if (!r || r.deletedAt) return;
-      const et = String(r.entityType || '').toUpperCase();
-      if (et !== 'ARTICOLO') return;
+      if (String(r.entityType || '').toUpperCase() !== 'ARTICOLO') return;
       const k = String(r.entityId || '').toLowerCase().trim();
-      if (!k) return;
-      allegatiCountByCodice[k] = (allegatiCountByCodice[k] || 0) + 1;
+      if (k) allegatiCountByCodice[k] = (allegatiCountByCodice[k] || 0) + 1;
     });
-  } catch {
-    allegatiCountByCodice = {};
-  }
+  } catch { allegatiCountByCodice = {}; }
 
   const articoliUI = e('div', null,
-  e('div', {className:'actions', style:{justifyContent:'space-between', gap:8, alignItems:'center'}},
-    e('div', {style:{display:'flex', alignItems:'center', gap:8}},
-      e('input', {
-        placeholder:'Cerca…',
-        value:q,
-        onChange:ev=>setQ(ev.target.value)
-      }),
-      e('label', {
-        className:'muted',
-        style:{fontSize:12, display:'flex', alignItems:'center', gap:4}
+  e('div', {className:'actions', style:{justifyContent:'space-between', gap:8, alignItems:'center', flexWrap:'wrap'}},
+    e('div', {style:{display:'flex', alignItems:'center', gap:8, flexWrap:'wrap'}},
+      e('input', { placeholder:'Cerca…', value:q, onChange:ev=>setQ(ev.target.value) }),
+      
+      // NUOVO SELETTORE ORDINAMENTO
+      e('select', {
+        className:'input', 
+        value: sortOrder, 
+        onChange: ev => setSortOrder(ev.target.value),
+        style: { cursor:'pointer', minWidth:160 }
       },
-        e('input', {
-          type:'checkbox',
-          checked: !!onlyNewFromOrder,
-          onChange: ev => setOnlyNewFromOrder(ev.target.checked)
-        }),
-        'Solo articoli da ordine'
+        e('option', {value:'codice'}, 'Ordina: Codice (A-Z)'),
+        e('option', {value:'date'}, 'Ordina: Data inserimento')
+      ),
+
+      e('label', { className:'muted', style:{fontSize:12, display:'flex', alignItems:'center', gap:4} },
+        e('input', { type:'checkbox', checked: !!onlyNewFromOrder, onChange: ev => setOnlyNewFromOrder(ev.target.checked) }),
+        'Solo da ordine'
       )
     ),
     e('div', null,
-      // Import articoli (.xlsx/.xls/.csv) – SOLO se non read-only
-      e('button', {
-        className:'btn btn-outline',
-        onClick:onImportArtClick,
-        ...roBtnProps()
-      }, '⬆️ Importa (.xlsx/.csv)'),
-
-      // input file nascosto
-      e('input', {
-        type:'file',
-        accept:'.xlsx,.xls,.csv',
-        ref:fileArtRef,
-        style:{display:'none'},
-        onChange:handleArtImportFile
-      }),
-
-      // Nuovo articolo – SOLO se non read-only
-      e('button', {
-        className:'btn',
-        style:{marginLeft:8},
-        onClick:openNewArt,
-        ...roBtnProps()
-      }, '➕ Nuovo articolo'),
-
-      // Elimina selezionati – SOLO se non read-only
-      e('button', {
-        className:'btn btn-outline',
-        style:{ marginLeft:8 },
-        disabled: selected.size===0,
-        onClick: deleteSelected,
-        ...roBtnProps()
-      }, `Elimina selezionati (${selected.size})`)
+      e('button', { className:'btn btn-outline', onClick:onImportArtClick, ...roBtnProps() }, '⬆️ Importa (.xlsx/.csv)'),
+      e('input', { type:'file', accept:'.xlsx,.xls,.csv', ref:fileArtRef, style:{display:'none'}, onChange:handleArtImportFile }),
+      e('button', { className:'btn', style:{marginLeft:8}, onClick:openNewArt, ...roBtnProps() }, '➕ Nuovo articolo'),
+      e('button', { className:'btn btn-outline', style:{ marginLeft:8 }, disabled: selected.size===0, onClick: deleteSelected, ...roBtnProps() }, `Elimina (${selected.size})`)
     )
   ),
 
-// form edit/nuovo
+  // form edit/nuovo
     !editArt ? null : e('div', {className:'card', style:{marginTop:8}},
       e('div', {className:'card-title'}, 'Articolo'),
       e('div', {className:'grid grid-2'},
-        e('label', null, 'Codice',
-          e('input', {
-            value: editArt.codice,
-            onChange: ev => setEditArt({...editArt, codice: ev.target.value})
-          })
-        ),
-        e('label', null, 'UM',
-          e('input', {
-            value: editArt.um || 'PZ',
-            onChange: ev => setEditArt({...editArt, um: ev.target.value.toUpperCase()})
-          })
-        ),
-        e('label', {style:{gridColumn:'1 / span 2'}}, 'Descrizione',
-          e('input', {
-            value: editArt.descrizione || '',
-            onChange: ev => setEditArt({...editArt, descrizione: ev.target.value})
-          })
-        ),
-        e('label', null, 'Prezzo (€)',
-          e('input', {
-            type:'text',             // Usa text per permettere la virgola
-            inputMode: 'decimal',    // Tastierino numerico su mobile
-            placeholder: '0.00',
-            value: editArt.prezzo || '',
-            onChange: ev => {
-              const val = ev.target.value.replace(',', '.'); // Virgola -> Punto
-              if (isNaN(Number(val)) && val !== '' && val !== '.') return; 
-              setEditArt({...editArt, prezzo: val});
-            },
-            onBlur: ev => {
-              const n = parseFloat(ev.target.value.replace(',','.'));
-              setEditArt({...editArt, prezzo: isNaN(n) ? 0 : n});
-            }
-          })
-        ),
-        e('label', null, 'Costo (€)',
-          e('input', {
-            type:'text',             // FIX: idem come sopra
-            inputMode: 'decimal',
-            placeholder: '0.00',
-            value: (editArt.costo != null ? editArt.costo : ''),
-            onChange: ev => {
-              const val = ev.target.value.replace(',', '.');
-              if (isNaN(Number(val)) && val !== '' && val !== '.') return;
-              setEditArt({...editArt, costo: val});
-            },
-            onBlur: ev => {
-              const n = parseFloat(ev.target.value.replace(',','.'));
-              setEditArt({...editArt, costo: isNaN(n) ? 0 : n});
-            }
-          })
-        )
+        e('label', null, 'Codice', e('input', { value: editArt.codice, onChange: ev => setEditArt({...editArt, codice: ev.target.value}) })),
+        e('label', null, 'UM', e('input', { value: editArt.um || 'PZ', onChange: ev => setEditArt({...editArt, um: ev.target.value.toUpperCase()}) })),
+        e('label', {style:{gridColumn:'1 / span 2'}}, 'Descrizione', e('input', { value: editArt.descrizione || '', onChange: ev => setEditArt({...editArt, descrizione: ev.target.value}) })),
+        e('label', null, 'Prezzo (€)', e('input', { type:'text', inputMode: 'decimal', placeholder: '0.00', value: editArt.prezzo || '', onChange: ev => { const val = ev.target.value.replace(',', '.'); if (isNaN(Number(val)) && val !== '' && val !== '.') return; setEditArt({...editArt, prezzo: val}); }, onBlur: ev => { const n = parseFloat(ev.target.value.replace(',','.')); setEditArt({...editArt, prezzo: isNaN(n) ? 0 : n}); } })),
+        e('label', null, 'Costo (€)', e('input', { type:'text', inputMode: 'decimal', placeholder: '0.00', value: (editArt.costo != null ? editArt.costo : ''), onChange: ev => { const val = ev.target.value.replace(',', '.'); if (isNaN(Number(val)) && val !== '' && val !== '.') return; setEditArt({...editArt, costo: val}); }, onBlur: ev => { const n = parseFloat(ev.target.value.replace(',','.')); setEditArt({...editArt, costo: isNaN(n) ? 0 : n}); } }))
       ),
       e('div', {className:'actions', style:{justifyContent:'flex-end', gap:8}},
         e('button', {className:'btn btn-outline', type:'button', onClick: cancelEditArt}, 'Annulla'),
-        e('button', {
-          className:'btn',
-          type:'button',
-          onClick: saveArt,
-          ...roBtnProps()
-        }, 'Salva')
+        e('button', { className:'btn', type:'button', onClick: saveArt, ...roBtnProps() }, 'Salva')
       )
     ),
 
-    // BLOCCO NUOVO — Allegati articolo
+    // BLOCCO ALLEGATI (Mantenuto identico)
     !editArt ? null : (function(){
       const codice = (editArt && editArt.codice) ? String(editArt.codice).trim() : '';
       const entityId = codice;
       const all = lsGet('allegatiRows', []) || [];
-      const rows = entityId
-        ? (Array.isArray(all) ? all : []).filter(a =>
-            a && !a.deletedAt &&
-            String(a.entityType || '').toUpperCase() === 'ARTICOLO' &&
-            String(a.entityId || '').toUpperCase() === entityId.toUpperCase()
-          )
-        : [];
-
-      function nextAllegatoId(existing){
-        const now  = new Date();
-        const year = now.getFullYear();
-        let maxSeq = 0;
-        (existing || []).forEach(r => {
-          const id = r && r.id ? String(r.id) : '';
-          const m = /^ALG-(\d{4})-(\d+)$/.exec(id);
-          if (m && Number(m[1]) === year) {
-            const n = parseInt(m[2], 10);
-            if (!isNaN(n) && n > maxSeq) maxSeq = n;
-          }
-        });
-        const next = String(maxSeq + 1).padStart(4, '0');
-        return `ALG-${year}-${next}`;
-      }
-
-      function suggestDisegnoPath(entityId){
-        if (!entityId) return '';
-        const safeCode = String(entityId).trim();
-        const appSets = window.lsGet('appSettings', {}) || {};
-        const basePath = (appSets.docBasePath || 'Z:\\ANIMA_DOC').replace(/\/+$/, '');
-        return `${basePath}\\DISEGNI\\ARTICOLI\\${safeCode}\\${safeCode}.pdf`;
-      }
-
-      function suggestNCFornPath(entityId){
-        if (!entityId) return '';
-        const safeCode = String(entityId).trim();
-        const year = new Date().getFullYear();
-        const appSets = window.lsGet('appSettings', {}) || {};
-        const basePath = (appSets.docBasePath || 'Z:\\ANIMA_DOC').replace(/\/+$/, '');
-        return `${basePath}\\NC_FORN\\${year}\\${safeCode}\\${safeCode}-NC.pdf`;
-      }
-
+      const rows = entityId ? (Array.isArray(all) ? all : []).filter(a => a && !a.deletedAt && String(a.entityType || '').toUpperCase() === 'ARTICOLO' && String(a.entityId || '').toUpperCase() === entityId.toUpperCase()) : [];
+      function nextAllegatoId(existing){ const now=new Date(); const year=now.getFullYear(); let maxSeq=0; (existing||[]).forEach(r=>{ const id=r&&r.id?String(r.id):''; const m=/^ALG-(\d{4})-(\d+)$/.exec(id); if(m && +m[1]===year){ const n=parseInt(m[2],10); if(!isNaN(n) && n>maxSeq)maxSeq=n; } }); const next=String(maxSeq+1).padStart(4,'0'); return `ALG-${year}-${next}`; }
+      function suggestDisegnoPath(eId){ if(!eId)return ''; const safeCode=String(eId).trim(); const appSets=window.lsGet('appSettings',{})||{}; const basePath=(appSets.docBasePath||'Z:\\ANIMA_DOC').replace(/\/+$/,''); return `${basePath}\\DISEGNI\\ARTICOLI\\${safeCode}\\${safeCode}.pdf`; }
+      function suggestNCFornPath(eId){ if(!eId)return ''; const safeCode=String(eId).trim(); const year=new Date().getFullYear(); const appSets=window.lsGet('appSettings',{})||{}; const basePath=(appSets.docBasePath||'Z:\\ANIMA_DOC').replace(/\/+$/,''); return `${basePath}\\NC_FORN\\${year}\\${safeCode}\\${safeCode}-NC.pdf`; }
       const onChangeField = (field, value) => {
         setAllegatoArtForm(prev => {
           const base = prev || { tipo:'DISEGNO', descrizione:'', path:'', url:'' };
           let next = { ...base, [field]: value };
-
-          // Se passo a DISEGNO, ho un codice articolo e il path è ancora vuoto,
-          // propongo automaticamente un percorso NAS standard.
-          if (
-            field === 'tipo' &&
-            value === 'DISEGNO' &&
-            entityId &&
-            !(base.path && String(base.path).trim())
-          ) {
-            const suggested = suggestDisegnoPath(entityId);
-            if (suggested) {
-              next.path = suggested;
-            }
-          }
-
-                    // Se passo a NC_FORN, e non ho ancora path/descrizione,
-          // propongo un template per NC fornitore articolo.
-          if (
-            field === 'tipo' &&
-            value === 'NC_FORN' &&
-            entityId
-          ) 
-          {
-            if (!(base.path && String(base.path).trim())) {
-              const ncPath = suggestNCFornPath(entityId);
-              if (ncPath) {
-                next.path = ncPath;
-              }
-            }
-            if (!(base.descrizione && String(base.descrizione).trim())) {
-              next.descrizione = `NC fornitore articolo ${entityId}`;
-            }
-          }
+          if (field==='tipo' && value==='DISEGNO' && entityId && !(base.path && String(base.path).trim())) { const sug=suggestDisegnoPath(entityId); if(sug) next.path=sug; }
+          if (field==='tipo' && value==='NC_FORN' && entityId) { if(!(base.path && String(base.path).trim())){ const nc=suggestNCFornPath(entityId); if(nc) next.path=nc; } if(!(base.descrizione && String(base.descrizione).trim())) next.descrizione=`NC fornitore articolo ${entityId}`; }
           return next;
         });
       };
-
       const onAdd = () => {
-        const f    = allegatoArtForm || {};
-        const tipo = (f.tipo || 'DISEGNO').trim() || 'DISEGNO';
-        const descr = (f.descrizione || '').trim();
-        const path  = (f.path || '').trim();
-        const url   = (f.url  || '').trim();
-
-        if (!entityId) {
-          alert('Inserisci e salva il codice articolo prima di aggiungere allegati.');
-          return;
-        }
-        if (!path && !url) {
-          alert('Inserisci almeno il percorso o l\'URL.');
-          return;
-        }
-
-        let allRows = [];
-        try { allRows = lsGet('allegatiRows', []) || []; } catch(e) { allRows = []; }
-        if (!Array.isArray(allRows)) allRows = [];
-
-        const id     = nextAllegatoId(allRows);
-        const nowIso = new Date().toISOString();
-        const baseDescr = descr || `Disegno articolo ${entityId}`;
-
-        const newRow = {
-          id,
-          createdAt: nowIso,
-          tipo,
-          descrizione: baseDescr,
-          path,
-          url,
-          entityType: 'ARTICOLO',
-          entityId,
-          note: '',
-          deletedAt: null
-        };
-
-        const updated = allRows.concat([newRow]);
-        lsSet('allegatiRows', updated);
-
-        // reset form
-        setAllegatoArtForm({
-          tipo:'DISEGNO',
-          descrizione:'',
-          path:'',
-          url:''
-        });
+        const f = allegatoArtForm || {};
+        const tipo = (f.tipo||'DISEGNO').trim()||'DISEGNO'; const descr=(f.descrizione||'').trim(); const path=(f.path||'').trim(); const url=(f.url||'').trim();
+        if(!entityId){ alert('Inserisci e salva il codice articolo prima di aggiungere allegati.'); return; }
+        if(!path && !url){ alert('Inserisci almeno il percorso o l\'URL.'); return; }
+        let allRows=[]; try{ allRows=lsGet('allegatiRows',[])||[]; }catch(e){allRows=[];} if(!Array.isArray(allRows))allRows=[];
+        const id=nextAllegatoId(allRows); const nowIso=new Date().toISOString(); const baseDescr=descr||`Disegno articolo ${entityId}`;
+        const newRow={ id, createdAt:nowIso, tipo, descrizione:baseDescr, path, url, entityType:'ARTICOLO', entityId, note:'', deletedAt:null };
+        lsSet('allegatiRows', allRows.concat([newRow]));
+        setAllegatoArtForm({ tipo:'DISEGNO', descrizione:'', path:'', url:'' });
       };
-
       const onDelete = (row) => {
-        if (!row || !row.id) return;
-        if (!window.confirm('Eliminare questo allegato articolo?')) return;
-
-        let allRows = [];
-        try { allRows = lsGet('allegatiRows', []) || []; } catch(e) { allRows = []; }
-        if (!Array.isArray(allRows)) allRows = [];
-
-        const nowIso = new Date().toISOString();
-        const updated = allRows.map(r =>
-          r && r.id === row.id
-            ? { ...r, deletedAt: r.deletedAt || nowIso }
-            : r
-        );
-        lsSet('allegatiRows', updated);
-
-        // piccolo "tick" per forzare il re-render
-        setAllegatoArtForm(prev => ({ ...(prev || {}) }));
+        if(!row||!row.id)return; if(!window.confirm('Eliminare questo allegato articolo?'))return;
+        let allRows=[]; try{ allRows=lsGet('allegatiRows',[])||[]; }catch(e){allRows=[];} if(!Array.isArray(allRows))allRows=[];
+        const nowIso=new Date().toISOString();
+        lsSet('allegatiRows', allRows.map(r=> r&&r.id===row.id ? {...r, deletedAt:r.deletedAt||nowIso} : r));
+        setAllegatoArtForm(prev=>({...prev}));
       };
-
-      const onCopyPath = (row) => {
-        const p = (row && row.path) ? String(row.path) : '';
-        if (!p) return;
-        if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(p).catch(() => {
-            window.prompt('Copia il percorso:', p);
-          });
-        } else {
-          window.prompt('Copia il percorso:', p);
-        }
-      };
-
-      const onOpenUrl = (row) => {
-        const u = (row && row.url) ? String(row.url) : '';
-        if (!u) return;
-        if (/^https?:\/\//i.test(u)) window.open(u, '_blank');
-      };
-
+      const onCopyPath = (row) => { const p=(row&&row.path)?String(row.path):''; if(!p)return; if(navigator&&navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(p).catch(()=>{ window.prompt('Copia il percorso:',p); }); }else{ window.prompt('Copia il percorso:',p); } };
+      const onOpenUrl = (row) => { const u=(row&&row.url)?String(row.url):''; if(!u)return; if(/^https?:\/\//i.test(u)) window.open(u,'_blank'); };
       const f = allegatoArtForm || { tipo:'DISEGNO', descrizione:'', path:'', url:'' };
 
       return e('div', {className:'card', style:{marginTop:8}},
         e('div', {className:'card-title'}, 'Allegati articolo'),
-        !entityId
-          ? e('p', {className:'muted'}, 'Inserisci e salva il codice articolo per poter aggiungere allegati.')
-          : e(React.Fragment, null,
-              rows.length
-                ? e('table', {className:'table table-sm'},
-                    e('thead', null,
-                      e('tr', null,
-                        e('th', null, 'Tipo'),
-                        e('th', null, 'Descrizione'),
-                        e('th', null, 'Percorso'),
-                        e('th', null, 'Azioni')
-                      )
-                    ),
-                    e('tbody', null,
-                      rows.map(r => e('tr', {key:r.id || r.path || r.url || Math.random()},
-                        e('td', null, r.tipo || ''),
-                        e('td', null, r.descrizione || ''),
-                        e('td', null, r.path || ''),
-                        e('td', null,
-                          e('div', {className:'row', style:{gap:4}},
-                            r.url && /^https?:\/\//i.test(r.url||'')
-                              ? e('button', {className:'btn btn-xs', onClick:()=>onOpenUrl(r)}, 'Apri')
-                              : null,
-                            r.path
-                              ? e('button', {className:'btn btn-xs', onClick:()=>onCopyPath(r)}, 'Copia percorso')
-                              : null,
-                            !readOnly
-                              ? e('button', {
-                                  className:'btn btn-xs btn-outline',
-                                  onClick:()=>onDelete(r)
-                                }, '🗑')
-                              : null
-                          )
-                        )
-                      ))
-                    )
-                  )
-                : null,
-              e('div', {className:'grid grid-3', style:{marginTop:8}},
-                e('div', null,
-                  e('label', null, 'Tipo'),
-                  e('select', {
-                    value:f.tipo || 'DISEGNO',
-                    onChange:ev=>onChangeField('tipo', ev.target.value),
-                    disabled: readOnly
-                  },
-                    e('option', {value:'DISEGNO'}, 'Disegno'),
-                    e('option', {value:'NC_FORN'}, 'NC fornitore'),
-                    e('option', {value:'ALTRO'}, 'Altro')
-                  )
-                ),
-                e('div', null,
-                  e('label', null, 'Descrizione'),
-                  e('input', {
-                    value:f.descrizione || '',
-                    onChange:ev=>onChangeField('descrizione', ev.target.value),
-                    disabled: readOnly
-                  })
-                ),
-                e('div', null,
-                  e('label', null, 'Percorso (path)'),
-                  e('input', {
-                    value:f.path || '',
-                    onChange:ev=>onChangeField('path', ev.target.value),
-                    disabled: readOnly
-                  })
-                ),
-                e('div', null,
-                  e('label', null, 'URL (opzionale)'),
-                  e('input', {
-                    value:f.url || '',
-                    onChange:ev=>onChangeField('url', ev.target.value),
-                    disabled: readOnly
-                  })
-                )
-              ),
-              e('div', {className:'actions'},
-                e('button', {
-                  className:'btn',
-                  onClick:onAdd,
-                  disabled: readOnly
-                }, '➕ Aggiungi allegato')
-              )
-            )
+        !entityId ? e('p', {className:'muted'}, 'Inserisci e salva il codice articolo per poter aggiungere allegati.') : e(React.Fragment, null,
+          rows.length ? e('table', {className:'table table-sm'},
+            e('thead', null, e('tr',null,e('th',null,'Tipo'),e('th',null,'Descrizione'),e('th',null,'Percorso'),e('th',null,'Azioni'))),
+            e('tbody', null, rows.map(r=> e('tr', {key:r.id||Math.random()},
+              e('td', null, r.tipo||''), e('td', null, r.descrizione||''), e('td', null, r.path||''),
+              e('td', null, e('div', {className:'row', style:{gap:4}},
+                r.url && /^https?:\/\//i.test(r.url||'') ? e('button', {className:'btn btn-xs', onClick:()=>onOpenUrl(r)}, 'Apri') : null,
+                r.path ? e('button', {className:'btn btn-xs', onClick:()=>onCopyPath(r)}, 'Copia percorso') : null,
+                !readOnly ? e('button', {className:'btn btn-xs btn-outline', onClick:()=>onDelete(r)}, '🗑') : null
+              ))
+            )))
+          ) : e('p',{className:'muted'}, 'Nessun allegato.'),
+          e('div', {className:'grid grid-3', style:{marginTop:8}},
+            e('div', null, e('label', null, 'Tipo'), e('select', {value:f.tipo, onChange:ev=>onChangeField('tipo',ev.target.value), disabled:readOnly}, e('option',{value:'DISEGNO'},'Disegno'), e('option',{value:'NC_FORN'},'NC fornitore'), e('option',{value:'ALTRO'},'Altro'))),
+            e('div', null, e('label', null, 'Descrizione'), e('input', {value:f.descrizione, onChange:ev=>onChangeField('descrizione',ev.target.value), disabled:readOnly})),
+            e('div', null, e('label', null, 'Percorso (path)'), e('input', {value:f.path, onChange:ev=>onChangeField('path',ev.target.value), disabled:readOnly})),
+            e('div', null, e('label', null, 'URL (opzionale)'), e('input', {value:f.url, onChange:ev=>onChangeField('url',ev.target.value), disabled:readOnly}))
+          ),
+          e('div', {className:'actions'}, e('button', {className:'btn', onClick:onAdd, disabled:readOnly}, '➕ Aggiungi allegato'))
+        )
       );
     })(),
 
     // tabella articoli
-    e('div', {className:'card', style:{marginTop:8}},
+    e('div', {className:'card', style:{marginTop:8, overflowX:'auto'}},
       e('div', {className:'card-title'}, `Articoli (${filtered.length})`),
       e('table', {className:'table'},
         e('thead', null, e('tr', null,
@@ -23066,39 +22645,16 @@ function delArt(a){
           e('th', {style:{textAlign:'right'}}, 'Azioni')
         )),
         e('tbody', null, filtered.map((a,ix)=> e('tr', {key:ix},
-          e('td', null,
-            (allegatiCountByCodice && allegatiCountByCodice[String(a.codice||'').toLowerCase()])
-              ? `📎 ${a.codice}`
-              : a.codice
-          ),
-          e('td', null,
-            a.descrizione,
-            (allegatiCountByCodice && allegatiCountByCodice[String(a.codice||'').toLowerCase()])
-              ? ` (allegati: ${allegatiCountByCodice[String(a.codice||'').toLowerCase()]})`
-              : ''
-          ),
+          e('td', null, (allegatiCountByCodice && allegatiCountByCodice[String(a.codice||'').toLowerCase()]) ? `📎 ${a.codice}` : a.codice),
+          e('td', null, a.descrizione, (allegatiCountByCodice && allegatiCountByCodice[String(a.codice||'').toLowerCase()]) ? ` (allegati: ${allegatiCountByCodice[String(a.codice||'').toLowerCase()]})` : ''),
           e('td', null, a.um||''),
           e('td', {style:{textAlign:'right'}}, (a.prezzo!=null? Number(a.prezzo).toFixed(2):'')),
           e('td', {style:{textAlign:'right'}}, (a.costo!=null? Number(a.costo).toFixed(2):'')),
           e('td', {style:{textAlign:'right'}}, giacenze.get(String(a.codice).toLowerCase()) || 0),
-
-          // selezione
-          e('td', {style:{textAlign:'center'}},
-            e('input', {
-              type:'checkbox',
-              checked: isSel(a.codice),
-              onChange: ev => toggleOne(a.codice, ev.target.checked)
-            })
-          ),
-          // azioni
+          e('td', {style:{textAlign:'center'}}, e('input', { type:'checkbox', checked: isSel(a.codice), onChange: ev => toggleOne(a.codice, ev.target.checked) })),
           e('td', {style:{textAlign:'right'}},
             e('button', {className:'btn btn-outline', onClick:()=>setSchedaArt(a)}, '🔎'),
-            e('button', {
-              className:'btn btn-outline',
-              style:{marginLeft:6},
-              onClick:()=>openEditArt(a),
-              ...roBtnProps()
-            }, '✏️'),
+            e('button', {className:'btn btn-outline', style:{marginLeft:6}, onClick:()=>openEditArt(a), ...roBtnProps()}, '✏️'),
             e('button', {className:'btn btn-outline', style:{marginLeft:6}, onClick:()=>delArt(a)}, '🗑️')
           )
         )))
@@ -23112,118 +22668,46 @@ function delArt(a){
     e('div', {className:'card'},
       e('div', {className:'card-title'}, 'Nuovo movimento'),
       e('div', {className:'grid grid-4'},
-        e('label', null, 'Data',
-          e('input', {
-            type:'date',
-            value:newMov.data,
-            onChange:ev=>setNewMov({ ...newMov, data:ev.target.value })
-          })
-        ),
-        e('label', null, 'Codice',
-          e('input', {
-            value:newMov.codice,
-            onChange:ev=>setNewMov({ ...newMov, codice:ev.target.value })
-          })
-        ),
-        e('label', null, 'Q.tà (+ carico / - scarico)',
-          e('input', {
-            type:'number',
-            value:newMov.qta,
-            onChange:ev=>setNewMov({ ...newMov, qta:ev.target.value })
-          })
-        ),
-        e('label', null, 'Note',
-          e('input', {
-            value:newMov.note,
-            onChange:ev=>setNewMov({ ...newMov, note:ev.target.value })
-          })
-        )
+        e('label', null, 'Data', e('input', { type:'date', value:newMov.data, onChange:ev=>setNewMov({ ...newMov, data:ev.target.value }) })),
+        e('label', null, 'Codice', e('input', { value:newMov.codice, onChange:ev=>setNewMov({ ...newMov, codice:ev.target.value }) })),
+        e('label', null, 'Q.tà (+ carico / - scarico)', e('input', { type:'number', value:newMov.qta, onChange:ev=>setNewMov({ ...newMov, qta:ev.target.value }) })),
+        e('label', null, 'Note', e('input', { value:newMov.note, onChange:ev=>setNewMov({ ...newMov, note:ev.target.value }) }))
       ),
       e('div', {className:'actions', style:{justifyContent:'flex-end'}},
-        e('button', {
-          className:'btn',
-          onClick:addMov,
-          type:'button',
-          ...roBtnProps()
-        }, 'Aggiungi')
+        e('button', { className:'btn', onClick:addMov, type:'button', ...roBtnProps() }, 'Aggiungi')
       )
     ),
 
-    // Lista movimenti (solo non eliminati)
+    // Lista movimenti
     e('div', {className:'card', style:{marginTop:8}},
-      e('div', {className:'card-title'},
-        `Movimenti (${(movimenti||[]).filter(m => !m?.deletedAt).length})`
-      ),
+      e('div', {className:'card-title'}, `Movimenti (${(movimenti||[]).filter(m => !m?.deletedAt).length})`),
       e('table', {className:'table'},
-        e('thead', null, e('tr', null,
-          e('th', null, 'Data'),
-          e('th', null, 'Codice'),
-          e('th', {style:{textAlign:'right'}}, 'Q.tà'),
-          e('th', null, 'Note'),
-          e('th', null, '')
-        )),
-        e('tbody', null,
-          (movimenti||[])
-            .filter(m => !m?.deletedAt)
-            .map((m,ix)=> e('tr', {key: m.id || ix},
-              e('td', null, m.data||''),
-              e('td', null, m.codice||''),
-              e('td', {style:{textAlign:'right'}}, m.qta||''),
-              e('td', null, m.note||''),
-              e('td', {style:{textAlign:'right'}},
-                e('button', {
-                  className:'btn btn-outline',
-                  onClick:()=>delMov(m.id || ix),
-                  ...roBtnProps()
-                }, '🗑️')
-              )
-            ))
-        )
+        e('thead', null, e('tr', null, e('th', null, 'Data'), e('th', null, 'Codice'), e('th', {style:{textAlign:'right'}}, 'Q.tà'), e('th', null, 'Note'), e('th', null, ''))),
+        e('tbody', null, (movimenti||[]).filter(m => !m?.deletedAt).map((m,ix)=> e('tr', {key: m.id || ix},
+          e('td', null, m.data||''), e('td', null, m.codice||''), e('td', {style:{textAlign:'right'}}, m.qta||''), e('td', null, m.note||''),
+          e('td', {style:{textAlign:'right'}}, e('button', { className:'btn btn-outline', onClick:()=>delMov(m.id || ix), ...roBtnProps() }, '🗑️'))
+        )))
       )
     ),
 
-    // Articoli fantasma (presenti nei movimenti ma non in anagrafica)
+    // Articoli fantasma
     !phantomArticoli.length ? null : e('div', {className:'card', style:{marginTop:8}},
-      e('div', {className:'card-title'},
-        `Articoli senza anagrafica (${phantomArticoli.length})`
-      ),
-      e('p', {
-        className:'muted',
-        style:{fontSize:12, marginTop:0}
-      }, 'Codici presenti nei movimenti ma non in Magazzino → da valutare e creare come articoli.'),
+      e('div', {className:'card-title'}, `Articoli senza anagrafica (${phantomArticoli.length})`),
+      e('p', { className:'muted', style:{fontSize:12, marginTop:0} }, 'Codici presenti nei movimenti ma non in Magazzino → da valutare e creare come articoli.'),
       e('table', {className:'table two-cols'},
-        e('thead', null, e('tr', null,
-          e('th', null, 'Codice'),
-          e('th', {style:{textAlign:'right'}}, 'Totale q.tà'),
-          e('th', {style:{textAlign:'right'}}, '# movimenti'),
-          e('th', null, 'Ultima data'),
-          e('th', null, '')
-        )),
-        e('tbody', null,
-          phantomArticoli.map(p => e('tr', {key:p.codice || p.lastData || Math.random()},
-            e('td', null, p.codice || ''),
-            e('td', {style:{textAlign:'right'}}, p.totale || 0),
-            e('td', {style:{textAlign:'right'}}, p.movCount || 0),
-            e('td', null, p.lastData || ''),
-            e('td', {style:{textAlign:'right'}},
-              e('button', {
-                className:'btn btn-outline',
-                type:'button',
-                onClick:()=>openNewArtFromCodice(p.codice),
-                ...roBtnProps()
-              }, 'Crea articolo')
-            )
-          ))
-        )
+        e('thead', null, e('tr', null, e('th', null, 'Codice'), e('th', {style:{textAlign:'right'}}, 'Totale q.tà'), e('th', {style:{textAlign:'right'}}, '# movimenti'), e('th', null, 'Ultima data'), e('th', null, ''))),
+        e('tbody', null, phantomArticoli.map(p => e('tr', {key:p.codice || p.lastData || Math.random()},
+          e('td', null, p.codice || ''), e('td', {style:{textAlign:'right'}}, p.totale || 0), e('td', {style:{textAlign:'right'}}, p.movCount || 0), e('td', null, p.lastData || ''),
+          e('td', {style:{textAlign:'right'}}, e('button', { className:'btn btn-outline', type:'button', onClick:()=>openNewArtFromCodice(p.codice), ...roBtnProps() }, 'Crea articolo'))
+        )))
       )
     )
   );
 
-
   return e('div', null,
     tabsUI,
     tab==='articoli' ? articoliUI : movUI
-      , (schedaArt && e(SchedaArticoloModal, { 
+      , (schedaArt && e(window.SchedaArticoloModal || (()=>null), { 
       articolo: schedaArt,
       movimenti,
       onClose: ()=> setSchedaArt(null)
