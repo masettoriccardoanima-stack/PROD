@@ -3453,6 +3453,25 @@ window.addEventListener('auth-change', () => {
               String(u.username || u.email || '').trim().toLowerCase() === myEmail
             );
 
+                        // LOGIN DURO: se authRequired è attivo e c'è una allowlist (users non vuota),
+            // un utente NON presente in lista NON deve entrare.
+            const users = Array.isArray(s.users) ? s.users : [];
+            const authRequired = (s.authRequired !== false);
+            const strictAllowlist = (s.strictAllowlist !== false); // default: true
+
+            if (authRequired && strictAllowlist && users.length > 0 && !m) {
+              try { sessionStorage.setItem('__auth_denied', myEmail); } catch {}
+              try {
+                const sb2 = window.getSupabase && window.getSupabase();
+                if (sb2) await sb2.auth.signOut();
+              } catch {}
+              try { global.currentUser = null; } catch {}
+              window.__USER = null;
+              window.__ONLINE__ = true;
+              window.dispatchEvent(new CustomEvent('auth-change', { detail: null }));
+              return null;
+            }
+
             // 3. Se ti trovo, prendo il tuo ruolo specifico
             if (m && m.role) role = m.role;
             
@@ -7086,7 +7105,7 @@ global.requireLogin = async function () {
       return {};
     }
   })();
-  const mustLogin = !!S.authRequired;
+  const mustLogin = (S.authRequired !== false);
 
   if (!u && mustLogin) {
     if (location.hash !== '#/login') location.hash = '#/login';
@@ -7122,7 +7141,7 @@ global.requireLogin = async function () {
       return {};
     }
   })();
-  const mustLogin = !!S.authRequired;
+  const mustLogin = (S.authRequired !== false);
 
   if (mustLogin && !u){
     if (!location.hash || location.hash==='#' || location.hash==='#/') location.hash = '#/login';
