@@ -14851,7 +14851,7 @@ window.safePrintHTMLStringWithPageNum = function(html){
   if (!window.renderDDTHTML) {
       // ===== HTML della stampa DDT (layout classico) =====
   // ===== HTML stampa DDT (header/footer fissi + pagina X/Y + sedi in header) =====
-// ===== HTML stampa DDT (Versione COMPLETA + Layout Basso e Header Corretto) =====
+// ===== HTML stampa DDT (Versione COMPLETA + Layout Basso + FIX ERRORE PAGES) =====
 window.renderDDTHTML = function(ddt){
   const esc = v => String(v ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
 
@@ -14955,15 +14955,14 @@ window.renderDDTHTML = function(ddt){
 
     /* FOOTER: Fissato in basso all'area di stampa */
     .footer{
-      position: fixed; /* Lo tiene sulla pagina */
-      bottom: 0; 
-      left: 0; 
-      right: 0;
-      height: auto;
-      border-top: 1px solid #cbd5e1; background: #fff;
-      padding: 4mm 12mm 4mm 12mm; /* 4mm verticali per respiro. 12mm laterali */
-      margin-top: 8mm; /* Spazio sopra il footer in caso di contenuto corto */
-      box-sizing: border-box;
+      position: absolute;
+      left: 10mm; 
+      right: 10mm;
+      bottom: 5mm; /* 5mm dal bordo inferiore del foglio */
+      height: 48mm; /* Altezza fissa per griglia + firme */
+      border-top: 1px solid #cbd5e1;
+      padding-top: 4px;
+      background: #fff;
     }
     .footer .grid{
       display:grid;
@@ -15045,7 +15044,10 @@ window.renderDDTHTML = function(ddt){
       <div class="box">
         <div class="lbl">Mittente</div>
         <div><b>${ragAzi}</b></div>
-        ${pivaAzi ? `<div class="muted">P.IVA: ${pivaAzi}</div>` : ``} ${sedeLeg ? `<div class="muted">S. Legale: ${sedeLeg}</div>` : ``} ${sedeOp  ? `<div class="muted">S. Operativa: ${sedeOp}</div>` : ``} </div>
+        ${pivaAzi ? `<div class="muted">P.IVA: ${pivaAzi}</div>` : ``}
+        ${sedeLeg ? `<div class="muted">S. Legale: ${sedeLeg}</div>` : ``}
+        ${sedeOp  ? `<div class="muted">S. Operativa: ${sedeOp}</div>` : ``}
+      </div>
       <div class="box">
         <div class="lbl">Destinatario</div>
         <div><b>${cliRag || '—'}</b></div>
@@ -15060,28 +15062,39 @@ window.renderDDTHTML = function(ddt){
     ? `<div class="box" style="margin-top:8px">Causale del trasporto: <b>${esc(ddt.causaleTrasporto)}</b></div>`
     : ``;
 
+  // --- CALCOLO PAGINAZIONE (FIXED) ---
   const rows = (righe && righe.length) ? righe : [{}];
   
-  // --- PAGINAZIONE ---
+  // Riduco leggermente le righe per pagina per evitare sovrapposizioni col footer
+  const ROWS_PER_PAGE = hasNote ? 10 : 14;
+  
+  const pages = []; // <--- ORA È DEFINITA PRIMA DI ESSERE USATA!
+  for (let i = 0; i < rows.length; i += ROWS_PER_PAGE) {
+    pages.push({ start: i, rows: rows.slice(i, i + ROWS_PER_PAGE) });
+  }
+  if (!pages.length) pages.push({ start: 0, rows: [{}] });
+
+  const totalPages = pages.length;
+
   const tableHeadHTML = `
     <table>
       <thead><tr>
-        <th class="ctr" style="width:26px">#</th>
-        <th style="width:140px">Codice</th>
+        <th class="ctr" style="width:30px">#</th>
+        <th style="width:130px">Codice</th>
         <th>Descrizione</th>
-        <th class="ctr" style="width:60px">UM</th>
-        <th class="ctr" style="width:64px">Q.tà</th>
-        ${hasNote ? `<th style="width:160px">Note</th>` : ``}
+        <th class="ctr" style="width:50px">UM</th>
+        <th class="ctr" style="width:60px">Q.tà</th>
+        ${hasNote ? `<th style="width:150px">Note</th>` : ``}
       </tr></thead>`;
 
   const pagesHTML = pages.map((p, pageIdx) => {
-    const bodyRowsHTML = (p.rows && p.rows.length ? p.rows : [{}]).map((r, i) => `
+    const bodyRowsHTML = (p.rows).map((r, i) => `
       <tr>
-        <td class="ctr">${righe.length ? (p.start + i + 1) : ''}</td>
+        <td class="ctr">${p.start + i + 1}</td>
         <td>${esc(r.codice || r.articoloCodice || '')}</td>
         <td>${esc(r.descrizione || '')}</td>
         <td class="ctr">${esc(r.UM || r.um || '')}</td>
-        <td class="ctr">${r.qta ?? r.quantita ?? ''}</td>
+        <td class="ctr"><b>${r.qta ?? r.quantita ?? ''}</b></td>
         ${hasNote ? `<td>${esc(r.note||'')}</td>` : ``}
       </tr>
     `).join('');
@@ -15094,12 +15107,12 @@ window.renderDDTHTML = function(ddt){
     const footerPagina = `
       <div class="footer">
         <div class="grid">
-          <div class="box">Vettore: <b>${vettore}</b></div>
-          <div class="box">Aspetto beni: <b>${aspetto}</b></div>
-          <div class="box">Colli: <b>${colli}</b></div>
-          <div class="box">Data/ora: <b>${dataOra}</b></div>
-          <div class="box">Peso netto: <b>${pesoNetto}</b></div>
-          <div class="box">Peso lordo: <b>${pesoLordo}</b></div>
+          <div class="box"><div class="lbl">Vettore</div>${vettore}</div>
+          <div class="box"><div class="lbl">Aspetto</div>${aspetto}</div>
+          <div class="box"><div class="lbl">Colli</div>${colli}</div>
+          <div class="box"><div class="lbl">Data/Ora</div>${dataOra}</div>
+          <div class="box"><div class="lbl">Peso Netto</div>${pesoNetto}</div>
+          <div class="box"><div class="lbl">Peso Lordo</div>${pesoLordo}</div>
         </div>
 
         <div class="grid firme" style="margin-top:6px; display:grid; grid-template-columns:repeat(3,1fr); gap:6px">
@@ -15122,25 +15135,19 @@ window.renderDDTHTML = function(ddt){
     `;
 
     return `
-      <div class="page">
-        <div class="content">
-          ${header}
-          ${mittDest}
-          ${causale}
-          ${tabellaPagina}
-        </div>
-        ${footerPagina}
+    <div class="page">
+      <div class="content">
+        ${header}
+        ${mittDest}
+        ${causale}
+        ${tabellaPagina}
       </div>
-    `;
+      ${footerPagina}
+    </div>`;
   }).join('');
 
-  return `<!doctype html><html><head><meta charset="utf-8">${css}</head>
-  <body>
-    ${pagesHTML}
-  </body></html>`;
-
+  return `<!doctype html><html><head><meta charset="utf-8">${css}</head><body>${pagesHTML}</body></html>`;
 };
-
 
 // ===== Stampa DDT con fallback numerazione pagina =====
 window.printDDT = function(state){
