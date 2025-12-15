@@ -23887,6 +23887,76 @@ window.findCommessaById = window.findCommessaById || function(id){
     '#/login'
   ]);
 
+    // ---------------- ROUTES: garantisci mapping PRIMA del mount ----------------
+  (function ensureRoutesBeforeMount(){
+    const R = window.ROUTES = window.ROUTES || {};
+
+    // Stub minimale per viste eventualmente non inizializzate (evita route "undefined")
+    const defView = (name, label) => {
+      if (typeof window[name] !== 'function') {
+        window[name] = function(){
+          return e('div', { className:'page' }, label + ' — vista non inizializzata');
+        };
+      }
+    };
+
+    defView('DashboardView',           'Dashboard');
+    defView('CommesseView',            'Commesse');
+    defView('DDTView',                 'DDT');
+    defView('FattureView',             'Fatture');
+    defView('ClientiView',             'Clienti');
+    defView('FornitoriView',           'Fornitori');
+    defView('OrdiniFornitoriView',     'Ordini Fornitori');
+    defView('OrdiniFornitoriRitardoView','OF in ritardo');
+    defView('MagazzinoView',           'Magazzino');
+    defView('ReportView',              'Report');
+    defView('ReportTempiView',         'Report tempi');
+    defView('SaturazioneRepartiView',  'Saturazione reparti');
+    defView('ReportMaterialiView',     'Report materiali');
+    defView('PreventiviView',          'Preventivi');
+    defView('DiagnosticaView',         'Diagnostica');
+    defView('SettingsView',            'Impostazioni');
+    defView('ImpostazioniView',        'Impostazioni');
+    defView('TimbraturaMobileView',    'Timbratura');
+
+    // Mappa rotte (usa fallback dove hai alias possibili)
+    const map = {
+      '#/dashboard':        window.DashboardView,
+      '#/commesse':         window.CommesseView,
+
+      '#/ore':              (window.RegistrazioniOreView || window.OreView),
+      '#/movimenti':        (window.MagazzinoMovimentiView || window.MovimentiView),
+
+      '#/clienti':          window.ClientiView,
+      '#/fornitori':        window.FornitoriView,
+
+      '#/preventivi':       (window.PreventiviView || window.PreventivoView),
+
+      '#/ddt':              window.DDTView,
+      '#/fatture':          window.FattureView,
+      '#/ordini':           window.OrdiniFornitoriView,
+      '#/ordini-ritardo':   window.OrdiniFornitoriRitardoView,
+
+      '#/magazzino':        window.MagazzinoView,
+
+      '#/report-tempi':     window.ReportTempiView,
+      '#/saturazione':      (window.SaturazioneRepartiView || window.SaturazioneView),
+      '#/report-materiali': (window.ReportProdView || window.ReportMaterialiView),
+      '#/report':           window.ReportView,
+
+      '#/diagnostica':      window.DiagnosticaView,
+      '#/impostazioni':     (window.SettingsView || window.ImpostazioniView),
+
+      '#/login':            window.LoginView,
+      '#/timbratura':       window.TimbraturaMobileView
+    };
+
+    Object.keys(map).forEach(h => {
+      const Comp = map[h];
+      if (typeof Comp === 'function') R[h] = Comp;
+    });
+  })();
+
   function Sidebar({ hash }) {
     const R   = (window.ROUTES || {});
     const cur = (hash || (location.hash || '#/dashboard')).toLowerCase();
@@ -24106,7 +24176,7 @@ window.findCommessaById = window.findCommessaById || function(id){
     }
 
     const R = window.ROUTES || {};
-    const Comp = R[h] || R['#/ddt'];
+    const Comp = R[h] || R['#/dashboard'] || R['#/ddt'];
     return (typeof Comp === 'function')
       ? Comp
       : function () {
