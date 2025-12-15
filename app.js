@@ -2425,7 +2425,7 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
   }catch(e){ console.warn('safePrintHTMLString', e); }
 };
 
-// ================== PREVENTIVI: STAMPA (Layout Fix Logo + Pagina) ==================
+// ================== PREVENTIVI: STAMPA (Layout Fix Logo + Margini Anti-Sovrapposizione) ==================
 (function(){
   // Helper locali
   const esc = s => String(s ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
@@ -2652,8 +2652,8 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
           width: 210mm; height: 297mm;
           position: relative;
           page-break-after: always;
-          /* Aumentato padding-bottom a 20mm per evitare sormonti */
-          padding: 10mm 10mm 20mm 10mm; 
+          /* FIX: Aumentato padding-bottom a 25mm per evitare sovrapposizioni coi totali */
+          padding: 10mm 10mm 25mm 10mm; 
           display: flex; flex-direction: column; 
           overflow: hidden;
         }
@@ -2665,7 +2665,7 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         .header { display: flex; justify-content: space-between; border-bottom: 2px solid #111; padding-bottom: 8px; margin-bottom: 12px; }
         .brand { display: flex; gap: 15px; align-items: center; }
         
-        /* Logo più grande */
+        /* FIX: Logo più grande */
         .logo { height: 80px; max-width: 220px; object-fit: contain; }
         
         .az-info { font-size: 9pt; line-height: 1.3; }
@@ -2706,7 +2706,7 @@ window.safePrintHTMLString = window.safePrintHTMLString || function(html){
         .sign-box .line { position: absolute; bottom: 10mm; left: 10%; width: 80%; border-bottom: 1px solid #000; }
         .sign-box .center { position: absolute; bottom: 4mm; width: 100%; text-align: center; }
         
-        /* Numerazione Pagina più in basso */
+        /* FIX: Numero pagina spostato ancora più in basso (5mm dal fondo) */
         .page-num { position: absolute; bottom: 5mm; right: 10mm; font-size: 9pt; color: #888; font-weight: bold; }
       </style>`;
 
