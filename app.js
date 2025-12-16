@@ -11069,6 +11069,11 @@ function CommesseView({ query = '' }) {
 
           const onSmartUpload = async (ev) => {
              const file = ev.target.files?.[0]; if(!file) return;
+             if (!window.__Z_HANDLE) {
+               alert('Prima clicca "🔗 Connetti cartella ANIMA_DOC (Z:)" e seleziona la cartella. Poi riprova.');
+               try{ ev.target.value = ''; }catch{}
+               return;
+             }
              const commYear = new Date().getFullYear();
              const savedPath = await window.smartSaveFile(file, ['COMMESSE', String(commYear), entityId], file.name);
              if (savedPath) {
@@ -11093,6 +11098,19 @@ function CommesseView({ query = '' }) {
 
           return e('div', {className:'subcard', style:{gridColumn:'1 / -1'}},
             e('h4', null, 'Allegati commessa'),
+            e('div', {className:'actions', style:{margin:'6px 0 10px 0', gap:8, alignItems:'center'}},
+              e('button', {
+                className:'btn btn-outline',
+                onClick: async ()=>{
+                  await window.ensureZConnection({interactive:true});
+                  if (window.__Z_HANDLE) {
+                    alert('Cartella collegata: ' + (window.__Z_HANDLE.name || 'OK'));
+                  } else {
+                    alert('Connessione non riuscita: ' + (window.__Z_LAST_ERR || 'errore'));
+                  }
+                }
+              }, '🔗 Connetti cartella ANIMA_DOC (Z:)')
+            ),
             !isSaved ? e('p', {className:'muted'}, 'Salva prima la commessa.') : e('div', null,
                rowsAllegati.length ? e('table', {className:'table table-sm'},
                  e('thead', null, e('tr',null,e('th',null,'Data'),e('th',null,'Tipo'),e('th',null,'Descrizione'),e('th',null,'Azioni'))),
@@ -26821,14 +26839,25 @@ window.navigateTo = window.navigateTo || function(name){
   window.__Z_HANDLE = null;
 
   // 1. Connette il disco Z: (lo chiede solo la prima volta)
-window.ensureZConnection = async function(){
+window.ensureZConnection = async function(opts){
     if (window.__Z_HANDLE) return window.__Z_HANDLE;
+
+    const o = (opts && typeof opts === 'object') ? opts : {};
+    const interactive = (typeof o.interactive === 'boolean') ? o.interactive : true;
 
     // reset dettaglio errore (per debug)
     try{ window.__Z_LAST_ERR = ''; }catch{}
 
     if (!window.showDirectoryPicker) {
       try{ window.__Z_LAST_ERR = 'showDirectoryPicker non disponibile (browser non compatibile)'; }catch{}
+      return null;
+    }
+        // Se chiamato da flussi non "click-diretti" (es. onChange file input),
+    // NON tentare mai il picker: il browser lo blocca con SecurityError.
+    if (!interactive) {
+      try{
+        window.__Z_LAST_ERR = window.__Z_LAST_ERR || 'Z: non connesso. Clicca "🔗 Connetti cartella ANIMA_DOC (Z:)" e seleziona la cartella, poi riprova.';
+      }catch{}
       return null;
     }
     try {
@@ -26870,9 +26899,14 @@ window.ensureZConnection = async function(){
 
     } catch (err) {
       try{
-        window.__Z_LAST_ERR = (err && (err.name || err.message))
+        let msg = (err && (err.name || err.message))
           ? `${err.name||''} ${err.message||''}`.trim()
           : String(err||'');
+
+        if (/Must be handling a user gesture/i.test(msg)) {
+          msg = 'SecurityError: il picker cartella è consentito SOLO da un click diretto. Clicca "🔗 Connetti cartella ANIMA_DOC (Z:)" e poi ricarica il file. Dettaglio: ' + msg;
+        }
+        window.__Z_LAST_ERR = msg;
       }catch{}
       console.warn("Accesso disco annullato:", err);
       return null;
@@ -26882,7 +26916,7 @@ window.ensureZConnection = async function(){
   // 2. Salva il file fisicamente
   // pathParts es: ['DISEGNI', 'ARTICOLI', 'ART-001']
   window.smartSaveFile = async function(fileObj, pathParts, renameTo = null){
-    const root = await window.ensureZConnection();
+    const root = await window.ensureZConnection({ interactive:false });
     if (!root) {
       try{
         if (!window.__Z_LAST_ERR) window.__Z_LAST_ERR = 'Z: non connesso / permesso negato / operazione annullata';
