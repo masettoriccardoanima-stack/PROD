@@ -18228,10 +18228,23 @@ function OrdiniFornitoriView({ query = '' }) {
                 newName = `${id}-Conferma.${ext}`;
               }
 
+              if (!window.smartSaveFile) {
+                alert('smartSaveFile non disponibile: manca il motore Allegati Smart (Z:).');
+                return;
+              }
+
+              // Richiede connessione esplicita: evita tentativi “a vuoto” e problemi di user-activation
+              if (!window.__Z_HANDLE) {
+                alert('Prima clicca "🔗 Connetti cartella ANIMA_DOC (Z:)" e seleziona la cartella. Poi riprova.');
+                return;
+              }
+
               const savedPath = await window.smartSaveFile(file, [folder, String(year), id], newName);
+
               try{ ev.target.value = ''; }catch{} // permette di ricaricare lo stesso file
 
               if (!savedPath) {
+                const det = window.__Z_LAST_ERR ? ("\n\nDettaglio tecnico: " + window.__Z_LAST_ERR) : '';
                 alert(
                   "Salvataggio su Z: NON riuscito / annullato.\n\n" +
                   "Cause tipiche:\n" +
@@ -18239,6 +18252,7 @@ function OrdiniFornitoriView({ query = '' }) {
                   "• Permesso non concesso / cartella ANIMA_DOC non selezionata\n\n" +
                   "Soluzione: usa PC con Chrome/Edge e seleziona ANIMA_DOC quando richiesto,\n" +
                   "oppure registra SOLO l'indice (pulsante sotto)."
+                  + det
                 );
                 return;
               }
@@ -18247,7 +18261,8 @@ function OrdiniFornitoriView({ query = '' }) {
                 let all = []; try{ all = window.lsGet('allegatiRows',[])||[]; }catch{}
                 const nextId = `ALG-${year}-${String(all.length+1).padStart(4,'0')}`;
                 const desc = f.descrizione || (tipo==='CONFERMA_ORDINE' ? `Conferma ${id}` : file.name);
-                const newRow = { id:nextId, createdAt:new Date().toISOString(), tipo, descrizione:desc, path:savedPath, url:'', entityType:'OF', entityId:id, deletedAt:null };
+                const nowIso = new Date().toISOString();
+                const newRow = { id:nextId, createdAt:nowIso, updatedAt:nowIso, tipo, descrizione:desc, path:savedPath, url:'', entityType:'OF', entityId:id, deletedAt:null };
                 if (window.allegatiUpsertOne) window.allegatiUpsertOne(newRow);
                 else window.lsSet('allegatiRows', [...all, newRow]);
 
@@ -18328,6 +18343,18 @@ function OrdiniFornitoriView({ query = '' }) {
                   e('div', null, e('label',null,'Tipo'), e('select',{value:allegatoOFForm.tipo, onChange:ev=>setAllegatoOFForm({...allegatoOFForm, tipo:ev.target.value})}, ['CONFERMA_ORDINE','DISEGNO','ALTRO'].map(t=>e('option',{key:t,value:t},t)))),
                   e('div', null, e('label',null,'Descrizione'), e('input',{value:allegatoOFForm.descrizione, onChange:ev=>setAllegatoOFForm({...allegatoOFForm, descrizione:ev.target.value})})),
                   e('div', {style:{gridColumn:'1/-1', marginTop:8, display:'grid', gap:8}},
+
+                      e('button', {
+                       className:'btn btn-outline',
+                       style:{display:'block', width:'100%'},
+                       disabled: readOnly,
+                       onClick: async () => {
+                         const h = await (window.ensureZConnection ? window.ensureZConnection() : null);
+                         const det = window.__Z_LAST_ERR ? ('\n\nDettaglio: ' + window.__Z_LAST_ERR) : '';
+                         if (h) alert('Cartella connessa: ' + (h.name||'ANIMA_DOC'));
+                         else alert('Connessione cartella NON riuscita.' + det);
+                       }
+                     }, '🔗 Connetti cartella ANIMA_DOC (Z:)'),
 
                      e('button', {
                        className:'btn btn-outline',
@@ -26776,28 +26803,59 @@ window.navigateTo = window.navigateTo || function(name){
   // 1. Connette il disco Z: (lo chiede solo la prima volta)
   window.ensureZConnection = async function(){
     if (window.__Z_HANDLE) return window.__Z_HANDLE;
-    
+
+    // reset dettaglio errore
+    try{ window.__Z_LAST_ERR = ''; }catch{}
+
     if (!window.showDirectoryPicker) {
+      try{ window.__Z_LAST_ERR = 'showDirectoryPicker non disponibile'; }catch{}
       alert("Il tuo browser è troppo vecchio per il salvataggio automatico. Usa Chrome o Edge aggiornati.");
       return null;
     }
 
     try {
-      alert("⚠️ ATTENZIONE ⚠️\n\nAl prossimo passaggio, seleziona la cartella radice:\n👉 Z:\\ANIMA_DOC\n\nQuesto darà al gestionale il permesso di salvare i file automaticamente.");
-      const handle = await window.showDirectoryPicker({ 
-        id: 'anima_doc_root', 
+      // IMPORTANTISSIMO: niente alert/confirm PRIMA del picker (può far fallire la user-activation)
+      const handle = await window.showDirectoryPicker({
+        id: 'anima_doc_root',
         mode: 'readwrite',
-        startIn: 'documents' 
+        startIn: 'documents'
       });
-      
-      // Controllo veloce se è la cartella giusta
-      if (handle.name !== 'ANIMA_DOC') {
-        if(!confirm(`Hai selezionato "${handle.name}" invece di "ANIMA_DOC". Sicuro di voler continuare?`)) return null;
+
+      // Permesso esplicito (se supportato)
+      try{
+        if (handle && handle.requestPermission) {
+          const perm = await handle.requestPermission({ mode: 'readwrite' });
+          if (perm !== 'granted') {
+            window.__Z_LAST_ERR = 'Permesso non concesso (requestPermission)';
+            return null;
+          }
+        }
+      }catch(e){
+        try{
+          window.__Z_LAST_ERR = (e && (e.name || e.message))
+            ? `${e.name||''} ${e.message||''}`.trim()
+            : String(e||'');
+        }catch{}
+        return null;
       }
-      
+
+      // Controllo veloce se è la cartella giusta (dopo il picker va bene)
+      if (handle && handle.name !== 'ANIMA_DOC') {
+        if(!confirm(`Hai selezionato "${handle.name}" invece di "ANIMA_DOC". Sicuro di voler continuare?`)) {
+          window.__Z_LAST_ERR = 'Selezione annullata (cartella diversa)';
+          return null;
+        }
+      }
+
       window.__Z_HANDLE = handle;
       return handle;
+
     } catch (err) {
+      try{
+        window.__Z_LAST_ERR = (err && (err.name || err.message))
+          ? `${err.name||''} ${err.message||''}`.trim()
+          : String(err||'');
+      }catch{}
       console.warn("Accesso disco annullato:", err);
       return null;
     }
@@ -26835,7 +26893,12 @@ window.navigateTo = window.navigateTo || function(name){
       return `${basePath}\\${relPath}\\${fileName}`;
 
     } catch (err) {
-      alert("Errore salvataggio su disco: " + err.message);
+      try{
+        window.__Z_LAST_ERR = (err && (err.name || err.message))
+          ? `${err.name||''} ${err.message||''}`.trim()
+          : String(err||'');
+      }catch{}
+      alert("Errore salvataggio su disco: " + (err && err.message ? err.message : String(err)));
       console.error(err);
       return null;
     }
