@@ -11073,8 +11073,7 @@ function CommesseView({ query = '' }) {
              const savedPath = await window.smartSaveFile(file, ['COMMESSE', String(commYear), entityId], file.name);
              if (savedPath) {
                 const newId = `ALG-${commYear}-${String(all.length+1).padStart(4,'0')}`;
-                const newRow = { id: newId, createdAt: new Date().toISOString(), tipo: allegatoCommessaForm.tipo || 'ALTRO', descrizione: allegatoCommessaForm.descrizione || file.name, path: savedPath, url: '', entityType: 'COMMESSA', entityId, deletedAt: null };
-                window.lsSet('allegatiRows', [...all, newRow]);
+                const newRow = { id: newId, createdAt: new Date().toISOString(), tipo: allegatoCommessaForm.tipo || 'ALTRO', descrizione: allegatoCommessaForm.descrizione || file.name, path: savedPath, url: '', entityType: 'COMMESSA', entityId, deletedAt: null };              
                 if (window.allegatiUpsertOne) window.allegatiUpsertOne(newRow);
                 else window.lsSet('allegatiRows', [...all, newRow]);
                 setAllegatoCommessaForm({ tipo:'ALTRO', descrizione:'', path:'', url:'' });
@@ -18249,7 +18248,6 @@ function OrdiniFornitoriView({ query = '' }) {
                 const nextId = `ALG-${year}-${String(all.length+1).padStart(4,'0')}`;
                 const desc = f.descrizione || (tipo==='CONFERMA_ORDINE' ? `Conferma ${id}` : file.name);
                 const newRow = { id:nextId, createdAt:new Date().toISOString(), tipo, descrizione:desc, path:savedPath, url:'', entityType:'OF', entityId:id, deletedAt:null };
-                window.lsSet('allegatiRows', [...all, newRow]);
                 if (window.allegatiUpsertOne) window.allegatiUpsertOne(newRow);
                 else window.lsSet('allegatiRows', [...all, newRow]);
 
@@ -18304,7 +18302,6 @@ function OrdiniFornitoriView({ query = '' }) {
                if(!confirm('Eliminare?')) return;
                let all = lsGet('allegatiRows',[])||[];
                const upd = all.map(r => r.id===aid ? {...r, deletedAt:new Date().toISOString()} : r);
-               lsSet('allegatiRows', upd);
                if (window.allegatiSoftDelete) window.allegatiSoftDelete(aid);
                else lsSet('allegatiRows', upd);
                setDraft({...draft}); // refresh
@@ -18330,15 +18327,19 @@ function OrdiniFornitoriView({ query = '' }) {
                 e('div', {className:'grid grid-2', style:{marginTop:8, padding:10, border:'1px dashed #ccc', borderRadius:8}},
                   e('div', null, e('label',null,'Tipo'), e('select',{value:allegatoOFForm.tipo, onChange:ev=>setAllegatoOFForm({...allegatoOFForm, tipo:ev.target.value})}, ['CONFERMA_ORDINE','DISEGNO','ALTRO'].map(t=>e('option',{key:t,value:t},t)))),
                   e('div', null, e('label',null,'Descrizione'), e('input',{value:allegatoOFForm.descrizione, onChange:ev=>setAllegatoOFForm({...allegatoOFForm, descrizione:ev.target.value})})),
-                  e('div', {style:{gridColumn:'1/-1', marginTop:8}},
-                     e('label', {className:'btn btn-primary', style:{display:'block', textAlign:'center', cursor:'pointer'}},
-                      // (dopo il label di upload)
+                  e('div', {style:{gridColumn:'1/-1', marginTop:8, display:'grid', gap:8}},
+
                      e('button', {
                        className:'btn btn-outline',
-                       style:{display:'block', width:'100%', marginTop:8},
+                       style:{display:'block', width:'100%'},
                        disabled: readOnly,
                        onClick: registerIndexOnly
-                      }, '➕ Registra solo indice (file già su Z)'),
+                     }, '➕ Registra solo indice (file già su Z)'),
+
+                     e('label', {
+                       className:'btn btn-primary',
+                       style:{display:'block', textAlign:'center', cursor:'pointer'}
+                     },
                        '📂 CARICA FILE SU Z:',
                        e('input', {type:'file', style:{display:'none'}, disabled:readOnly, onChange:saveAllegatoSmart})
                      )
