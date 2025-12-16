@@ -17999,6 +17999,8 @@ function OrdiniFornitoriView({ query = '' }) {
 
     // Se chiamata da onClick diretto, React passa l'evento: ignoralo
     let base = docOverride;
+
+    // 1) Eventi React / browser (evita JSON.stringify su oggetti con riferimenti circolari)
     const looksLikeEvent = base && typeof base === 'object' && (
       typeof base.preventDefault === 'function' ||
       typeof base.stopPropagation === 'function' ||
@@ -18006,7 +18008,13 @@ function OrdiniFornitoriView({ query = '' }) {
       !!base.currentTarget ||
       !!base.target
     );
-    if (looksLikeEvent) base = null;
+
+    // 2) DOM Node passato per errore (es. HTMLButtonElement): anche questo può creare "circular"
+    const looksLikeDOMNode = base && typeof base === 'object' && (
+      (base.nodeType === 1) || (base.nodeType === 9) || (base.nodeType === 11) // Element / Document / Fragment
+    );
+
+    if (looksLikeEvent || looksLikeDOMNode) base = null;
 
     base = base || draft;
     if (!base) return;
@@ -26820,11 +26828,9 @@ window.ensureZConnection = async function(){
     try{ window.__Z_LAST_ERR = ''; }catch{}
 
     if (!window.showDirectoryPicker) {
-      try{ window.__Z_LAST_ERR = 'showDirectoryPicker non disponibile'; }catch{}
-      alert("Il tuo browser è troppo vecchio per il salvataggio automatico. Usa Chrome o Edge aggiornati.");
+      try{ window.__Z_LAST_ERR = 'showDirectoryPicker non disponibile (browser non compatibile)'; }catch{}
       return null;
     }
-
     try {
       // IMPORTANTISSIMO: niente alert/confirm PRIMA del picker (può far fallire la user-activation)
       const handle = await window.showDirectoryPicker({
@@ -26877,7 +26883,12 @@ window.ensureZConnection = async function(){
   // pathParts es: ['DISEGNI', 'ARTICOLI', 'ART-001']
   window.smartSaveFile = async function(fileObj, pathParts, renameTo = null){
     const root = await window.ensureZConnection();
-    if (!root) return null;
+    if (!root) {
+      try{
+        if (!window.__Z_LAST_ERR) window.__Z_LAST_ERR = 'Z: non connesso / permesso negato / operazione annullata';
+      }catch{}
+      return null;
+    }
 
     try {
       // Naviga o crea le cartelle
