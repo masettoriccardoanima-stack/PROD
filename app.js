@@ -11087,12 +11087,22 @@ function CommesseView({ query = '' }) {
           };
           const onDelete = (row) => {
             if(!confirm('Eliminare?')) return;
-            const upd = all.map(r => r.id===row.id ? {...r, deletedAt:new Date().toISOString()} : r);
-            window.lsSet('allegatiRows', upd);
-            if (window.allegatiSoftDelete) window.allegatiSoftDelete(row.id);
-            else window.lsSet('allegatiRows', upd);
+            if(!row || !row.id) return;
+
+            // Anti-wipe: una sola strada di scrittura
+            if (window.allegatiSoftDelete) {
+              window.allegatiSoftDelete(row.id);
+            } else {
+              const nowIso = new Date().toISOString();
+              const upd = (Array.isArray(all)?all:[]).map(r =>
+                (r && r.id===row.id) ? {...r, deletedAt:(r.deletedAt||nowIso), updatedAt: nowIso} : r
+              );
+              window.lsSet('allegatiRows', upd);
+            }
+
             setAllegatoCommessaForm({...allegatoCommessaForm}); // refresh
           };
+
           const onCopyPath = (p) => { try{ navigator.clipboard.writeText(p); }catch{ prompt('Copia:',p); } };
           const onOpenUrl  = (u) => { if(u && /^https?:\/\//i.test(u)) window.open(u,'_blank'); };
 
@@ -23224,12 +23234,19 @@ function MagazzinoView(props){
         setAllegatoArtForm({ tipo:'DISEGNO', descrizione:'', path:'', url:'' });
       };
       const onDelete = (row) => {
-        if(!row||!row.id)return; if(!window.confirm('Eliminare questo allegato articolo?'))return;
-        let allRows=[]; try{ allRows=lsGet('allegatiRows',[])||[]; }catch(e){allRows=[];} if(!Array.isArray(allRows))allRows=[];
-        const nowIso=new Date().toISOString();
-        lsSet('allegatiRows', allRows.map(r=> r&&r.id===row.id ? {...r, deletedAt:r.deletedAt||nowIso} : r));
-        if (window.allegatiSoftDelete) window.allegatiSoftDelete(row.id);
-        else lsSet('allegatiRows', allRows.map(r=> r&&r.id===row.id ? {...r, deletedAt:r.deletedAt||nowIso} : r));
+        if(!row||!row.id) return;
+        if(!window.confirm('Eliminare questo allegato articolo?')) return;
+
+        // Anti-wipe: una sola strada di scrittura
+        if (window.allegatiSoftDelete) {
+          window.allegatiSoftDelete(row.id);
+        } else {
+          let allRows=[]; try{ allRows=lsGet('allegatiRows',[])||[]; }catch(e){allRows=[];}
+          if(!Array.isArray(allRows)) allRows=[];
+          const nowIso=new Date().toISOString();
+          lsSet('allegatiRows', allRows.map(r=> r&&r.id===row.id ? {...r, deletedAt:(r.deletedAt||nowIso), updatedAt: nowIso} : r));
+        }
+
         setAllegatoArtForm(prev=>({...prev}));
       };
       const onCopyPath = (row) => { const p=(row&&row.path)?String(row.path):''; if(!p)return; if(navigator&&navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(p).catch(()=>{ window.prompt('Copia il percorso:',p); }); }else{ window.prompt('Copia il percorso:',p); } };
