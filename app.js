@@ -2449,6 +2449,65 @@ window.autoSyncMagazzinoDaRighe = window.autoSyncMagazzinoDaRighe || function(ri
     try{ window.migrateAllegatiEntityTypeOF(); }catch{}
   })();
 
+
+  // === Allegati: store helpers (merge-safe + soft-delete) ===
+  (function(){
+    if (window.__ANIMA_ALLEGATI_STORE_HELPERS_V1__) return;
+    window.__ANIMA_ALLEGATI_STORE_HELPERS_V1__ = true;
+
+    const getAll = () => {
+      try {
+        const v = (typeof window.lsGet === 'function') ? window.lsGet('allegatiRows', []) : [];
+        return Array.isArray(v) ? v : [];
+      } catch { return []; }
+    };
+
+    const setAll = (arr) => {
+      try {
+        if (typeof window.lsSet === 'function') window.lsSet('allegatiRows', arr);
+        else if (typeof lsSet === 'function') lsSet('allegatiRows', arr);
+      } catch {}
+    };
+
+    const mergeLocal = (cur, inc) => {
+      const m = new Map();
+      const push = (r) => { if (r && r.id != null) m.set(String(r.id), r); };
+      (Array.isArray(cur)?cur:[]).forEach(push);
+      (Array.isArray(inc)?inc:[]).forEach(push);
+      return Array.from(m.values());
+    };
+
+    window.allegatiUpsertRows = window.allegatiUpsertRows || function(rows){
+      const incoming = Array.isArray(rows) ? rows : [];
+      const cur = getAll();
+
+      const merged = (typeof window.mergeById === 'function')
+        ? window.mergeById(cur, incoming)
+        : mergeLocal(cur, incoming);
+
+      setAll(merged);
+      return merged;
+    };
+
+    window.allegatiUpsertOne = window.allegatiUpsertOne || function(row){
+      if (!row || row.id == null) return null;
+      window.allegatiUpsertRows([row]);
+      return row;
+    };
+
+    window.allegatiSoftDelete = window.allegatiSoftDelete || function(id){
+      if (!id) return;
+      const cur = getAll();
+      const now = new Date().toISOString();
+      const next = cur.map(r => {
+        if (!r || String(r.id||'') !== String(id)) return r;
+        return { ...r, deletedAt: r.deletedAt || now, updatedAt: now };
+      });
+      setAll(next);
+      return true;
+    };
+  })();
+
   window.persistListFactory = window.persistListFactory || function(key, setState){
     return function persist(next){
       try { localStorage.setItem(key, JSON.stringify(next)); } catch {}
@@ -2462,7 +2521,7 @@ window.autoSyncMagazzinoDaRighe = window.autoSyncMagazzinoDaRighe || function(ri
   window.formatNNN = window.formatNNN || (n => String(n).padStart(3, '0'));
 
   // === nextIdUnique: calcola il prossimo ID scansionando lo storage (max+1) ===
-window.nextIdUnique = window.nextIdUnique || function (kind, series, storageKey) {
+  window.nextIdUnique = window.nextIdUnique || function (kind, series, storageKey) {
   const lsGet = window.lsGet || ((k,d)=>{ try{ return JSON.parse(localStorage.getItem(k)) ?? d; }catch{ return d; } });
   const rows = Array.isArray(lsGet(storageKey, [])) ? lsGet(storageKey, []) : [];
   const year = new Date().getFullYear();
@@ -10938,6 +10997,8 @@ function CommesseView({ query = '' }) {
                 const newId = `ALG-${commYear}-${String(all.length+1).padStart(4,'0')}`;
                 const newRow = { id: newId, createdAt: new Date().toISOString(), tipo: allegatoCommessaForm.tipo || 'ALTRO', descrizione: allegatoCommessaForm.descrizione || file.name, path: savedPath, url: '', entityType: 'COMMESSA', entityId, deletedAt: null };
                 window.lsSet('allegatiRows', [...all, newRow]);
+                if (window.allegatiUpsertOne) window.allegatiUpsertOne(newRow);
+                else window.lsSet('allegatiRows', [...all, newRow]);
                 setAllegatoCommessaForm({ tipo:'ALTRO', descrizione:'', path:'', url:'' });
                 ev.target.value = ''; alert('File caricato.');
              }
@@ -10946,6 +11007,8 @@ function CommesseView({ query = '' }) {
             if(!confirm('Eliminare?')) return;
             const upd = all.map(r => r.id===row.id ? {...r, deletedAt:new Date().toISOString()} : r);
             window.lsSet('allegatiRows', upd);
+            if (window.allegatiSoftDelete) window.allegatiSoftDelete(row.id);
+            else window.lsSet('allegatiRows', upd);
             setAllegatoCommessaForm({...allegatoCommessaForm}); // refresh
           };
           const onCopyPath = (p) => { try{ navigator.clipboard.writeText(p); }catch{ prompt('Copia:',p); } };
@@ -13627,12 +13690,9 @@ React.useEffect(() => {
         ? window.mergeById(cur, arr)
         : arr;
 
-      if (typeof lsSet === 'function') {
-        lsSet('allegatiRows', merged);
-      } else {
-        localStorage.setItem('allegatiRows', JSON.stringify(merged));
-        window.__anima_dirty = true;
-      }
+      if (typeof window.lsSet === 'function') window.lsSet('allegatiRows', merged);
+      else if (typeof lsSet === 'function') lsSet('allegatiRows', merged);
+
     } catch {}
   }, [allegatiRows]);
 
@@ -15802,8 +15862,8 @@ if (!window.printSchedeCollaudoG3ForDDT) {
           if (confirm(`Hai salvato il PDF in Z:?\n\nConferma per registrare automaticamente l'allegato nel gestionale.`)) {
              const nowIso = new Date().toISOString();
              let allAl = [];
-             try { allAl = JSON.parse(localStorage.getItem('allegatiRows')||'[]'); } catch {}
-             
+             try { allAl = (typeof window.lsGet === 'function') ? (window.lsGet('allegatiRows', [])||[]) : []; } catch {}
+          
              // ID univoco
              let maxSeq = 0;
              allAl.forEach(r=>{ 
@@ -15826,16 +15886,19 @@ if (!window.printSchedeCollaudoG3ForDDT) {
              };
              
              const nextAll = [...allAl, newRow];
+             let afterAll = nextAll;
 
-             if (typeof lsSet === 'function') {
+             if (window.allegatiUpsertOne) {
+               window.allegatiUpsertOne(newRow);
+               try { afterAll = (typeof lsGet === 'function') ? (lsGet('allegatiRows', [])||nextAll) : nextAll; } catch {}
+             } else if (typeof window.lsSet === 'function') {
+               window.lsSet('allegatiRows', nextAll);
+             } else if (typeof lsSet === 'function') {
                lsSet('allegatiRows', nextAll);
-             } else {
-               localStorage.setItem('allegatiRows', JSON.stringify(nextAll));
-               window.__anima_dirty = true;
              }
 
              // Aggiorna anche lo stato locale del DDT (evita stale)
-             try { if (typeof setAllegatiRows === 'function') setAllegatiRows(nextAll); } catch {}
+             try { if (typeof setAllegatiRows === 'function') setAllegatiRows(afterAll); } catch {}
              alert('Allegato registrato! ✅');
              // Se sei nella vista DDT, ricarica gli allegati
              if(typeof window.requestAppRerender === 'function') window.requestAppRerender();
@@ -18095,6 +18158,8 @@ function OrdiniFornitoriView({ query = '' }) {
                 const desc = f.descrizione || (tipo==='CONFERMA_ORDINE' ? `Conferma ${id}` : file.name);
                 const newRow = { id:nextId, createdAt:new Date().toISOString(), tipo, descrizione:desc, path:savedPath, url:'', entityType:'OF', entityId:id, deletedAt:null };
                 window.lsSet('allegatiRows', [...all, newRow]);
+                if (window.allegatiUpsertOne) window.allegatiUpsertOne(newRow);
+                else window.lsSet('allegatiRows', [...all, newRow]);
                 if (typeof setDraft === 'function') setDraft({...draft}); // refresh
                 setAllegatoOFForm({ tipo:'CONFERMA_ORDINE', descrizione:'', path:'', url:'' });
               }
@@ -18106,6 +18171,8 @@ function OrdiniFornitoriView({ query = '' }) {
                let all = lsGet('allegatiRows',[])||[];
                const upd = all.map(r => r.id===aid ? {...r, deletedAt:new Date().toISOString()} : r);
                lsSet('allegatiRows', upd);
+               if (window.allegatiSoftDelete) window.allegatiSoftDelete(aid);
+               else lsSet('allegatiRows', upd);
                setDraft({...draft}); // refresh
             };
 
@@ -22945,6 +23012,8 @@ function MagazzinoView(props){
         const id=nextAllegatoId(allRows); const nowIso=new Date().toISOString(); const baseDescr=descr||`Disegno articolo ${entityId}`;
         const newRow={ id, createdAt:nowIso, tipo, descrizione:baseDescr, path, url, entityType:'ARTICOLO', entityId, note:'', deletedAt:null };
         lsSet('allegatiRows', allRows.concat([newRow]));
+        if (window.allegatiUpsertOne) window.allegatiUpsertOne(newRow);
+        else lsSet('allegatiRows', allRows.concat([newRow]));
         setAllegatoArtForm({ tipo:'DISEGNO', descrizione:'', path:'', url:'' });
       };
       const onDelete = (row) => {
@@ -22952,6 +23021,8 @@ function MagazzinoView(props){
         let allRows=[]; try{ allRows=lsGet('allegatiRows',[])||[]; }catch(e){allRows=[];} if(!Array.isArray(allRows))allRows=[];
         const nowIso=new Date().toISOString();
         lsSet('allegatiRows', allRows.map(r=> r&&r.id===row.id ? {...r, deletedAt:r.deletedAt||nowIso} : r));
+        if (window.allegatiSoftDelete) window.allegatiSoftDelete(row.id);
+        else lsSet('allegatiRows', allRows.map(r=> r&&r.id===row.id ? {...r, deletedAt:r.deletedAt||nowIso} : r));
         setAllegatoArtForm(prev=>({...prev}));
       };
       const onCopyPath = (row) => { const p=(row&&row.path)?String(row.path):''; if(!p)return; if(navigator&&navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(p).catch(()=>{ window.prompt('Copia il percorso:',p); }); }else{ window.prompt('Copia il percorso:',p); } };
