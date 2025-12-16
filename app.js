@@ -18230,6 +18230,20 @@ function OrdiniFornitoriView({ query = '' }) {
               }
 
               const savedPath = await window.smartSaveFile(file, [folder, String(year), id], newName);
+              try{ ev.target.value = ''; }catch{} // permette di ricaricare lo stesso file
+
+              if (!savedPath) {
+                alert(
+                  "Salvataggio su Z: NON riuscito / annullato.\n\n" +
+                  "Cause tipiche:\n" +
+                  "• Browser non compatibile (smartphone, iOS Safari, ecc.)\n" +
+                  "• Permesso non concesso / cartella ANIMA_DOC non selezionata\n\n" +
+                  "Soluzione: usa PC con Chrome/Edge e seleziona ANIMA_DOC quando richiesto,\n" +
+                  "oppure registra SOLO l'indice (pulsante sotto)."
+                );
+                return;
+              }
+
               if (savedPath) {
                 let all = []; try{ all = window.lsGet('allegatiRows',[])||[]; }catch{}
                 const nextId = `ALG-${year}-${String(all.length+1).padStart(4,'0')}`;
@@ -18238,10 +18252,52 @@ function OrdiniFornitoriView({ query = '' }) {
                 window.lsSet('allegatiRows', [...all, newRow]);
                 if (window.allegatiUpsertOne) window.allegatiUpsertOne(newRow);
                 else window.lsSet('allegatiRows', [...all, newRow]);
+
+                // comodo: copia negli appunti dove è stato salvato
+                try{ navigator.clipboard.writeText(savedPath); }catch{}
+                alert('File salvato su Z:\n' + savedPath + '\n\n(Percorso copiato negli appunti)');
                 if (typeof setDraft === 'function') setDraft({...draft}); // refresh
                 setAllegatoOFForm({ tipo:'CONFERMA_ORDINE', descrizione:'', path:'', url:'' });
               }
               ev.target.value = '';
+            };
+
+                        const registerIndexOnly = async () => {
+              if (readOnly) return;
+              if (!isSaved) { alert('Salva ordine prima di allegare.'); return; }
+
+              const year = (new Date(draft.data)).getFullYear();
+              const id = draft.id;
+              const f = allegatoOFForm || {};
+              const tipo = f.tipo || 'ALTRO';
+
+              const p = prompt('Incolla il percorso completo su Z:/UNC del file già esistente:', '');
+              if (!p) return;
+
+              let all = []; try{ all = (window.lsGet ? (lsGet('allegatiRows',[])||[]) : []) }catch{}
+              // ID semplice (per ora): evita wipe grazie a upsert; collisioni si gestiscono dopo
+              const nextId = `ALG-${year}-${String((all||[]).length+1).padStart(4,'0')}`;
+
+              const desc = (f.descrizione || '').trim() || (tipo + ' ' + id);
+              const newRow = {
+                id: nextId,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                tipo,
+                descrizione: desc,
+                path: String(p).trim(),
+                url: '',
+                entityType: 'OF',
+                entityId: id,
+                deletedAt: null
+              };
+
+              if (window.allegatiUpsertOne) window.allegatiUpsertOne(newRow);
+              else window.lsSet('allegatiRows', (all||[]).concat([newRow]));
+
+              setDraft({...draft});
+              setAllegatoOFForm({ tipo:'CONFERMA_ORDINE', descrizione:'', path:'', url:'' });
+              alert('Indice allegato registrato (senza copiare file).');
             };
 
             const delAllegato = (aid) => {
@@ -18276,6 +18332,13 @@ function OrdiniFornitoriView({ query = '' }) {
                   e('div', null, e('label',null,'Descrizione'), e('input',{value:allegatoOFForm.descrizione, onChange:ev=>setAllegatoOFForm({...allegatoOFForm, descrizione:ev.target.value})})),
                   e('div', {style:{gridColumn:'1/-1', marginTop:8}},
                      e('label', {className:'btn btn-primary', style:{display:'block', textAlign:'center', cursor:'pointer'}},
+                      // (dopo il label di upload)
+                     e('button', {
+                       className:'btn btn-outline',
+                       style:{display:'block', width:'100%', marginTop:8},
+                       disabled: readOnly,
+                       onClick: registerIndexOnly
+                      }, '➕ Registra solo indice (file già su Z)'),
                        '📂 CARICA FILE SU Z:',
                        e('input', {type:'file', style:{display:'none'}, disabled:readOnly, onChange:saveAllegatoSmart})
                      )
