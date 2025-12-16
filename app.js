@@ -13403,7 +13403,7 @@ React.useEffect(() => {
     try {
       const arr = Array.isArray(allegatiRows) ? allegatiRows : [];
 
-      // Merge con lo stato attuale in storage per evitare wipe di allegati creati altrove (es. OF/COMM/DDT)
+      // Merge con lo stato corrente in storage per evitare wipe di allegati creati altrove (OF/COMM/altre viste)
       const cur = (typeof lsGet === 'function')
         ? (lsGet('allegatiRows', []) || [])
         : (function(){ try { return JSON.parse(localStorage.getItem('allegatiRows')||'[]')||[]; } catch { return []; } })();
