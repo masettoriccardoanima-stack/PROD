@@ -1125,13 +1125,78 @@ window.sortNewestFirst = window.sortNewestFirst || function listSort(arr, opts){
     const [busy,setBusy] = React.useState(false);
     const logged = !!window.__USER;
 
+        const [denyEmail,setDenyEmail] = React.useState('');
+
+    // Se l'allowlist nega, apiMe() mette sessionStorage.__auth_denied
+    React.useEffect(() => {
+      try{
+        const d = sessionStorage.getItem('__auth_denied');
+        if (d) {
+          setDenyEmail(d);
+          setErr('Accesso negato: utente NON in allowlist (' + d + ')');
+          sessionStorage.removeItem('__auth_denied');
+        }
+      }catch{}
+    }, []);
+
+    async function onImportAppSettings(ev){
+      try{
+        const f = ev && ev.target && ev.target.files && ev.target.files[0];
+        try{ ev.target.value = ''; }catch{}
+        if (!f) return;
+
+        if (!window.readJSONFile) {
+          alert('Import non disponibile (readJSONFile mancante).');
+          return;
+        }
+        const obj = await window.readJSONFile(f);
+
+        // accetta: {appSettings:{...}} oppure direttamente {...}
+        const incoming = (obj && obj.appSettings && typeof obj.appSettings==='object')
+          ? obj.appSettings
+          : (obj && typeof obj==='object' ? obj : null);
+
+        if (!incoming) {
+          alert('File non valido: appSettings non trovato.');
+          return;
+        }
+
+        let cur = {};
+        try{ cur = JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; }catch{}
+        const next = { ...cur, ...incoming };
+
+        // users: se nel file c'è, lo prendiamo (serve proprio per allowlist)
+        if (Array.isArray(incoming.users)) next.users = incoming.users;
+
+        localStorage.setItem('appSettings', JSON.stringify(next));
+        alert('Configurazione importata. Ricarico la pagina.');
+        location.reload();
+      }catch(e){
+        console.error(e);
+        alert('Errore import configurazione: ' + (e && e.message ? e.message : String(e)));
+      }
+    }
+
     async function onSubmit(ev){
       ev.preventDefault();
       setErr(''); setBusy(true);
       try{
         await window.login(u,p);      // usa il tuo AUTH CORE
         await window.getMe();         // aggiorna __USER
-        location.hash = '#/ddt';      // vai dove preferisci
+
+        // Se allowlist ha negato, apiMe() fa signOut e __USER resta null.
+        if (!window.__USER) {
+          let d = '';
+          try { d = sessionStorage.getItem('__auth_denied') || ''; sessionStorage.removeItem('__auth_denied'); } catch {}
+          setErr(d
+            ? ('Accesso negato: utente NON in allowlist (' + d + ')')
+            : 'Accesso negato (allowlist): utente non autorizzato'
+          );
+          return;
+        }
+
+        const last = localStorage.getItem('lastRoute') || '#/dashboard';
+        location.hash = (typeof last === 'string' && last.startsWith('#/')) ? last : '#/dashboard';
       }catch(e){
         setErr( (e.body && e.body.error) ? String(e.body.error) : 'Login fallito' );
       }finally{
@@ -1176,6 +1241,19 @@ window.sortNewestFirst = window.sortNewestFirst || function listSort(arr, opts){
           value:p,
           onChange:ev=>setP(ev.target.value)
         }),
+        e('div',{style:{marginTop:10, paddingTop:8, borderTop:'1px solid #eee'}},
+          e('div',{style:{fontSize:12, opacity:.85, marginBottom:6}},
+            'Nuovo dispositivo? Importa appSettings (include allowlist).'
+          ),
+          e('label', {className:'btn btn-outline', htmlFor:'import-appsettings-file'}, 'Importa configurazione…'),
+          e('input', {
+            id:'import-appsettings-file',
+            type:'file',
+            accept:'application/json',
+            style:{display:'none'},
+            onChange: onImportAppSettings
+          })
+        ),
         err && e('div',{style:{color:'#b00',marginTop:8}}, String(err)),
         e('div',{
           className:'actions',
