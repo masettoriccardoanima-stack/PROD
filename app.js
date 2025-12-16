@@ -26863,10 +26863,29 @@ window.ensureZConnection = async function(opts){
     try {
       // IMPORTANTISSIMO: niente alert/confirm PRIMA del picker (può far fallire la user-activation)
       const handle = await window.showDirectoryPicker({
+       
         id: 'anima_doc_root',
         mode: 'readwrite',
         startIn: 'documents'
       });
+
+      // Guard-rail: la root selezionata deve essere coerente con docBasePath (Impostazioni).
+      // Evita di connettere per errore una sottocartella (es. "2025") o una root diversa.
+      try{
+        const settings = window.lsGet ? window.lsGet('appSettings', {}) : {};
+        const basePath = String(settings.docBasePath || 'Z:\\ANIMA_DOC').replace(/[\\/]+$/, '');
+        const expectedName = basePath.split(/[\\/]+/).pop(); // ultimo pezzo (es. ANIMA_DOC)
+        const pickedName = String(handle && handle.name ? handle.name : '');
+
+        if (expectedName && pickedName && expectedName.toUpperCase() !== pickedName.toUpperCase()) {
+          window.__Z_LAST_ERR =
+            `Hai selezionato "${pickedName}" ma in Impostazioni il percorso base è "${basePath}". ` +
+            `Se vuoi usare "${pickedName}", prima cambia docBasePath nelle Impostazioni; altrimenti seleziona la cartella "${expectedName}".`;
+          return null;
+        }
+      }catch(e){
+        try{ window.__Z_LAST_ERR = 'Errore validazione cartella: ' + (e && e.message ? e.message : String(e)); }catch{}
+      }
 
       // Permesso esplicito (se supportato)
       try{
