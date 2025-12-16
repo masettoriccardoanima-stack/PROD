@@ -2352,6 +2352,103 @@ window.autoSyncMagazzinoDaRighe = window.autoSyncMagazzinoDaRighe || function(ri
     try { localStorage.setItem(k, JSON.stringify(v)); window.__anima_dirty = true; } catch {}
   };
 
+    // === Allegati: normalizzazione entityType + compatibilità OF (anti "spariti") ===
+  (function(){
+    if (window.__ANIMA_ALLEGATI_ENTITYTYPE_HELPERS__) return;
+    window.__ANIMA_ALLEGATI_ENTITYTYPE_HELPERS__ = true;
+
+    const norm = (t)=> String(t||'').toUpperCase().trim();
+
+    // Mappa alias storici → tipo canonico
+    const canon = (t)=>{
+      t = norm(t);
+      if (!t) return '';
+      // OF alias storici / possibili
+      if (t==='OF' || t==='ORDINI_FORNITORI' || t==='ORDINE_FORNITORE' || t==='ORDINEFORNITORE' ||
+          t==='ORDINIFORNITORI' || t==='ORDINI' || t==='PO' || t==='PURCHASEORDER' || t==='PURCHASE_ORDER') return 'OF';
+      // (qui possiamo aggiungere altre normalizzazioni in futuro senza refactor)
+      return t;
+    };
+
+    window.normEntityType = window.normEntityType || canon;
+
+    // Match robusto allegato↔entità (senza rompere dati legacy)
+    window.allegatoMatchesEntity = window.allegatoMatchesEntity || function(a, wantedType, wantedId){
+      if (!a || a.deletedAt) return false;
+      const wid = String(wantedId||'');
+      if (wid && String(a.entityId||'') !== wid) return false;
+
+      const w = canon(wantedType);
+      const t = canon(a.entityType);
+      if (t && w && t === w) return true;
+
+      // Fallback specifico OF: se entityId sembra OF-YYYY-NNN allora trattalo come OF
+      if (w === 'OF') {
+        const eid = String(a.entityId||'');
+        if (/^OF-\d{4}-\d{3,6}$/i.test(eid)) return (!wid || eid === wid);
+      }
+      return false;
+    };
+
+    // Migrazione one-shot: porta a.entityType → 'OF' in modo conservativo
+    window.migrateAllegatiEntityTypeOF = window.migrateAllegatiEntityTypeOF || function(){
+      const FLAG = 'mig_allegati_entitytype_of_v1';
+      try{
+        const _lsGet = window.lsGet || ((k,d)=>{ try{ return JSON.parse(localStorage.getItem(k)) ?? d; }catch{ return d; }});
+        const _lsSet = window.lsSet || ((k,v)=>{ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} });
+
+        if (_lsGet(FLAG, false)) return { skipped:true, reason:'already' };
+
+        const all = _lsGet('allegatiRows', []);
+        if (!Array.isArray(all) || !all.length){
+          _lsSet(FLAG, true);
+          return { skipped:true, reason:'empty' };
+        }
+
+        const now = new Date().toISOString();
+        let changed = 0;
+
+        const next = all.map(a=>{
+          if (!a || typeof a !== 'object') return a;
+
+          const eid = String(a.entityId||'');
+          const t0  = norm(a.entityType);
+          const isOfLike = (canon(t0) === 'OF') || /^OF-\d{4}-\d{3,6}$/i.test(eid);
+
+          if (!isOfLike) return a;
+          if (canon(t0) === 'OF' && t0 === 'OF') return a; // già canonico e già "OF" puro
+
+          if (norm(a.entityType) === 'OF') return a; // già ok
+
+          changed++;
+          return {
+            ...a,
+            entityTypeOriginal: (a.entityTypeOriginal ?? a.entityType),
+            entityType: 'OF',
+            updatedAt: now
+          };
+        });
+
+        if (changed > 0) {
+          _lsSet('allegatiRows', next);
+          window.__anima_dirty = true;
+          console.log('[allegati] migrazione entityType→OF applicata:', changed);
+        } else {
+          console.log('[allegati] migrazione entityType→OF: niente da fare');
+        }
+
+        _lsSet(FLAG, true);
+        return { updated: changed };
+      }catch(e){
+        console.warn('migrateAllegatiEntityTypeOF', e);
+        return { error:true, message: (e && e.message) ? e.message : String(e) };
+      }
+    };
+
+    // Auto-run (sicuro: cambia solo se OF-like)
+    try{ window.migrateAllegatiEntityTypeOF(); }catch{}
+  })();
+
   window.persistListFactory = window.persistListFactory || function(key, setState){
     return function persist(next){
       try { localStorage.setItem(key, JSON.stringify(next)); } catch {}
@@ -4699,6 +4796,90 @@ function mergeAppSettings(localApp, remoteApp){
 
   // Alias globale (se qualcuno usa window.mergeById)
   window.mergeById = window.mergeById || mergeById;
+
+    // === Allegati: export/import indice JSON (ridondanza) ===
+  window.downloadJSONFile = window.downloadJSONFile || function(filename, data){
+    try{
+      const txt = JSON.stringify(data, null, 2);
+      const blob = new Blob([txt], { type:'application/json' });
+      const url  = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || 'anima-export.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(()=>{ try{ URL.revokeObjectURL(url); }catch{} }, 1500);
+    }catch(e){
+      console.error(e);
+      alert('Errore export JSON: ' + (e && e.message ? e.message : String(e)));
+    }
+  };
+
+  window.readJSONFile = window.readJSONFile || function(file){
+    return new Promise((resolve, reject) => {
+      try{
+        const r = new FileReader();
+        r.onload = () => {
+          try { resolve(JSON.parse(String(r.result||''))); }
+          catch(e){ reject(e); }
+        };
+        r.onerror = () => reject(r.error || new Error('Errore lettura file'));
+        r.readAsText(file);
+      }catch(e){ reject(e); }
+    });
+  };
+
+  window.allegatiGetAll = window.allegatiGetAll || function(){
+    try{
+      const arr = (typeof lsGet === 'function') ? (lsGet('allegatiRows', [])||[]) : [];
+      return Array.isArray(arr) ? arr : [];
+    }catch{ return []; }
+  };
+
+  window.allegatiSetMerged = window.allegatiSetMerged || function(incomingArr){
+    const cur = window.allegatiGetAll();
+    const inc = Array.isArray(incomingArr) ? incomingArr : [];
+    const merged = (typeof window.mergeById === 'function') ? window.mergeById(cur, inc) : inc;
+    if (typeof lsSet === 'function') lsSet('allegatiRows', merged);
+    else { try{ localStorage.setItem('allegatiRows', JSON.stringify(merged)); window.__anima_dirty = true; }catch{} }
+    return merged;
+  };
+
+  // Export completo (tutto allegatiRows)
+  window.exportAllegatiAll = window.exportAllegatiAll || function(){
+    const all = window.allegatiGetAll();
+    const now = new Date();
+    const pad = (n)=> String(n).padStart(2,'0');
+    const stamp = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    const payload = {
+      schema: 'ANIMA_ALLEGATI_INDEX',
+      version: 1,
+      exportedAt: now.toISOString(),
+      count: all.length,
+      rows: all
+    };
+    window.downloadJSONFile(`ANIMA_allegatiRows_${stamp}.json`, payload);
+    return payload;
+  };
+
+  // Import (merge-by-id, non cancella nulla)
+  window.importAllegatiFromObject = window.importAllegatiFromObject || function(obj){
+    const rows = Array.isArray(obj) ? obj
+      : (Array.isArray(obj && obj.rows) ? obj.rows
+      : (Array.isArray(obj && obj.allegatiRows) ? obj.allegatiRows : []));
+    const before = window.allegatiGetAll();
+    const merged = window.allegatiSetMerged(rows);
+    return { before: before.length, imported: rows.length, after: merged.length };
+  };
+
+  window.importAllegatiFromFile = window.importAllegatiFromFile || async function(file){
+    const obj = await window.readJSONFile(file);
+    const res = window.importAllegatiFromObject(obj);
+    console.log('[allegati] import risultato:', res);
+    alert(`Indice allegati importato.\nPrima: ${res.before}\nLetti: ${res.imported}\nDopo: ${res.after}`);
+    return res;
+  };
 
 window.syncImportFromCloud = async function(){
   const S = JSON.parse(localStorage.getItem('appSettings')||'{}')||{};
@@ -12936,6 +13117,40 @@ const counters0 = lsGet('counters', {}) || {};
           disabled: !isAdmin
         }, '💾 Scarica backup'),
 
+        
+        // Indice allegati (JSON) - export/import (MERGE, non wipe)
+        e('button', {
+          type:'button',
+          className:'btn btn-outline',
+          onClick:()=> {
+            if (!isAdmin) return;
+            if (window.exportAllegatiAll) return window.exportAllegatiAll();
+            alert('Export indice allegati non disponibile');
+          },
+          disabled: !isAdmin
+        }, '📎 Esporta indice allegati'),
+
+        e('label', {className:'btn btn-outline', htmlFor:'import-allegati-file'}, '📎 Importa indice allegati…'),
+        e('input', {
+          id:'import-allegati-file',
+          type:'file',
+          accept:'application/json',
+          style:{display:'none'},
+          onChange: async (ev) => {
+            try{
+              if (!isAdmin) { try{ ev.target.value=''; }catch{}; return; }
+              const f = ev && ev.target && ev.target.files && ev.target.files[0];
+              try{ ev.target.value = ''; }catch{}
+              if (!f) return;
+              if (window.importAllegatiFromFile) await window.importAllegatiFromFile(f);
+              else alert('Import indice allegati non disponibile');
+            }catch(e){
+              console.error(e);
+              alert('Errore import indice allegati: ' + (e && e.message ? e.message : String(e)));
+            }
+          }
+        }),
+
         // Ripristino da file .json
         e('label', {className:'btn btn-outline', htmlFor:'restore-file'}, '⤴️ Ripristina da file…'),
         e('input', {
@@ -17850,7 +18065,14 @@ function OrdiniFornitoriView({ query = '' }) {
             const allOF = lsGet('ordiniFornitoriRows', []) || [];
             const isSaved = !!entityId && Array.isArray(allOF) && allOF.some(r => r && String(r.id) === entityId);
             const allAllegati = lsGet('allegatiRows', []) || [];
-            const ofAllegati = isSaved ? allAllegati.filter(a => a && !a.deletedAt && String(a.entityType).toUpperCase()==='OF' && String(a.entityId)===entityId) : [];
+            const ofAllegati = isSaved
+              ? allAllegati.filter(a => {
+                  if (window.allegatoMatchesEntity) return window.allegatoMatchesEntity(a, 'OF', entityId);
+                  return a && !a.deletedAt &&
+                    String(a.entityType||'').toUpperCase()==='OF' &&
+                    String(a.entityId||'')===entityId;
+                })
+              : [];
 
             const saveAllegatoSmart = async (ev) => {
               const file = ev.target.files?.[0]; if(!file) return;
