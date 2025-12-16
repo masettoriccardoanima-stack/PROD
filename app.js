@@ -26838,6 +26838,9 @@ window.navigateTo = window.navigateTo || function(name){
   // Variabile globale per mantenere la connessione aperta finché non chiudi la pagina
   window.__Z_HANDLE = null;
 
+    // Stato diagnostica sempre presente (evita "undefined" in console)
+  if (typeof window.__Z_LAST_ERR === 'undefined') window.__Z_LAST_ERR = '';
+
   // 1. Connette il disco Z: (lo chiede solo la prima volta)
 window.ensureZConnection = async function(opts){
     if (window.__Z_HANDLE) return window.__Z_HANDLE;
@@ -26905,12 +26908,21 @@ window.ensureZConnection = async function(opts){
         return null;
       }
 
-      // Controllo veloce se è la cartella giusta (dopo il picker va bene)
-      if (handle && handle.name !== 'ANIMA_DOC') {
-        if(!confirm(`Hai selezionato "${handle.name}" invece di "ANIMA_DOC". Sicuro di voler continuare?`)) {
-          window.__Z_LAST_ERR = 'Selezione annullata (cartella diversa)';
+      // Guard-rail: la root selezionata deve essere coerente con docBasePath (Impostazioni)
+      try{
+        const settings = window.lsGet ? window.lsGet('appSettings', {}) : {};
+        const basePath = String(settings.docBasePath || 'Z:\\ANIMA_DOC').replace(/[\\/]+$/, '');
+        const expectedName = basePath.split(/[\\/]+/).pop(); // es. ANIMA_DOC
+        const pickedName = String(handle && handle.name ? handle.name : '');
+
+        if (expectedName && pickedName && expectedName.toUpperCase() !== pickedName.toUpperCase()) {
+          window.__Z_LAST_ERR =
+            `Hai selezionato "${pickedName}" ma in Impostazioni il percorso base è "${basePath}". ` +
+            `Seleziona la cartella "${expectedName}" (root) oppure cambia docBasePath per usare "${pickedName}".`;
           return null;
         }
+      }catch(e){
+        try{ window.__Z_LAST_ERR = 'Errore validazione cartella: ' + (e && e.message ? e.message : String(e)); }catch{}
       }
 
       window.__Z_HANDLE = handle;
