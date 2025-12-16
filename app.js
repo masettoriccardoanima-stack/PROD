@@ -17996,7 +17996,19 @@ function OrdiniFornitoriView({ query = '' }) {
 
   async function saveDraft(docOverride){
     const now = new Date().toISOString();
-    const base = docOverride || draft;
+
+    // Se chiamata da onClick diretto, React passa l'evento: ignoralo
+    let base = docOverride;
+    const looksLikeEvent = base && typeof base === 'object' && (
+      typeof base.preventDefault === 'function' ||
+      typeof base.stopPropagation === 'function' ||
+      !!base.nativeEvent ||
+      !!base.currentTarget ||
+      !!base.target
+    );
+    if (looksLikeEvent) base = null;
+
+    base = base || draft;
     if (!base) return;
     const doc = JSON.parse(JSON.stringify(base));
     if (!doc.id) {
@@ -18382,7 +18394,7 @@ function OrdiniFornitoriView({ query = '' }) {
           e('button', { className:'btn btn-outline', onClick:()=>{ setShowForm(false); setDraft(null); } }, 'Chiudi'),
           e('button', { className:'btn btn-outline', onClick:riceviOrdineIntero }, '⬇️ Ricevi tutto'),
           e('button', { className:'btn btn-outline', onClick:()=>window.printOrdineFornitore && window.printOrdineFornitore(draft) }, '🖨️ Stampa'),
-          e('button', { className:'btn btn-primary', onClick:saveDraft, disabled:readOnly }, 'Salva')
+          e('button', { className:'btn btn-primary', onClick:()=>saveDraft(), disabled:readOnly }, 'Salva')
         )
       )
     ),
@@ -26801,10 +26813,10 @@ window.navigateTo = window.navigateTo || function(name){
   window.__Z_HANDLE = null;
 
   // 1. Connette il disco Z: (lo chiede solo la prima volta)
-  window.ensureZConnection = async function(){
+window.ensureZConnection = async function(){
     if (window.__Z_HANDLE) return window.__Z_HANDLE;
 
-    // reset dettaglio errore
+    // reset dettaglio errore (per debug)
     try{ window.__Z_LAST_ERR = ''; }catch{}
 
     if (!window.showDirectoryPicker) {
