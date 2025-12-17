@@ -4737,50 +4737,41 @@ window.ensureXLSX = window.ensureXLSX || (function () {
     return cfg.supabaseUrl.replace(/\/+$/,'') + tail;
   }
   async function sbRequest(cfg, method, path, body){
-    const url = sbEndpoint(cfg, path);
+  const url = sbEndpoint(cfg, path);
 
-    // authRequired: default TRUE (se non lo disattivi esplicitamente)
-    const authRequired = (cfg && cfg.authRequired !== false);
+  // Con RLS ON: mai usare la anon key come Bearer, serve il token utente
+  const tok = (window.sbGetAccessToken ? await window.sbGetAccessToken() : '');
+  const bearer = String(tok || '').trim();
 
-    let tok = '';
-    try{
-      tok = (window.sbGetAccessToken ? await window.sbGetAccessToken() : '') || '';
-    }catch{}
-    tok = String(tok || '').trim();
-
-    if (authRequired && !tok){
-      const err = new Error('Login richiesto (token Supabase mancante) — RLS attivo');
-      err.code = 'NO_AUTH';
-      window.__cloud_lastErr = err.message;
-      throw err;
-    }
-
-    // fallback a sb.key solo se authRequired === false
-    const bearer = tok || cfg.supabaseKey;
-
-    const headers = {
-      'apikey': cfg.supabaseKey,
-      'Authorization': 'Bearer ' + bearer,
-      'Content-Type': 'application/json',
-      'Prefer': 'resolution=merge-duplicates'
-    };
-
-    const res = await fetch(url, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined
-    });
-
-    if (!res.ok && res.status !== 406) {
-      const txt = await res.text().catch(()=>res.statusText);
-      const err = new Error(txt || res.statusText);
-      err.code = 'HTTP_' + res.status;
-      window.__cloud_lastErr = err.message || ('HTTP ' + res.status);
-      throw err;
-    }
-
-    try { return await res.json(); } catch { return null; }
+  if (!bearer) {
+    const err = new Error('Cloud: non autenticato (token Supabase mancante) — RLS attivo');
+    err.code = 'NO_AUTH';
+    throw err;
   }
+
+  const headers = {
+    'apikey': cfg.supabaseKey,
+    'Authorization': 'Bearer ' + bearer,
+    'Content-Type': 'application/json',
+    'Prefer': 'resolution=merge-duplicates'
+  };
+
+  const res = await fetch(url, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined
+  });
+
+  if (!res.ok && res.status !== 406) {
+    const txt = await res.text().catch(()=>res.statusText);
+    const e = new Error(txt || res.statusText);
+    e.status = res.status;
+    throw e;
+  }
+
+  try { return await res.json(); } catch { return null; }
+}
+
 
     function takeSnapshot(){
     const snap = {};
