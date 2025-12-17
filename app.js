@@ -23228,9 +23228,16 @@ function MagazzinoView(props){
         let allRows=[]; try{ allRows=lsGet('allegatiRows',[])||[]; }catch(e){allRows=[];} if(!Array.isArray(allRows))allRows=[];
         const id=nextAllegatoId(allRows); const nowIso=new Date().toISOString(); const baseDescr=descr||`Disegno articolo ${entityId}`;
         const newRow={ id, createdAt:nowIso, tipo, descrizione:baseDescr, path, url, entityType:'ARTICOLO', entityId, note:'', deletedAt:null };
-        lsSet('allegatiRows', allRows.concat([newRow]));
-        if (window.allegatiUpsertOne) window.allegatiUpsertOne(newRow);
-        else lsSet('allegatiRows', allRows.concat([newRow]));
+        // Anti-wipe: una sola scrittura, merge-safe
+        if (window.allegatiUpsertOne) {
+          window.allegatiUpsertOne(newRow);
+        } else if (window.allegatiSetMerged) {
+          window.allegatiSetMerged([newRow]);
+        } else {
+          let cur=[]; try{ cur=(typeof lsGet==='function') ? (lsGet('allegatiRows',[])||[]) : []; }catch(e){cur=[];}
+          if(!Array.isArray(cur)) cur=[];
+          if (typeof lsSet === 'function') lsSet('allegatiRows', cur.concat([newRow]));
+        }
         setAllegatoArtForm({ tipo:'DISEGNO', descrizione:'', path:'', url:'' });
       };
       const onDelete = (row) => {
