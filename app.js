@@ -1595,6 +1595,30 @@ window.persistKV = window.persistKV || function persistKV(key, value){
 (function supabaseHelpers(){
   const g = window;
 
+    // REST headers con token (necessario con RLS ON)
+  async function sbRestHeaders(sb, { prefer = null, contentType = false } = {}){
+    // authRequired: default TRUE
+    let settings = {};
+    try{ settings = (g.lsGet ? (g.lsGet('appSettings', {}) || {}) : (JSON.parse(localStorage.getItem('appSettings')||'{}')||{})); }catch{}
+    const authRequired = (settings.authRequired !== false);
+
+    let tok = '';
+    try{ tok = (g.sbGetAccessToken ? await g.sbGetAccessToken() : '') || ''; }catch{}
+    tok = String(tok || '').trim();
+
+    if (authRequired && !tok){
+      const err = new Error('Login richiesto (token Supabase mancante) — RLS attivo');
+      err.code = 'NO_AUTH';
+      throw err;
+    }
+
+    const bearer = tok || sb.key; // fallback solo se authRequired === false
+    const h = { apikey: sb.key, Authorization: `Bearer ${bearer}` };
+    if (contentType) h['Content-Type'] = 'application/json';
+    if (prefer) h['Prefer'] = prefer;
+    return h;
+  }
+
   // Legge le credenziali da appSettings (se abilitate)
   g.getSB = g.getSB || function(){
     try{
@@ -1612,14 +1636,12 @@ window.persistKV = window.persistKV || function persistKV(key, value){
   g.sbInsert = g.sbInsert || async function(table, payload){
     const sb = g.getSB(); if(!sb) throw new Error('Supabase non configurato');
     const url = `${sb.url}/rest/v1/${encodeURIComponent(table)}`;
+
+    const headers = await sbRestHeaders(sb, { prefer:'return=representation', contentType:true });
+
     const res = await fetch(url, {
       method:'POST',
-      headers:{
-        apikey: sb.key,
-        Authorization: `Bearer ${sb.key}`,
-        'Content-Type':'application/json',
-        Prefer: 'return=representation'
-      },
+      headers,
       body: JSON.stringify(payload)
     });
     if(!res.ok) throw new Error(await res.text());
@@ -1630,14 +1652,12 @@ window.persistKV = window.persistKV || function persistKV(key, value){
   g.sbPatchById = g.sbPatchById || async function(table, id, payload){
     const sb = g.getSB(); if(!sb) throw new Error('Supabase non configurato');
     const url = `${sb.url}/rest/v1/${encodeURIComponent(table)}?id=eq.${encodeURIComponent(id)}`;
+
+    const headers = await sbRestHeaders(sb, { prefer:'return=representation', contentType:true });
+
     const res = await fetch(url, {
       method:'PATCH',
-      headers:{
-        apikey: sb.key,
-        Authorization: `Bearer ${sb.key}`,
-        'Content-Type':'application/json',
-        Prefer: 'return=representation'
-      },
+      headers,
       body: JSON.stringify(payload)
     });
     if(!res.ok) throw new Error(await res.text());
@@ -1648,10 +1668,14 @@ window.persistKV = window.persistKV || function persistKV(key, value){
   g.sbSelect = g.sbSelect || async function(table, query='*'){
     const sb = g.getSB(); if(!sb) throw new Error('Supabase non configurato');
     const url = `${sb.url}/rest/v1/${encodeURIComponent(table)}?select=${encodeURIComponent(query)}`;
-    const res = await fetch(url, { headers:{ apikey: sb.key, Authorization:`Bearer ${sb.key}` } });
+
+    const headers = await sbRestHeaders(sb);
+
+    const res = await fetch(url, { headers });
     if(!res.ok) throw new Error(await res.text());
     return res.json();
   };
+
     // === Magazzino articoli: sync cloud <-> locale ==========================
   g.sbUpsertMagazzinoArticoli = g.sbUpsertMagazzinoArticoli || async function(rows){
     const sb = g.getSB(); if (!sb) throw new Error('Supabase non configurato');
@@ -1728,7 +1752,11 @@ window.persistKV = window.persistKV || function persistKV(key, value){
         const pageSize = 1000;
         let page = 0;
 
-        const bearer = (g.sbGetBearer ? await g.sbGetBearer(sb) : sb.key);
+        const bearer = (window.sbGetAuthBearer ? await window.sbGetAuthBearer() : '');
+        if (!bearer) {
+          console.warn('[syncMagazzinoFromCloud] token Auth mancante (RLS ON) → Skip (niente 401).');
+          return { ok:false, reason:'no-auth' };
+        }
 
         while (true){
           const url = `${sb.url}/rest/v1/magazzino_articoli` +
@@ -1738,7 +1766,7 @@ window.persistKV = window.persistKV || function persistKV(key, value){
           const res = await fetch(url, {
             headers:{
               apikey: sb.key,
-              Authorization: `Bearer ${ (window.sbAuthBearer ? window.sbAuthBearer(sb) : sb.key) }`
+              Authorization: `Bearer ${bearer}`
             }
           });
           if (!res.ok) throw new Error(await res.text());
@@ -4709,33 +4737,48 @@ window.ensureXLSX = window.ensureXLSX || (function () {
     return cfg.supabaseUrl.replace(/\/+$/,'') + tail;
   }
   async function sbRequest(cfg, method, path, body){
-  const url = sbEndpoint(cfg, path);
+    const url = sbEndpoint(cfg, path);
 
-  // Con RLS ON: usa SOLO l'access_token dell'utente (niente fallback su supabaseKey).
-  const tok = (window.sbGetAuthBearer
-    ? await window.sbGetAuthBearer()
-    : (window.sbGetAccessToken ? await window.sbGetAccessToken() : ''));
-  const bearer = (tok && String(tok).trim()) ? String(tok).trim() : '';
+    // authRequired: default TRUE (se non lo disattivi esplicitamente)
+    const authRequired = (cfg && cfg.authRequired !== false);
 
-  if (!bearer) {
-    const err = new Error('Login richiesto (token mancante)');
-    err.code = 'NO_AUTH';
-    err.__noAuth = true;
-    throw err;
-  }
+    let tok = '';
+    try{
+      tok = (window.sbGetAccessToken ? await window.sbGetAccessToken() : '') || '';
+    }catch{}
+    tok = String(tok || '').trim();
 
-  const headers = {
-    'apikey': cfg.supabaseKey,
-    'Authorization': 'Bearer ' + bearer,
-    'Content-Type': 'application/json',
-    'Prefer': 'resolution=merge-duplicates'
-  };
+    if (authRequired && !tok){
+      const err = new Error('Login richiesto (token Supabase mancante) — RLS attivo');
+      err.code = 'NO_AUTH';
+      window.__cloud_lastErr = err.message;
+      throw err;
+    }
 
-    const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    // fallback a sb.key solo se authRequired === false
+    const bearer = tok || cfg.supabaseKey;
+
+    const headers = {
+      'apikey': cfg.supabaseKey,
+      'Authorization': 'Bearer ' + bearer,
+      'Content-Type': 'application/json',
+      'Prefer': 'resolution=merge-duplicates'
+    };
+
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined
+    });
+
     if (!res.ok && res.status !== 406) {
       const txt = await res.text().catch(()=>res.statusText);
-      throw new Error(txt || res.statusText);
+      const err = new Error(txt || res.statusText);
+      err.code = 'HTTP_' + res.status;
+      window.__cloud_lastErr = err.message || ('HTTP ' + res.status);
+      throw err;
     }
+
     try { return await res.json(); } catch { return null; }
   }
 
