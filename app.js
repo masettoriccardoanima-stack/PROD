@@ -3342,10 +3342,10 @@ window.sbGetBearer = window.sbGetBearer || async function(sb){
   return tok || (sb && sb.key) || '';
 };
 
-// === PATCH SB-A1: Bearer STRICT (solo access_token, niente fallback su anon key) ===
+// Token-only (strict): con RLS ON non si deve mai usare sb.key come Bearer
 window.sbGetAuthBearer = window.sbGetAuthBearer || async function(){
   const tok = (window.sbGetAccessToken ? await window.sbGetAccessToken() : '');
-  return (tok && String(tok).trim()) ? String(tok).trim() : '';
+  return String(tok || '').trim();
 };
 
 // Best-effort: prova a caricare token subito (non blocca nulla)
