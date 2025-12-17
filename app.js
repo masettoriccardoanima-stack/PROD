@@ -898,6 +898,74 @@ window.getSupabase = window.getSupabase || function(){
   }catch{ return null; }
 };
 
+// === Supabase Auth helpers (token per RLS) ===
+window.__SB_ACCESS_TOKEN = window.__SB_ACCESS_TOKEN || '';
+window.__SB_LAST_AUTH_ERR = window.__SB_LAST_AUTH_ERR || '';
+
+window.sbAuthInit = window.sbAuthInit || async function(){
+  try{
+    const sb = window.getSupabase && window.getSupabase();
+    if(!sb || !sb.auth) return false;
+
+    // carica sessione (se già loggato)
+    const { data } = await sb.auth.getSession();
+    const sess = data && data.session ? data.session : null;
+    window.__SB_ACCESS_TOKEN = sess && sess.access_token ? sess.access_token : '';
+
+    // ascolta cambi sessione
+    if (!window.__SB_AUTH_LISTENER__) {
+      window.__SB_AUTH_LISTENER__ = true;
+      sb.auth.onAuthStateChange((_event, session) => {
+        try{
+          window.__SB_ACCESS_TOKEN = session && session.access_token ? session.access_token : '';
+        }catch{}
+      });
+    }
+    return !!window.__SB_ACCESS_TOKEN;
+  }catch(e){
+    try{ window.__SB_LAST_AUTH_ERR = (e && e.message) ? e.message : String(e); }catch{}
+    return false;
+  }
+};
+
+window.sbAuthBearer = window.sbAuthBearer || function(sb){
+  const tok = String(window.__SB_ACCESS_TOKEN || '').trim();
+  if (tok) return tok;
+  window.__SB_LAST_AUTH_ERR = 'Supabase: non autenticato. Vai in Impostazioni e fai Login (o esegui sbLoginPrompt in console).';
+  return (sb && sb.key) ? sb.key : '';
+};
+
+window.sbLoginPrompt = window.sbLoginPrompt || async function(){
+  const sb = window.getSupabase && window.getSupabase();
+  if(!sb || !sb.auth){ alert('Supabase client non disponibile'); return false; }
+
+  const email = prompt('Supabase Login - Email:');
+  if(!email) return false;
+  const password = prompt('Supabase Login - Password:');
+  if(!password) return false;
+
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if(error){
+    window.__SB_LAST_AUTH_ERR = error.message || String(error);
+    alert('Login fallito: ' + window.__SB_LAST_AUTH_ERR);
+    return false;
+  }
+  window.__SB_ACCESS_TOKEN = (data && data.session && data.session.access_token) ? data.session.access_token : '';
+  alert('Login OK');
+  return !!window.__SB_ACCESS_TOKEN;
+};
+
+window.sbLogout = window.sbLogout || async function(){
+  const sb = window.getSupabase && window.getSupabase();
+  if(!sb || !sb.auth) return;
+  await sb.auth.signOut();
+  window.__SB_ACCESS_TOKEN = '';
+  alert('Logout OK');
+};
+
+// init best-effort (non blocca app)
+try{ window.sbAuthInit(); }catch{}
+
 // === Supabase Password Recovery bootstrap (idempotente) ===
 (function supabaseRecoveryBootstrap(){
   try {
