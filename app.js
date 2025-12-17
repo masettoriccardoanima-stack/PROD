@@ -4986,6 +4986,10 @@ function mergeAppSettings(localApp, remoteApp){
     }
   }
 
+    // Debug console (opzionale)
+  window.exportAll = window.exportAll || exportAll;
+  window.importAll = window.importAll || importAll;
+
   // === Espongo i pulsanti (con alert) ===
   window.testSupabaseConnection = async function(url, key, table){
   // leggo i salvati come fallback
@@ -5003,22 +5007,32 @@ function mergeAppSettings(localApp, remoteApp){
     alert('Config Supabase mancante'); return;
   }
 
-  // piccola GET su 1 riga a caso
+  // piccola GET su 1 riga a caso (RLS-aware: 401/403 = connessione OK ma serve login)
   const endpoint = cfg.supabaseUrl.replace(/\/+$/,'') + `/rest/v1/${encodeURIComponent(cfg.supabaseTable)}?select=k&limit=1`;
   try{
+    const tok = (window.sbGetAccessToken ? await window.sbGetAccessToken().catch(()=> '') : '');
+    const bearer = (String(tok || '').trim() || cfg.supabaseKey);
+
     const res = await fetch(endpoint, {
       method: 'GET',
       headers: {
         'apikey': cfg.supabaseKey,
-        'Authorization': 'Bearer ' + cfg.supabaseKey
+        'Authorization': 'Bearer ' + bearer
       }
     });
-    if (!res.ok && res.status !== 406) throw new Error(await res.text().catch(()=>res.statusText));
-    alert('Connessione OK ✅');
+
+    if (!res.ok && ![401,403,406].includes(res.status)) {
+      throw new Error(await res.text().catch(()=>res.statusText));
+    }
+
+    if (res.status === 401 || res.status === 403){
+      alert('Connessione OK ✅ (RLS attivo: accesso anon bloccato). Esegui Login Supabase e riprova per test AUTH.');
+    } else {
+      alert('Connessione OK ✅');
+    }
   }catch(e){
     alert('Errore: ' + (e && e.message ? e.message : String(e)));
   }
-  
 };
 
   window.syncExportToCloud = async function(){
@@ -10934,7 +10948,32 @@ function CommesseView({ query = '' }) {
       const all = lsGet('commesseRows', []);
       const next = (Array.isArray(all) ? all : []).filter(x => String(x.id) !== id);
       writeCommesse(next);
-      try{ if(window.getSB){ const sb=window.getSB(); if(sb.url && sb.key) fetch(`${String(sb.url).replace(/\/+$/,'')}/rest/v1/commesse?id=eq.${encodeURIComponent(id)}`, {method:'DELETE', headers:{apikey:sb.key, Authorization:'Bearer '+sb.key}}).catch(()=>{}); } }catch(e){}
+      // Con RLS ON: il delete su cloud richiede token utente. Se manca, non chiamare (evita 401/spam).
+      try{
+        if(window.getSB){
+          const sb = window.getSB();
+          if(sb && sb.url && sb.key){
+            const urlCloud = `${String(sb.url).replace(/\/+$/,'')}/rest/v1/commesse?id=eq.${encodeURIComponent(id)}`;
+
+            const pTok = (window.sbGetAuthBearer ? window.sbGetAuthBearer()
+                        : (window.sbGetAccessToken ? window.sbGetAccessToken()
+                        : Promise.resolve('')));
+
+            pTok.then(tok=>{
+              const bearer = String(tok || '').trim();
+              if(!bearer){
+                console.warn('[delCommessa] token Auth mancante (RLS ON) → skip delete cloud (niente 401).');
+                return;
+              }
+              fetch(urlCloud, {
+                method:'DELETE',
+                headers:{ apikey: sb.key, Authorization:'Bearer ' + bearer }
+              }).catch(()=>{});
+            }).catch(()=>{});
+          }
+        }
+      }catch(e){}
+
       alert('Commessa ' + id + ' eliminata ✅');
     }catch(e){ alert('Errore durante eliminazione commessa.'); }
   }
@@ -13023,17 +13062,44 @@ const counters0 = lsGet('counters', {}) || {};
 
   // Azioni Cloud
   const sbReady = !!(form.supabaseUrl && form.supabaseKey && form.supabaseTable);
-  function testConn(){
+  async function testConn(){
     const url = (form.supabaseUrl||'').trim();
     const key = (form.supabaseKey||'').trim();
     const table = (form.supabaseTable||'anima_sync').trim();
     if (!url || !key) return alert('Compila URL e API Key.');
+
     const endpoint = url.replace(/\/+$/,'') + `/rest/v1/${encodeURIComponent(table)}?select=k&limit=1`;
-    fetch(endpoint, { method:'GET', headers:{ apikey:key, Authorization:'Bearer '+key } })
-      .then(res => { if (!res.ok && res.status !== 406) return res.text().then(t=>{throw new Error(t||res.statusText);}); })
-      .then(()=> alert('Connessione OK ✅'))
-      .catch(e => alert('Connessione KO: ' + (e?.message || String(e))));
+
+    // RLS-aware:
+    // - se non loggato: la chiamata può tornare 401/403 -> connessione OK, ma accesso anon bloccato
+    // - se loggato: deve tornare 200 (o 406 se table vuota/accetta)
+    let tok = '';
+    try{
+      tok = (window.sbGetAuthBearer ? await window.sbGetAuthBearer() : (window.sbGetAccessToken ? await window.sbGetAccessToken() : '')) || '';
+    }catch{}
+    tok = String(tok || '').trim();
+
+    const bearer = tok || key; // fallback SOLO per verificare reachability (RLS può bloccare con 401/403)
+
+    try{
+      const res = await fetch(endpoint, { method:'GET', headers:{ apikey:key, Authorization:'Bearer '+bearer } });
+
+      if (res.status === 401 || res.status === 403){
+        alert('Connessione OK ✅ (RLS attivo: accesso anon bloccato). Fai Login Supabase per test AUTH.');
+        return;
+      }
+
+      if (!res.ok && res.status !== 406){
+        const t = await res.text().catch(()=>res.statusText);
+        throw new Error(t || res.statusText);
+      }
+
+      alert('Connessione OK ✅');
+    }catch(e){
+      alert('Connessione KO: ' + (e && e.message ? e.message : String(e)));
+    }
   }
+
   function importCloud(){
     if (!sbReady) return alert('Config Supabase mancante.');
     if (!form.cloudEnabled) return alert('Attiva “Cloud abilitato” e Salva, poi ricarica.');
@@ -20503,9 +20569,15 @@ function renderOperatoreField_Local(value, onChange){
       setCloudLoading(true);
             const sb = getSB();
       const url = `${sb.url}/rest/v1/timesheets?select=*&order=created_at.desc`;
-      const res = await fetch(url, { headers:{ apikey: sb.key, Authorization:`Bearer ${sb.key}` } });
+      const bearer = (window.sbGetBearer ? await window.sbGetBearer(sb) : '') || sb.key;
+      const res = await fetch(url, { headers:{ apikey: sb.key, Authorization:`Bearer ${bearer}` } });
       if(!res.ok){
         const txt = await res.text();
+        if (res.status === 401 || res.status === 403){
+          console.warn('[loadCloud] RLS/permessi: login richiesto o utente non autorizzato.');
+          setCloudRows([]);
+          return;
+        }
         // Se la tabella timesheets non esiste (404 / PGRST205),
         // consideriamo la funzione "cloud timbrature" disattivata e non disturbiamo l'utente.
         if (res.status === 404 || (txt && txt.includes("timesheets"))) {
@@ -20572,9 +20644,15 @@ function _saveImportedCloudIds(set){
     const WM_KEY = 'ORE_CLOUD_WM';
     const wmIso = _getWMISO(WM_KEY);
     const url = `${sb.url}/rest/v1/timesheets?select=*&order=created_at.asc&created_at=gt.${encodeURIComponent(wmIso)}&limit=1000`;
-        const res = await fetch(url, { headers:{ apikey: sb.key, Authorization:`Bearer ${sb.key}` } });
+    const bearer = (window.sbGetBearer ? await window.sbGetBearer(sb) : '') || sb.key;
+    const res = await fetch(url, { headers:{ apikey: sb.key, Authorization:`Bearer ${bearer}` } });
     if(!res.ok){
       const txt = await res.text();
+      if (res.status === 401 || res.status === 403){
+        console.warn('[importNewFromCloud] RLS/permessi: login richiesto o utente non autorizzato.');
+        if(!silent) alert('Login Supabase richiesto per importare dal cloud.');
+        return 0;
+      }
       if (res.status === 404 || (txt && txt.includes("timesheets"))) {
         console.warn('[importNewFromCloud] tabella timesheets non trovata su Supabase; cloud timbrature disabilitato.');
         if(!silent) alert('Funzione cloud timbrature non configurata (tabella "timesheets" assente su Supabase).');
@@ -23684,11 +23762,17 @@ window.MagazzinoView = window.MagazzinoView || MagazzinoView;
         });
         if (!rows.length) return;
         const url = `${sb.url}/rest/v1/${encodeURIComponent(table)}?on_conflict=k`;
+        const bearer = (window.sbGetAuthBearer ? await window.sbGetAuthBearer() : '');
+        if (!bearer) {
+          console.warn('[syncExportToCloudOnly] token Auth mancante (RLS ON) → Skip (niente 401).');
+          return;
+        }
+
         const res = await fetch(url, {
           method:'POST',
           headers:{
             apikey: sb.key,
-            Authorization:`Bearer ${sb.key}`,
+            Authorization:`Bearer ${bearer}`,
             'Content-Type':'application/json',
             Prefer: 'resolution=merge-duplicates,return=minimal'
           },
