@@ -23220,6 +23220,73 @@ function MagazzinoView(props){
           return next;
         });
       };
+            const sanitizeCode = (s) =>
+        String(s||'').trim().replace(/[\\\/:*?"<>|]/g,'_').replace(/\s+/g,'_');
+
+      const partsForTipo = (tipo, eId) => {
+        const safeCode = sanitizeCode(eId);
+        const year = new Date().getFullYear();
+        const t = String(tipo||'DISEGNO').trim().toUpperCase();
+
+        // Percorsi “automatici” (coerenti con le tue cartelle e con docBasePath)
+        if (t === 'DISEGNO') return ['DISEGNI', 'ARTICOLI', safeCode];          // Z:\ANIMA_DOC\DISEGNI\ARTICOLI\CODICE\...
+        if (t === 'NC_FORN') return ['NC_FORN', String(year), safeCode];       // Z:\ANIMA_DOC\NC_FORN\2025\CODICE\...
+
+        return ['ALLEGATI', 'ARTICOLI', safeCode];                             // fallback
+      };
+
+      const onSmartUpload = async (ev) => {
+        const file = ev.target && ev.target.files ? ev.target.files[0] : null;
+        if(!file) return;
+
+        if(!entityId){
+          alert('Inserisci e salva il codice articolo prima di aggiungere allegati.');
+          try{ ev.target.value=''; }catch{}
+          return;
+        }
+
+        if (!window.__Z_HANDLE) {
+          alert('Prima clicca "🔗 Connetti cartella ANIMA_DOC (Z:)" e seleziona la cartella ROOT. Poi riprova.');
+          try{ ev.target.value=''; }catch{}
+          return;
+        }
+
+        const f = allegatoArtForm || {};
+        const tipo = (f.tipo || 'DISEGNO').trim() || 'DISEGNO';
+        const savedPath = await window.smartSaveFile(file, partsForTipo(tipo, entityId), file.name);
+
+        if (!savedPath) {
+          alert('Salvataggio su Z fallito: ' + (window.__Z_LAST_ERR || 'errore'));
+          try{ ev.target.value=''; }catch{}
+          return;
+        }
+
+        let allRows=[]; try{ allRows=lsGet('allegatiRows',[])||[]; }catch(e){ allRows=[]; }
+        if(!Array.isArray(allRows)) allRows=[];
+
+        const id = nextAllegatoId(allRows);
+        const nowIso = new Date().toISOString();
+        const descr = (String(f.descrizione||'').trim()) || file.name;
+
+        const newRow = {
+          id, createdAt: nowIso,
+          tipo,
+          descrizione: descr,
+          path: savedPath,
+          url: '',
+          entityType: 'ARTICOLO',
+          entityId,
+          note: '',
+          deletedAt: null
+        };
+
+        if (window.allegatiUpsertOne) window.allegatiUpsertOne(newRow);
+        else lsSet('allegatiRows', allRows.concat([newRow]));
+
+        setAllegatoArtForm({ tipo:'DISEGNO', descrizione:'', path:'', url:'' });
+        try{ ev.target.value=''; }catch{}
+        alert('File caricato.');
+      };
       const onAdd = () => {
         const f = allegatoArtForm || {};
         const tipo = (f.tipo||'DISEGNO').trim()||'DISEGNO'; const descr=(f.descrizione||'').trim(); const path=(f.path||'').trim(); const url=(f.url||'').trim();
@@ -23262,6 +23329,25 @@ function MagazzinoView(props){
 
       return e('div', {className:'card', style:{marginTop:8}},
         e('div', {className:'card-title'}, 'Allegati articolo'),
+                e('div', {className:'actions', style:{margin:'6px 0 10px 0', gap:8, flexWrap:'wrap', alignItems:'center'}},
+          e('button', {
+            className:'btn btn-outline',
+            disabled: readOnly,
+            onClick: async ()=>{
+              await window.ensureZConnection({interactive:true});
+              if (window.__Z_HANDLE) alert('Cartella collegata: ' + (window.__Z_HANDLE.name || 'OK'));
+              else alert('Connessione non riuscita: ' + (window.__Z_LAST_ERR || 'errore'));
+            }
+          }, '🔗 Connetti cartella ANIMA_DOC (Z:)'),
+
+          e('label', {
+            className:'btn',
+            style:{margin:0, display:'inline-flex', alignItems:'center', gap:8, cursor: readOnly ? 'not-allowed' : 'pointer', opacity: readOnly ? 0.6 : 1}
+          },
+            '📂 CARICA FILE SU Z:',
+            e('input', {type:'file', style:{display:'none'}, onChange: onSmartUpload, disabled: readOnly})
+          )
+        ),
         !entityId ? e('p', {className:'muted'}, 'Inserisci e salva il codice articolo per poter aggiungere allegati.') : e(React.Fragment, null,
           rows.length ? e('table', {className:'table table-sm'},
             e('thead', null, e('tr',null,e('th',null,'Tipo'),e('th',null,'Descrizione'),e('th',null,'Percorso'),e('th',null,'Azioni'))),
