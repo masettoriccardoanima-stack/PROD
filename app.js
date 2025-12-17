@@ -1674,11 +1674,18 @@ window.persistKV = window.persistKV || function persistKV(key, value){
 
     if (!payload.length) return [];
 
+    const bearer = (window.sbGetAuthBearer ? await window.sbGetAuthBearer() : '');
+    if (!bearer) {
+      const err = new Error('Login richiesto (token Supabase mancante) — RLS attivo');
+      err.code = 'NO_AUTH';
+      throw err;
+    }
+
     const res = await fetch(url, {
       method:'POST',
       headers:{
         apikey: sb.key,
-        Authorization: `Bearer ${sb.key}`,
+        Authorization: `Bearer ${bearer}`,
         'Content-Type':'application/json',
         Prefer: 'return=representation,resolution=merge-duplicates'
       },
@@ -1884,11 +1891,18 @@ window.persistKV = window.persistKV || function persistKV(key, value){
 
     const url = `${sb.url}/rest/v1/commesse?on_conflict=id`;
 
+    const bearer = (window.sbGetAuthBearer ? await window.sbGetAuthBearer() : '');
+    if (!bearer) {
+      const err = new Error('Login richiesto (token Supabase mancante) — RLS attivo');
+      err.code = 'NO_AUTH';
+      throw err;
+    }
+
     const res = await fetch(url, {
       method:'POST',
       headers:{
         apikey: sb.key,
-        Authorization: `Bearer ${sb.key}`,
+        Authorization: `Bearer ${bearer}`,
         'Content-Type':'application/json',
         Prefer: 'return=representation,resolution=merge-duplicates'
       },
