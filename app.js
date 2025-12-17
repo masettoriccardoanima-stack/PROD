@@ -1729,7 +1729,7 @@ window.persistKV = window.persistKV || function persistKV(key, value){
           const res = await fetch(url, {
             headers:{
               apikey: sb.key,
-              Authorization: `Bearer ${sb.key}`
+              Authorization: `Bearer ${ (window.sbAuthBearer ? window.sbAuthBearer(sb) : sb.key) }`
             }
           });
           if (!res.ok) throw new Error(await res.text());
@@ -1956,7 +1956,7 @@ window.persistKV = window.persistKV || function persistKV(key, value){
           const res = await fetch(url, {
             headers:{
               apikey: sb.key,
-              Authorization: `Bearer ${sb.key}`
+              Authorization: `Bearer ${ (window.sbAuthBearer ? window.sbAuthBearer(sb) : sb.key) }`
             }
           });
           if (!res.ok) throw new Error(await res.text());
