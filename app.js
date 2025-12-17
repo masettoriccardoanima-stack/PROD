@@ -1721,6 +1721,8 @@ window.persistKV = window.persistKV || function persistKV(key, value){
         const pageSize = 1000;
         let page = 0;
 
+        const bearer = (g.sbGetBearer ? await g.sbGetBearer(sb) : sb.key);
+
         while (true){
           const url = `${sb.url}/rest/v1/magazzino_articoli` +
             `?select=${encodeURIComponent(selectCols)}` +
@@ -1953,12 +1955,19 @@ window.persistKV = window.persistKV || function persistKV(key, value){
             `?select=${encodeURIComponent(selectCols)}` +
             `&limit=${pageSize}&offset=${page * pageSize}`;
 
+            // Con RLS ON: serve token utente (access_token). Se manca, non fare chiamate (evita spam 401).
+          const bearer = (window.sbGetAuthBearer ? await window.sbGetAuthBearer() : '');
+          if (!bearer) {
+            console.warn('[syncCommesseFromCloud] token Auth mancante (RLS ON) → fai login e riprova. Skip.');
+            return { ok:false, reason:'no-auth' };
+          }
           const res = await fetch(url, {
             headers:{
               apikey: sb.key,
-              Authorization: `Bearer ${ (window.sbAuthBearer ? window.sbAuthBearer(sb) : sb.key) }`
+              Authorization: `Bearer ${bearer}`
             }
           });
+
           if (!res.ok) throw new Error(await res.text());
           const batch = await res.json();
           if (!Array.isArray(batch) || batch.length === 0) break;
@@ -3265,6 +3274,41 @@ window.getSB = window.getSB || function(){
     };
   }catch{ return null; }
 };
+// === PATCH SB-A: Supabase Auth token cache (per RLS) ===
+window.__SB_ACCESS_TOKEN = (typeof window.__SB_ACCESS_TOKEN === 'string') ? window.__SB_ACCESS_TOKEN : '';
+window.__SB_LAST_AUTH_ERR = (typeof window.__SB_LAST_AUTH_ERR === 'string') ? window.__SB_LAST_AUTH_ERR : '';
+
+window.sbGetAccessToken = window.sbGetAccessToken || async function(){
+  try{
+    if (window.__SB_ACCESS_TOKEN) return window.__SB_ACCESS_TOKEN;
+
+    const supa = window.getSupabase && window.getSupabase();
+    if (supa && supa.auth && supa.auth.getSession) {
+      const { data } = await supa.auth.getSession();
+      const tok = (data && data.session && data.session.access_token) ? data.session.access_token : '';
+      window.__SB_ACCESS_TOKEN = tok || '';
+      return window.__SB_ACCESS_TOKEN;
+    }
+  }catch(e){
+    window.__SB_LAST_AUTH_ERR = (e && e.message) ? e.message : String(e);
+  }
+  return '';
+};
+
+window.sbGetBearer = window.sbGetBearer || async function(sb){
+  const tok = (window.sbGetAccessToken ? await window.sbGetAccessToken() : '');
+  return tok || (sb && sb.key) || '';
+};
+
+// === PATCH SB-A1: Bearer STRICT (solo access_token, niente fallback su anon key) ===
+window.sbGetAuthBearer = window.sbGetAuthBearer || async function(){
+  const tok = (window.sbGetAccessToken ? await window.sbGetAccessToken() : '');
+  return (tok && String(tok).trim()) ? String(tok).trim() : '';
+};
+
+// Best-effort: prova a caricare token subito (non blocca nulla)
+try{ setTimeout(()=>{ window.sbGetAccessToken && window.sbGetAccessToken(); }, 0); }catch{}
+
 // Patch I — Alias robusto per ReportView
 (function(){
   if (window.__ANIMA_APP_MOUNTED__) return;
@@ -4651,7 +4695,17 @@ window.ensureXLSX = window.ensureXLSX || (function () {
     return cfg.supabaseUrl.replace(/\/+$/,'') + tail;
   }
   async function sbRequest(cfg, method, path, body){
-    const url = sbEndpoint(cfg, path);
+  const url = sbEndpoint(cfg, path);
+
+  const tok = (window.sbGetAccessToken ? await window.sbGetAccessToken() : '');
+  const bearer = tok || cfg.supabaseKey;
+
+  const headers = {
+    'apikey': cfg.supabaseKey,
+    'Authorization': 'Bearer ' + bearer,
+    'Content-Type': 'application/json',
+    'Prefer': 'resolution=merge-duplicates'
+  };
 
     // Prova a prendere il token Auth (necessario con RLS ON)
     let tok = '';
@@ -4666,13 +4720,6 @@ window.ensureXLSX = window.ensureXLSX || (function () {
         }
       }
     }catch(e){ /* non bloccare */ }
-
-    const headers = {
-      'apikey': cfg.supabaseKey,
-      'Authorization': 'Bearer ' + (tok || cfg.supabaseKey),
-      'Content-Type': 'application/json',
-      'Prefer': 'resolution=merge-duplicates'
-    };
 
     const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
     if (!res.ok && res.status !== 406) {
