@@ -1612,8 +1612,8 @@ window.persistKV = window.persistKV || function persistKV(key, value){
       throw err;
     }
 
-    const bearer = tok || sb.key; // fallback solo se authRequired === false
-    const h = { apikey: sb.key, Authorization: `Bearer ${bearer}` };
+    const h = { apikey: sb.key };
+    if (tok) h.Authorization = `Bearer ${tok}`;
     if (contentType) h['Content-Type'] = 'application/json';
     if (prefer) h['Prefer'] = prefer;
     return h;
@@ -25149,9 +25149,39 @@ window.findCommessaById = window.findCommessaById || function(id){
     const isAuthRequired = (settings.authRequired !== false); 
 
     const user = window.__USER || window.currentUser || null;
-    
+
+    // Se Supabase ha già una sessione salvata, può esserci un breve delay prima che __USER venga popolato.
+    const hasCachedSession = (function(){
+      try{
+        if (String(window.__SB_ACCESS_TOKEN||'').trim()) return true;
+        for (let i=0;i<localStorage.length;i++){
+          const k = localStorage.key(i) || '';
+          if (!k) continue;
+          if (/^sb-.*-auth-token$/i.test(k)){
+            const v = localStorage.getItem(k) || '';
+            if (v && v.includes('access_token')) return true;
+          }
+        }
+      }catch{}
+      return false;
+    })();
+
     if (isAuthRequired && !user) {
       if (h !== '#/login') {
+        if (hasCachedSession) {
+          // Evita falso "Accesso negato" al refresh: attendi init auth.
+          if (!window.__AUTH_WAIT_TIMER__) {
+            window.__AUTH_WAIT_TIMER__ = setTimeout(() => {
+              try{
+                if (!(window.__USER || window.currentUser) && location.hash !== '#/login') {
+                  location.hash = '#/login';
+                }
+              }catch{}
+              window.__AUTH_WAIT_TIMER__ = null;
+            }, 2500);
+          }
+          return function(){ return e('div', {className:'page'}, 'Sessione in caricamento...'); };
+        }
         console.warn('Accesso negato: Login richiesto (Default Sicuro).');
         location.hash = '#/login';
         return function(){ return e('div', {className:'page'}, 'Accesso riservato. Reindirizzamento al login...'); };
@@ -27199,11 +27229,14 @@ window.navigateTo = window.navigateTo || function(name){
       // Cerco solo se esiste almeno una riga nel bucket 'local'
       const endpoint = `${url}/rest/v1/${encodeURIComponent(table)}?select=k&bucket=eq.local&limit=1`;
       
+      const bearer = (window.sbGetAuthBearer ? await window.sbGetAuthBearer() : '') || '';
+      if (!String(bearer || '').trim()) return; // RLS ON: senza login non posso leggere anima_sync
+
       const res = await fetch(endpoint, {
         method: 'GET',
         headers: {
           'apikey': s.supabaseKey,
-          'Authorization': 'Bearer ' + s.supabaseKey
+          'Authorization': `Bearer ${bearer}`
         }
       });
 
