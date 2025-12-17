@@ -4652,12 +4652,28 @@ window.ensureXLSX = window.ensureXLSX || (function () {
   }
   async function sbRequest(cfg, method, path, body){
     const url = sbEndpoint(cfg, path);
+
+    // Prova a prendere il token Auth (necessario con RLS ON)
+    let tok = '';
+    try{
+      tok = String(window.__SB_ACCESS_TOKEN || '').trim();
+      if (!tok && window.getSupabase) {
+        const supa = window.getSupabase();
+        if (supa && supa.auth && supa.auth.getSession) {
+          const { data } = await supa.auth.getSession();
+          tok = (data && data.session && data.session.access_token) ? data.session.access_token : '';
+          window.__SB_ACCESS_TOKEN = tok || '';
+        }
+      }
+    }catch(e){ /* non bloccare */ }
+
     const headers = {
       'apikey': cfg.supabaseKey,
-      'Authorization': 'Bearer ' + cfg.supabaseKey,
+      'Authorization': 'Bearer ' + (tok || cfg.supabaseKey),
       'Content-Type': 'application/json',
       'Prefer': 'resolution=merge-duplicates'
     };
+
     const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
     if (!res.ok && res.status !== 406) {
       const txt = await res.text().catch(()=>res.statusText);
@@ -5188,6 +5204,21 @@ window.syncImportFromCloud = async function(){
     };
 
     if (!ready) {
+      setTimeout(tick, INTERVAL_MS);
+      return;
+    }
+        // Con RLS ON serve un token Auth: se manca, non tentare import/export (evita 401 a raffica)
+    try{
+      const supa = window.getSupabase && window.getSupabase();
+      if (supa && supa.auth && supa.auth.getSession) {
+        const { data } = await supa.auth.getSession();
+        const tok = data?.session?.access_token || '';
+        window.__SB_ACCESS_TOKEN = tok || '';
+      }
+    }catch(e){}
+
+    if (!window.__SB_ACCESS_TOKEN) {
+      window.__cloud_lastErr = 'Cloud: non autenticato. Effettua login Supabase (utente interno) e riprova.';
       setTimeout(tick, INTERVAL_MS);
       return;
     }
