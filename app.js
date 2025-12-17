@@ -3367,14 +3367,29 @@ try{ setTimeout(()=>{ window.sbGetAccessToken && window.sbGetAccessToken(); }, 0
   };
 })();
 window.sbInsert = window.sbInsert || async function(table, row){
-  const sb = window.getSB && window.getSB(); if(!sb) return;
+  const sb = window.getSB && window.getSB();
+  if(!sb) return { ok:false, reason:'no-config' };
+
+  const bearer = (window.sbGetAuthBearer ? await window.sbGetAuthBearer() : '');
+  if (!String(bearer||'').trim()) {
+    console.warn('[sbInsert] token Auth mancante (RLS ON) → Skip (niente 401).');
+    return { ok:false, reason:'no-auth' };
+  }
+
   const url = `${sb.url}/rest/v1/${encodeURIComponent(table)}`;
   const res = await fetch(url, {
     method:'POST',
-    headers:{ apikey:sb.key, Authorization:`Bearer ${sb.key}`, 'Content-Type':'application/json', Prefer:'return=minimal' },
+    headers:{ apikey:sb.key, Authorization:`Bearer ${bearer}`, 'Content-Type':'application/json', Prefer:'return=minimal' },
     body: JSON.stringify(row)
   });
-  if(!res.ok){ console.warn('[sbInsert]', table, await res.text()); }
+
+  if(!res.ok){
+    const t = await res.text().catch(()=> '');
+    console.warn('[sbInsert]', table, res.status, t);
+    return { ok:false, status: res.status, error: t };
+  }
+
+  return { ok:true };
 };
 
 // ---- AppSettings defaults (cloud OFF se non presente) ----
@@ -5212,18 +5227,30 @@ window.syncImportFromCloud = async function(){
   const url = (S.supabaseUrl||'').replace(/\/+$/,'');
   const key = S.supabaseKey;
   const table = S.supabaseTable || 'anima_sync';
-  if (!url || !key) { console.info('[cloud] config mancante → skip import'); return; }
 
+  if (!url || !key) {
+    console.info('[cloud] config mancante → skip import');
+    return { ok:false, reason:'no-config' };
+  }
+
+  // RLS ON: serve SEMPRE il token utente (access_token). Se manca → skip (niente 401/spam).
+  const bearer = (window.sbGetAuthBearer ? await window.sbGetAuthBearer() : '');
+  if (!String(bearer||'').trim()) {
+    console.warn('[syncImportFromCloud] token Auth mancante (RLS ON) → Skip (niente 401).');
+    return { ok:false, reason:'no-auth' };
+  }
 
   try{
     // ⬇️ seleziona le colonne giuste e filtra il bucket 'local'
     const res = await fetch(`${url}/rest/v1/${encodeURIComponent(table)}?select=bucket,k,payload&bucket=eq.local`, {
-      headers: { 'apikey': key, 'Authorization': 'Bearer ' + key }
+      headers: { 'apikey': key, 'Authorization': `Bearer ${bearer}` }
     });
+
     if (!res.ok) {
       const t = await res.text().catch(()=> '');
-      throw new Error(`HTTP ${res.status}${t ? ' — '+t : ''}`);
+      return { ok:false, reason:'http', status: res.status, error: (t || `HTTP ${res.status}`) };
     }
+
     const rows = await res.json();
 
     // mappa chiave -> payload (non 'v')
@@ -5239,7 +5266,6 @@ window.syncImportFromCloud = async function(){
      'clientiRows','fornitoriRows',
      'ordiniFornitoriRows','allegatiRows','preventiviRows'
     ].forEach(k=>{
-
       if (Array.isArray(remote[k])) {
         const loc = JSON.parse(localStorage.getItem(k)||'[]')||[];
         localStorage.setItem(k, JSON.stringify(mergeById(loc, remote[k])));
@@ -5247,30 +5273,24 @@ window.syncImportFromCloud = async function(){
     });
 
     // ⚠️ Dal cloud NON tocchiamo più appSettings in automatico
-    // Se in futuro vorrai abilitare un merge guidato delle impostazioni,
-    // si potrà fare con una schermata dedicata / conferma manuale.
     const SAFE_IMPORT_APPSETTINGS = false;
     if (SAFE_IMPORT_APPSETTINGS && remote.appSettings && typeof remote.appSettings === 'object' && !Array.isArray(remote.appSettings)) {
       const localApp  = (function(){ try{ return JSON.parse(localStorage.getItem('appSettings')||'{}')||{}; }catch{return{}} })();
       const remoteApp = remote.appSettings || {};
-      const lt = Date.parse(localApp.updatedAt || 0)  || 0;
+      const lt = Date.parse(localApp.updatedAt || 0) || 0;
       const rt = Date.parse(remoteApp.updatedAt || 0) || 0;
-      const nextApp = (rt >= lt) ? mergeAppSettings(localApp, remoteApp)
-                                 : mergeAppSettings(remoteApp, localApp);
-      localStorage.setItem('appSettings', JSON.stringify(nextApp));
+      if (rt > lt) localStorage.setItem('appSettings', JSON.stringify(remoteApp));
     }
 
-        const nowPull = Date.now();
-    window.__anima_lastPull = nowPull;
-    const prevState = window.__cloudSync__ || {};
+    const prev = window.__cloudSync__ || {};
     window.__cloudSync__ = {
-      ...prevState,
-      enabled: true,
-      lastPull: nowPull,
+      ...prev,
+      lastPull: new Date().toISOString(),
       lastError: null
     };
 
     console.info('Import cloud completato (merge, senza cancellazioni).');
+    return { ok:true, pulledRows: Array.isArray(rows) ? rows.length : 0 };
 
   }catch(e){
     console.error(e);
@@ -5282,6 +5302,7 @@ window.syncImportFromCloud = async function(){
       lastError: msg
     };
     alert('Errore import cloud: ' + msg);
+    return { ok:false, reason:'error', error: msg };
   }
 };
 
