@@ -4697,8 +4697,18 @@ window.ensureXLSX = window.ensureXLSX || (function () {
   async function sbRequest(cfg, method, path, body){
   const url = sbEndpoint(cfg, path);
 
-  const tok = (window.sbGetAccessToken ? await window.sbGetAccessToken() : '');
-  const bearer = tok || cfg.supabaseKey;
+  // Con RLS ON: usa SOLO l'access_token dell'utente (niente fallback su supabaseKey).
+  const tok = (window.sbGetAuthBearer
+    ? await window.sbGetAuthBearer()
+    : (window.sbGetAccessToken ? await window.sbGetAccessToken() : ''));
+  const bearer = (tok && String(tok).trim()) ? String(tok).trim() : '';
+
+  if (!bearer) {
+    const err = new Error('Login richiesto (token mancante)');
+    err.code = 'NO_AUTH';
+    err.__noAuth = true;
+    throw err;
+  }
 
   const headers = {
     'apikey': cfg.supabaseKey,
@@ -4706,20 +4716,6 @@ window.ensureXLSX = window.ensureXLSX || (function () {
     'Content-Type': 'application/json',
     'Prefer': 'resolution=merge-duplicates'
   };
-
-    // Prova a prendere il token Auth (necessario con RLS ON)
-    let tok = '';
-    try{
-      tok = String(window.__SB_ACCESS_TOKEN || '').trim();
-      if (!tok && window.getSupabase) {
-        const supa = window.getSupabase();
-        if (supa && supa.auth && supa.auth.getSession) {
-          const { data } = await supa.auth.getSession();
-          tok = (data && data.session && data.session.access_token) ? data.session.access_token : '';
-          window.__SB_ACCESS_TOKEN = tok || '';
-        }
-      }
-    }catch(e){ /* non bloccare */ }
 
     const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
     if (!res.ok && res.status !== 406) {
