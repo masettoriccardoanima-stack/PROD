@@ -10961,42 +10961,64 @@ function CommesseView({ query = '' }) {
     }catch(e){ alert('Errore durante la duplicazione.'); }
   }
 
-  function delCommessa(c){
+  async function delCommessa(c){
     if (!c || !c.id) return;
+    if (typeof readOnly !== 'undefined' && readOnly) {
+      alert('Sola lettura');
+      return;
+    }
+
     const id = String(c.id);
     if (!confirm(`Eliminare la commessa "${id}"?`)) return;
-    try{
-      const all = lsGet('commesseRows', []);
-      const next = (Array.isArray(all) ? all : []).filter(x => String(x.id) !== id);
-      writeCommesse(next);
-      // Con RLS ON: il delete su cloud richiede token utente. Se manca, non chiamare (evita 401/spam).
+
+    // Snapshot locale (per calcolare next)
+    const all  = lsGet('commesseRows', []);
+    const next = (Array.isArray(all) ? all : []).filter(x => String(x.id) !== id);
+
+    // Se cloud abilitato: elimina PRIMA su cloud, così non “ricompare” al rientro in lista
+    let settings = {};
+    try{ settings = lsGet('appSettings', {}) || {}; }catch{}
+    const cloudEnabled = !!settings.cloudEnabled;
+
+    if (cloudEnabled) {
       try{
-        if(window.getSB){
-          const sb = window.getSB();
-          if(sb && sb.url && sb.key){
-            const urlCloud = `${String(sb.url).replace(/\/+$/,'')}/rest/v1/commesse?id=eq.${encodeURIComponent(id)}`;
+        if (!window.getSB) throw new Error('Supabase non configurato');
+        const sb = window.getSB();
+        if (!sb || !sb.url || !sb.key) throw new Error('Supabase non configurato');
 
-            const pTok = (window.sbGetAuthBearer ? window.sbGetAuthBearer()
-                        : (window.sbGetAccessToken ? window.sbGetAccessToken()
-                        : Promise.resolve('')));
+        const bearer = String(
+          await (window.sbGetAuthBearer
+            ? window.sbGetAuthBearer()
+            : (window.sbGetAccessToken ? window.sbGetAccessToken() : ''))
+        ).trim();
 
-            pTok.then(tok=>{
-              const bearer = String(tok || '').trim();
-              if(!bearer){
-                console.warn('[delCommessa] token Auth mancante (RLS ON) → skip delete cloud (niente 401).');
-                return;
-              }
-              fetch(urlCloud, {
-                method:'DELETE',
-                headers:{ apikey: sb.key, Authorization:'Bearer ' + bearer }
-              }).catch(()=>{});
-            }).catch(()=>{});
-          }
+        if(!bearer){
+          alert('Eliminazione BLOCCATA: non sei autenticato su Supabase (RLS). Fai login e riprova.');
+          return;
         }
-      }catch(e){}
 
-      alert('Commessa ' + id + ' eliminata ✅');
-    }catch(e){ alert('Errore durante eliminazione commessa.'); }
+        const urlCloud = `${String(sb.url).replace(/\/+$/,'')}/rest/v1/commesse?id=eq.${encodeURIComponent(id)}`;
+        const res = await fetch(urlCloud, {
+          method:'DELETE',
+          headers:{ apikey: sb.key, Authorization:'Bearer ' + bearer }
+        });
+
+        if(!res.ok){
+          const body = await res.text().catch(()=> '');
+          console.warn('[delCommessa] delete cloud KO', res.status, body);
+          alert(`Eliminazione cloud FALLITA (${res.status}). La commessa NON è stata rimossa in locale. Vedi console.`);
+          return;
+        }
+      }catch(err){
+        console.warn('[delCommessa] eccezione delete cloud', err);
+        alert('Eliminazione cloud FALLITA (errore). La commessa NON è stata rimossa in locale. Vedi console.');
+        return;
+      }
+    }
+
+    // Ora aggiorna locale
+    writeCommesse(next);
+    alert('Commessa ' + id + ' eliminata ✅');
   }
 
   function creaDDTdaCommessa(commessa){
